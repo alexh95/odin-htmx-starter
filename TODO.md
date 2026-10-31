@@ -16,6 +16,60 @@ copy-and-start ergonomics and good defaults matter more than feature depth.
 > items (**bulk actions**, a **named console identity**) are **out of scope as goals** — they'd just
 > be cruft a copier deletes — and survive only as "example extensions you might add."
 
+## M6 — Comms, and the family beta (v2.5.0)
+
+The starter's sixth milestone ([`docs/PLAN.md`](docs/PLAN.md) §22.3, M6's row; §14.1 chat, §14.2 notify and uploads;
+§17.5 limits, §17.6 uploads' caps and headers; Q19 retention, Q23 the beta). Its exit gate: the slice gate; four
+transports × resume specs, including across a restart; the retention spec (`CHAT_ROOM_CAP=5`, send 7 → 5 + the
+marker); the WS chat budget at 1000 sockets; the writer task ≥ 3× autocommit at 1000 msgs/s; the XSS/UGC suite; an
+upload decode-bomb fuzz; D22's core flows on the oldest-browser device with no client behaviours; and a focused
+security audit of accounts, sessions, chat and uploads with 0 CRITICAL/HIGH **before the first invite**. Chat is
+M2's (`streams`, the memory store, all four transports); M6 puts it in `full` on SQLite. Pushes are on the standing
+go; Alex's step is the last: the 2–3 invites (Q23), only after the audit.
+
+- [ ] **1. Spike: htmx 4's `htmx:ws:error` detail** (§14.1's "Auto", UNVERIFIED (M6)): what the event carries on a
+      refused and a dropped socket in chromium, webkit and firefox, so Auto can fall back to SSE after two failed
+      connects. *Check:* a decision record in `docs/spikes/`, with the measured details.
+- [ ] **2. Chat on SQLite** (§14.1, D30): `stores/sqlite/chat` with rooms (public, private, announcements; a DM as a
+      two-member room with an opaque slug), members and messages (rowids), through M2's writer task; publish after
+      commit with the rowid; `@rowid` keyset replay. `full` mounts chat on its main host, perms `Chat_*` (D35).
+      *Check:* chat's storetest over both families; the chat specs on `full`.
+- [ ] **3. Retention** (§14.1, Q19, D16): the per-kind caps and ages (`CHAT_ROOM_CAP`, `CHAT_DM_CAP`,
+      `CHAT_ANNOUNCE_CAP` and their `_MAX_AGE`; a room's own up to 5000 / 90 d), chunked deletes every 50 inserts per
+      room, a 60 s age sweep as a job, pinned messages exempt, the in-memory ring (`CHAT_RING_BYTES`), the marker.
+      *Check:* the retention spec (`CHAT_ROOM_CAP=5`, send 7 → 5 + the marker); a unit test of the chunking.
+- [ ] **4. Edits, deletes, moderation** (§14.1): own edits within 10 min and deletes; moderators delete to a
+      tombstone, mute, kick, lock and slow mode, each with an hx-prompt reason, audited (in the change's transaction,
+      as M4-04); the per-message menu `GET /chat/m/<id>/menu` by the viewer's perms. *Check:* e2e per action, the
+      tombstone as an upsert, the audit rows.
+- [ ] **5. Presence, typing, receipts, unread** (§14.1, D14): presence debounced 10 s, typing ≤ 1 per 2 s expiring
+      after 5 s (memory only), read receipts by `POST /chat/r/<slug>/read?upto=` on `intersect once`, unread counts
+      on `notify.user:<uid>`. *Check:* e2e across two members; a receipt never from a GET.
+- [ ] **6. FTS** (§14.1, D16): FTS5 over message bodies with triggers, search within the rooms a member may read;
+      the budget of 6.4 ms per 1000 retention deletes kept. *Check:* a storetest of search and membership; the
+      retention budget measured.
+- [ ] **7. Notify on SQLite** (§14.2): `stores/sqlite/notify`, 200 per user, read ones gone after 30 days, mutes per
+      room and kind in `accounts_prefs`; mentions and DMs from chat, job failures to admins. *Check:* notify's
+      storetest over both families; e2e of a mention's bell and its count.
+- [ ] **8. Uploads** (§14.2, §17.6, X13, X14): create, `PUT /uploads/<id>?off=` chunks of ≤ 4 MiB, finish (sniff,
+      decode, sha256, a content-addressed blob); the chunked-upload shim in app.js; progress on
+      `uploads.upload:<id>`; caps, content checks and serving headers; 20 an hour and 2 at once per user; chat
+      images through it (`Chat_Attach`). *Check:* e2e of a chunked upload, a resume, a refused type; the upload
+      decode-bomb fuzz (platform/fuzz) in the unit job and the nightly.
+- [ ] **9. The connection-mode setting** (§14.1): Auto / WebSocket / Streaming / Polling / Multipart in
+      `accounts_prefs`, per request by `chat_web`'s switch, `x-impl` on every response; Auto as the spike says.
+      *Check:* the four transports × resume specs on `full`, including across a restart (D37).
+- [ ] **10. Budgets** (§18, D38): the WS chat budget at 1000 sockets; the writer task ≥ 3× autocommit at 1000
+      msgs/s; send → another member's DOM p95 ≤ 50 ms on the LAN through NPM. *Check:* the drills and k6
+      scenarios, recorded in `docs/perf/`.
+- [ ] **11. The XSS/UGC suite and the oldest browser** (§19.1.2, D22): every place chat, notify and uploads render a
+      member's text or file, against the injection set; D22's core flows on the oldest-browser device with no client
+      behaviours (htmx 4 there UNVERIFIED (M6)). *Check:* the suite in e2e; the device run recorded.
+- [ ] **12. Exit**: the slice gate for every new feature; the parity gate on both legs; `docs/audit/M6.md`, the
+      focused security audit of accounts, sessions, chat and uploads, by an agent that didn't write the code, 0 open
+      CRITICAL/HIGH, and a re-read of its fixes; `Audited:` stamps; CHANGELOG's 2.5.0 lead. Then, with Alex: the
+      v2.5.0 tag, `starter-full` promoted, and Q23's 2–3 invites.
+
 ## M5 — Operate (v2.4.0)
 
 The starter's fifth milestone ([`docs/PLAN.md`](docs/PLAN.md) §22.3, M5's row; §15.4 ops, status, jobs and dbview; §11.6
