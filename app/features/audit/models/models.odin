@@ -49,3 +49,5 @@ Filter :: struct {
 // thread: the SQLite family's write answers back on the loop that queued it.
 Store_Append :: proc(actor: Actor, action: string, target: Target, reason, meta: string) -> bool
 Store_List :: proc(f: Filter, into: ^[dynamic]Entry) -> Error
+// Entries a full writer queue refused since boot: each is lost, and counted here (M4-04).
+Store_Dropped :: proc() -> u64

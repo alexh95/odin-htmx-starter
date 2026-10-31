@@ -24,6 +24,9 @@ append :: proc(actor: m.Actor, action: string, target: m.Target, reason, meta: s
 	return true
 }
 
+// The log line is written at once, so nothing is ever refused.
+dropped :: proc() -> u64 { return 0 }
+
 list :: proc(f: m.Filter, into: ^[dynamic]m.Entry) -> m.Error {
 	return .None
 }

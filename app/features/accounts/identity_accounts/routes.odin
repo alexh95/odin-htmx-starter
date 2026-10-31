@@ -220,11 +220,17 @@ open_session :: proc(l: ^Login, step: i64, recovery_hash: string) {
 	now := accounts.now_ms()
 	token, hash := accounts.new_token()
 	old := string(l.old[:l.old_len])
-	op := store.new_op(Opening, len(token) + len(hash) + len(old) + len(recovery_hash))
+	name := string(l.name[:l.name_len])
+	op := store.new_op(Opening, len(token) + len(hash) + len(old) + len(recovery_hash) + len(name))
 	a := store.op_allocator(op)
 	op.login = l
 	op.token, op.token_hash, op.old_hash = strings.clone(token, a), strings.clone(hash, a), strings.clone(old, a)
 	op.totp_step, op.recovery_hash = step, strings.clone(recovery_hash, a)
+	op.audit = {
+		actor_id = l.user_id, actor_name = strings.clone(name, a), client = strings.clone(client_id(l.client), a),
+		action = "accounts.sign_in", target_kind = "session",
+		meta = "factor=totp" if step > 0 else "factor=recovery" if recovery_hash != "" else "",
+	}
 	op.user_id, op.now = l.user_id, now
 	op.expires_at, op.idle_before = now + accounts.lifetimes.max_ms, now - accounts.lifetimes.idle_ms
 	op.done = opened
@@ -246,11 +252,9 @@ opened :: proc(o: ^store.Op) {
 		store.free_op(op)
 		free(l, runtime.heap_allocator())
 	}
-	// Audited whether or not the client is still there: the write is done either way (M4-04).
+	// A sign-in wrote its entry with itself (M4-04); a refused code has no change, and is its own.
 	factor := "factor=totp" if op.totp_step > 0 else "factor=recovery" if op.recovery_hash != "" else ""
 	#partial switch op.err {
-	case .None:
-		audit_store.append({l.user_id, string(l.name[:l.name_len]), client_id(l.client)}, "accounts.sign_in", {"session", 0}, "", factor)
 	case .Constraint:
 		// A code taken already, or a recovery code that is none of the account's unused ones.
 		wrong(l.user_id, l.failed, l.device)
@@ -373,11 +377,19 @@ Closing :: struct {
 closing :: proc(req: ^web.Request, res: ^web.Response, token_hash, to: string) {
 	c := web.ctx()
 	current := current_hash(req)
-	op := store.new_op(Closing, len(token_hash) + len(current) + len(to) + len(c.viewer.name))
+	op := store.new_op(Closing, len(token_hash) + len(current) + len(to) + 2 * len(c.viewer.name))
 	a := store.op_allocator(op)
 	op.token_hash, op.current, op.to = strings.clone(token_hash, a), strings.clone(current, a), strings.clone(to, a)
 	op.name = strings.clone(c.viewer.name, a)
 	op.user_id, op.https, op.client = i64(c.viewer.id), c.https, web.client_key(c.client)
+	// A revoke of a session is audited, with the change; a sign-out isn't.
+	if to == "" {
+		op.audit = {
+			actor_id = op.user_id, actor_name = op.name, client = strings.clone(client_id(op.client), a),
+			action = "accounts.revoke", target_kind = "session",
+			meta = strings.concatenate({"session=", token_hash[:min(len(token_hash), 8)]}, a),
+		}
+	}
 	op.done = closed
 	web.defer_response(req, res, &op.deferred)
 	if !accounts.close_session(op) {
@@ -395,11 +407,6 @@ closed :: proc(o: ^store.Op) {
 	defer store.free_op(op)
 	// That device's open pages go now, not at their next request (M4-09); its other sessions stay.
 	if op.ended { hub.revoke_session(u64(op.user_id), session_key(op.token_hash)) }
-	if op.ended && op.to == "" {
-		meta: [24]byte
-		audit_store.append({op.user_id, op.name, client_id(op.client)}, "accounts.revoke", {"session", 0}, "",
-			fmt.bprintf(meta[:], "session=%s", op.token_hash[:min(len(op.token_hash), 8)]))
-	}
 	res := web.resume(&op.deferred)
 	if res == nil { return }
 	req := web.request(&op.deferred)

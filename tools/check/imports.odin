@@ -88,7 +88,10 @@ allowed :: proc(t: ^Tree, p: ^Pkg, target: string) -> (bool, string) {
 		     target == "platform/sqlite" && p.family == "sqlite",
 		     target == "platform/workers",
 		     // The memory family's audit log is the process's log: one `mod=audit` line an entry (§17.7).
-		     target == "platform/obs" && p.feature == "audit" && p.family == "memory":
+		     target == "platform/obs" && p.feature == "audit" && p.family == "memory",
+		     // A change's audit entry goes in the change's own transaction (M4-04): accounts' ops
+		     // write it through audit's append_in, which keeps audit's SQL in audit's store.
+		     target == "stores/sqlite/audit" && p.feature == "accounts" && p.family == "sqlite":
 			return true, ""
 		}
 		return false, "a store imports its models, platform/store and its family's store kit, platform/sqlite (SQLite family) and platform/workers only (and the memory audit store, platform/obs)"

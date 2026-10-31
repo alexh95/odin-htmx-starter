@@ -181,19 +181,22 @@ Stepping :: struct {
 // The session's step_up_at is now; by code, the step is spent in the same write.
 @(private)
 step_up_write :: proc(l: ^Login, step: i64) {
-	op := store.new_op(Stepping, l.old_len)
+	name := string(l.name[:l.name_len])
+	op := store.new_op(Stepping, l.old_len + len(name))
+	a := store.op_allocator(op)
 	op.login = l
-	op.token_hash = strings.clone(string(l.old[:l.old_len]), store.op_allocator(op))
+	op.token_hash = strings.clone(string(l.old[:l.old_len]), a)
 	op.user_id, op.now, op.totp_step = l.user_id, accounts.now_ms(), step
+	op.audit = {
+		actor_id = l.user_id, actor_name = strings.clone(name, a), client = strings.clone(client_id(l.client), a),
+		action = "accounts.step_up", target_kind = "session", meta = "factor=totp" if step > 0 else "factor=password",
+	}
 	op.done = proc(o: ^store.Op) {
 		op := (^Stepping)(o)
 		l := op.login
 		defer {
 			store.free_op(op)
 			free(l, runtime.heap_allocator())
-		}
-		if op.err == .None {
-			audit_store.append({l.user_id, string(l.name[:l.name_len]), client_id(l.client)}, "accounts.step_up", {"session", 0}, "", "factor=totp" if op.totp_step > 0 else "factor=password")
 		}
 		res := web.resume(&l.deferred)
 		if res == nil { return }
@@ -301,6 +304,7 @@ set_totp :: proc(req: ^web.Request, res: ^web.Response, secret: string, last_ste
 	op.was = strings.clone(was, a)
 	op.user_id, op.secret, op.last_step, op.enrol = i64(c.viewer.id), strings.clone(secret, a), last_step, enrol
 	op.action, op.name, op.client = strings.clone(action, a), strings.clone(c.viewer.name, a), web.client_key(c.client)
+	op.audit = {actor_id = op.user_id, actor_name = op.name, client = strings.clone(client_id(op.client), a), action = op.action, target_kind = "user", target_id = op.user_id}
 	for code, i in codes {
 		if code == "" { continue }
 		op.shown[i] = strings.clone(code, a)
@@ -309,9 +313,6 @@ set_totp :: proc(req: ^web.Request, res: ^web.Response, secret: string, last_ste
 	op.done = proc(o: ^store.Op) {
 		op := (^Setting)(o)
 		defer store.free_op(op)
-		if op.err == .None {
-			audit_store.append({op.user_id, op.name, client_id(op.client)}, op.action, {"user", op.user_id}, "", "")
-		}
 		res := web.resume(&op.deferred)
 		if res == nil { return }
 		req := web.request(&op.deferred)

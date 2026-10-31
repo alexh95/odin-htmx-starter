@@ -21,7 +21,6 @@ import "../../../platform/web"
 import accounts ".."
 import m "../models"
 import views "../views"
-import audit_store "store:audit"
 
 // How long a reset code and an invite live.
 @(private)
@@ -64,29 +63,32 @@ Act :: struct {
 	revoke:    bool,   // the member's streams end too: a role change, a disable
 }
 
-// Fills the act's own strings into the op's arena.
+// Fills the act's own strings into the op's arena, and the entry the change writes with itself
+// (M4-04) from them.
 @(private)
-act_init :: proc(act: ^Act, a: runtime.Allocator, reason, action, meta: string, target: i64) {
+act_init :: proc(act: ^Act, audit: ^m.Audit, a: runtime.Allocator, reason, action, meta: string, target: i64) {
 	c := web.ctx()
 	act.actor_id, act.client = i64(c.viewer.id), web.client_key(c.client)
 	act.actor = strings.clone(c.viewer.name, a)
 	act.reason, act.action, act.meta = strings.clone(reason, a), strings.clone(action, a), strings.clone(meta, a)
 	act.target.id = target
+	audit^ = {
+		actor_id = act.actor_id, actor_name = act.actor, client = strings.clone(client_id(act.client), a),
+		action = act.action, target_kind = "user" if target != 0 else "invite", target_id = target,
+		reason = act.reason, meta = act.meta,
+	}
 }
 
 @(private)
-ACT_BYTES :: 4 * web.MAX_REASON + 256
+ACT_BYTES :: 4 * web.MAX_REASON + 256 + 16
 
-// After the write: the audit entry, then the answer.
+// After the write, which wrote its entry too (M4-04): the revoke, then the answer.
 @(private)
 acted :: proc(o: ^store.Op, act: ^Act, refused: string) {
 	defer store.free_op(o)
-	// The change is written: its entry and the revoke don't wait on the admin's client (M4-04).
-	if o.err == .None {
-		audit_store.append({act.actor_id, act.actor, client_id(act.client)}, act.action, {"user" if act.target.id != 0 else "invite", act.target.id}, act.reason, act.meta)
-		// Their sessions ended in the write; their open pages go now (X19).
-		if act.revoke { hub.revoke(u64(act.target.id)) }
-	}
+	// Their sessions ended in the write; their open pages go now (X19), whether or not the admin's
+	// client is still there.
+	if o.err == .None && act.revoke { hub.revoke(u64(act.target.id)) }
 	res := web.resume(&act.deferred)
 	if res == nil { return }
 	req := web.request(&act.deferred)
@@ -149,7 +151,7 @@ admin_role :: proc(req: ^web.Request, res: ^web.Response) {
 	reason, reason_ok := web.prompt_reason(req, res)
 	if !reason_ok { return }
 	op := store.new_op(Roling, ACT_BYTES)
-	act_init(&op.act, store.op_allocator(op), reason, "accounts.role", fmt.tprintf("role=%s", authz.ROLE_LABELS[role]), id)
+	act_init(&op.act, &op.audit, store.op_allocator(op), reason, "accounts.role", fmt.tprintf("role=%s", authz.ROLE_LABELS[role]), id)
 	op.user_id, op.role, op.act.revoke = id, role, true
 	op.done = proc(o: ^store.Op) { acted(o, &(^Roling)(o).act, "That is the last admin: make another one first.") }
 	queue(req, res, op, &op.act, proc(o: ^store.Op) -> bool { return accounts.set_role((^Roling)(o)) })
@@ -173,7 +175,7 @@ disable :: proc(req: ^web.Request, res: ^web.Response, off: bool) {
 	reason, reason_ok := web.prompt_reason(req, res)
 	if !reason_ok { return }
 	op := store.new_op(Disabling, ACT_BYTES)
-	act_init(&op.act, store.op_allocator(op), reason, "accounts.disable" if off else "accounts.enable", "", id)
+	act_init(&op.act, &op.audit, store.op_allocator(op), reason, "accounts.disable" if off else "accounts.enable", "", id)
 	op.user_id, op.disabled_at, op.act.revoke = id, accounts.now_ms() if off else 0, off
 	op.done = proc(o: ^store.Op) { acted(o, &(^Disabling)(o).act, "That is the last admin: make another one first.") }
 	queue(req, res, op, &op.act, proc(o: ^store.Op) -> bool { return accounts.set_disabled((^Disabling)(o)) })
@@ -203,7 +205,7 @@ admin_totp_off :: proc(req: ^web.Request, res: ^web.Response) {
 	reason, reason_ok := web.prompt_reason(req, res)
 	if !reason_ok { return }
 	op := store.new_op(Unpairing, ACT_BYTES)
-	act_init(&op.act, store.op_allocator(op), reason, "accounts.totp_off", "", id)
+	act_init(&op.act, &op.audit, store.op_allocator(op), reason, "accounts.totp_off", "", id)
 	op.user_id = id
 	op.done = proc(o: ^store.Op) { acted(o, &(^Unpairing)(o).act, "") }
 	queue(req, res, op, &op.act, proc(o: ^store.Op) -> bool { return accounts.set_totp((^Unpairing)(o)) })
@@ -234,7 +236,7 @@ admin_reset :: proc(req: ^web.Request, res: ^web.Response) {
 	show := strings.to_string(b)
 	op := store.new_op(Issuing, ACT_BYTES + len(show) + 64)
 	a := store.op_allocator(op)
-	act_init(&op.act, a, reason, "accounts.reset_issued", "", id)
+	act_init(&op.act, &op.audit, a, reason, "accounts.reset_issued", "", id)
 	op.act.show = strings.clone(show, a)
 	now := accounts.now_ms()
 	op.user_id, op.created_by, op.now, op.expires_at = id, i64(web.ctx().viewer.id), now, now + RESET_LIFE_MS
@@ -274,7 +276,7 @@ admin_invite :: proc(req: ^web.Request, res: ^web.Response) {
 	a := store.op_allocator(op)
 	code_hash := strings.clone(accounts.hash_code(code, accounts.INVITE_GROUPS), a)
 	// The hash's first 8 hex name the invite in its creation, its withdrawal and each use (M4-16).
-	act_init(&op.act, a, reason, "accounts.invite_created", fmt.tprintf("invite=%s role=%s uses=%d days=%d", code_hash[:8], authz.ROLE_LABELS[role], uses, days), 0)
+	act_init(&op.act, &op.audit, a, reason, "accounts.invite_created", fmt.tprintf("invite=%s role=%s uses=%d days=%d", code_hash[:8], authz.ROLE_LABELS[role], uses, days), 0)
 	op.act.show = strings.clone(show, a)
 	now := accounts.now_ms()
 	op.invite = {
@@ -318,7 +320,7 @@ admin_uninvite :: proc(req: ^web.Request, res: ^web.Response) {
 	if !reason_ok { return }
 	op := store.new_op(Uninviting, ACT_BYTES + len(h))
 	a := store.op_allocator(op)
-	act_init(&op.act, a, reason, "accounts.invite_deleted", fmt.tprintf("invite=%s", h[:8]), 0)
+	act_init(&op.act, &op.audit, a, reason, "accounts.invite_deleted", fmt.tprintf("invite=%s", h[:8]), 0)
 	op.code_hash = strings.clone(h, a)
 	op.done = proc(o: ^store.Op) { acted(o, &(^Uninviting)(o).act, "") }
 	queue(req, res, op, &op.act, proc(o: ^store.Op) -> bool { return accounts.delete_invite((^Uninviting)(o)) })

@@ -3,11 +3,14 @@ package audit_store_sqlite
 // ---- audit in SQLite -----------------------------------------------------------------------
 //
 // An append is an op through the writer task that nobody waits on; a page is a keyset read on
-// the loop's reader, newest first. The table's triggers refuse an update, and a delete of an
+// the loop's reader, newest first. A change's own entry is no op of its own: `append_in` writes
+// it as one more statement of the change's op, on the writer, so the two commit or fail together
+// (M4-04). The table's triggers refuse an update, and a delete of an
 // entry younger than 400 days, whatever the code above them does.
 
 import "base:builtin"
 import "core:strings"
+import "core:sync"
 import "core:time"
 
 import "../../../platform/store"
@@ -61,9 +64,33 @@ append :: proc(actor: m.Actor, action: string, target: m.Target, reason, meta: s
 	op.done = proc(o: ^store.Op) { store.free_op(o) }
 	if !db.write(op) {
 		store.free_op(op)
+		store.dropped(&drops)
 		return false
 	}
 	return true
+}
+
+@(private) drops := store.Drops{name = "audit"}
+
+@(private, init)
+register_drops :: proc "contextless" () { store.register_drops(&drops) }
+
+dropped :: proc() -> u64 { return sync.atomic_load(&drops.n) }
+
+// On the writer, inside another store's op: the entry as one more statement of it (M4-04).
+append_in :: proc(actor_id: i64, actor_name, client, action, target_kind: string, target_id: i64, reason, meta: string) -> store.Error {
+	st := db.writer_stmt(SQL_APPEND)
+	defer db.reset(st)
+	db.bind_id(st, 1, time.to_unix_nanoseconds(time.now()) / 1e6)
+	db.bind_id(st, 2, actor_id)
+	db.bind_text(st, 3, actor_name)
+	db.bind_text(st, 4, action)
+	db.bind_text(st, 5, target_kind)
+	db.bind_id(st, 6, target_id)
+	db.bind_text(st, 7, reason)
+	db.bind_text(st, 8, client)
+	db.bind_text(st, 9, meta)
+	return db.step_done(st)
 }
 
 list :: proc(f: m.Filter, into: ^[dynamic]m.Entry) -> (err: m.Error) {

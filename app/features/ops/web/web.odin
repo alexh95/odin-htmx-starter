@@ -11,6 +11,7 @@ package ops_web
 
 import "core:strconv"
 import "core:strings"
+import "core:sync"
 import "core:time"
 
 import "../../../platform/hub"
@@ -20,6 +21,7 @@ import "../../../platform/sys"
 import "../../../platform/web"
 import "../../../platform/workers"
 import ops ".."
+import "../../../platform/store"
 import ops_views "../views"
 
 EXTS :: web.Exts{.Sse, .Ptag, .Multipart}
@@ -46,6 +48,13 @@ init :: proc() {
 
 // ---- the job ---------------------------------------------------------------------------------
 
+// Writes the stores queued for no one and lost (audit's entries, M4-04), since boot.
+@(private)
+drops :: proc() -> (n: u64) {
+	for d in store.every_drops() { n += sync.atomic_load(&d.n) }
+	return
+}
+
 @(private)
 sample :: proc() {
 	n := hub.numbers()
@@ -64,6 +73,7 @@ sample :: proc() {
 		oldest_tick_ms = int(age / 1e6),
 		store          = mem,
 		has_store      = has_store,
+		drops          = drops(),
 	})
 	samples := make([dynamic]ops.Sample, 0, ops.HISTORY, context.temp_allocator)
 	_ = ops.history(&samples)

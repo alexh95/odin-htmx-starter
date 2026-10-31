@@ -269,10 +269,8 @@ Alex, asked in one batch.
       same code path; again at n = 5 at `eb228d8`, `static@file` 0.98 and `static@mem` 0.95 (25 % background):
       the static cells alternate around the bar. Linux at `eb228d8`: 20 of 20 (`docs/perf/PARITY-M4.md`). The stamps
       and the 2.3.0 lead are done. Left: Alex's call on the Windows static cells, and Alex's part.
-- [ ] **M4 audit, open** (`docs/audit/M4.md`): M4-04's rest
-      (an entry a full writer queue drops is not logged; entries are their own op, not the change's transaction);
-      M4-12's rest (`totp_secret` encrypted at rest with a `_FILE` key; backups outside the app's volume); M4-13's
-      rest (`read_pending` and envadmin's `read`; coverage-guided fuzzing in the nightly). Fixed: M4-03 (2026-11-01), M4-05 and M4-09
+- [ ] **M4 audit, open** (`docs/audit/M4.md`): M4-12's rest (`totp_secret` encrypted at rest with a `_FILE` key; backups outside the app's volume); M4-13's
+      rest (`read_pending` and envadmin's `read`; coverage-guided fuzzing in the nightly). Fixed: M4-03 and M4-04 (2026-11-01), M4-05 and M4-09
       (2026-10-31), M4-06, M4-07, M4-08, M4-10, M4-11, M4-14, M4-15, M4-16, M4-12's busybox pin (and M3-08's),
       M4-13's four parsers (and M3-09's `ws_field`).
 

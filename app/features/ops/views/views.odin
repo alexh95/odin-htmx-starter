@@ -100,7 +100,8 @@ cards :: proc(b: ^strings.Builder, samples: []ops.Sample, modules: []ops.Module,
 		open(b, "ops-store", "Store", oob)
 		fmt.sbprintf(b, `<p class="ops-big">%s<small> page cache</small></p>`, bytes(int(now.store.cache)))
 		sparkline(b, series(samples, proc(s: ops.Sample) -> f64 { return f64(s.store.cache) }))
-		fmt.sbprintf(b, `<p class="muted">%s schema, %s statements</p></article>`, bytes(int(now.store.schema)), bytes(int(now.store.stmt)))
+		fmt.sbprintf(b, `<p class="muted">%s schema, %s statements</p>`, bytes(int(now.store.schema)), bytes(int(now.store.stmt)))
+		fmt.sbprintf(b, `<p class="muted%s" id="ops-drops">%d audit entries dropped</p></article>`, " ops-warn" if now.drops > 0 else "", now.drops)
 	}
 
 	open(b, "ops-modules", "Modules", oob)

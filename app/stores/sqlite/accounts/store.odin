@@ -6,11 +6,13 @@ package accounts_store_sqlite
 // op through the writer task but the boot's first admin. A sign-in's session row, the session
 // it replaces, the user's dead sessions and the clearing of their failures commit together.
 
+import "core:fmt"
 import "core:time"
 
 import "../../../platform/store"
 import db "../../../platform/store/sqlite"
 import m "../../../features/accounts/models"
+import audit_sql "../audit"
 
 IMPL :: "sqlite"
 
@@ -273,7 +275,13 @@ login_failed :: proc(op: ^m.Login_Failed) -> bool {
 }
 
 open_session :: proc(op: ^m.Open_Session) -> bool {
-	op.run = proc(o: ^store.Op) {
+	op.run = proc(o: ^store.Op) { unit(o, open_session_run) }
+	return db.write(op)
+}
+
+@(private = "file")
+open_session_run :: proc(o: ^store.Op) {
+	{
 		op := (^m.Open_Session)(o)
 		if o.err = spend(op.user_id, op.totp_step, op.recovery_hash, op.now); o.err != .None { return }
 		sw := db.writer_stmt(SQL_SWEEP)
@@ -301,11 +309,11 @@ open_session :: proc(op: ^m.Open_Session) -> bool {
 		db.reset(st)
 		if o.err != .None { return }
 		cl := db.writer_stmt(SQL_CLEAR)
-		defer db.reset(cl)
 		db.bind_id(cl, 1, op.user_id)
 		o.err = db.step_done(cl)
+		db.reset(cl)
+		if o.err == .None { o.err = note(op.audit, 0) }
 	}
-	return db.write(op)
 }
 
 touch_session :: proc(op: ^m.Touch_Session) -> bool {
@@ -322,13 +330,16 @@ touch_session :: proc(op: ^m.Touch_Session) -> bool {
 
 close_session :: proc(op: ^m.Close_Session) -> bool {
 	op.run = proc(o: ^store.Op) {
-		op := (^m.Close_Session)(o)
-		st := db.writer_stmt(SQL_CLOSE)
-		defer db.reset(st)
-		db.bind_text(st, 1, op.token_hash)
-		db.bind_id(st, 2, op.user_id)
-		o.err = db.step_done(st)
-		op.ended = o.err == .None && db.changes() > 0
+		unit(o, proc(o: ^store.Op) {
+			op := (^m.Close_Session)(o)
+			st := db.writer_stmt(SQL_CLOSE)
+			db.bind_text(st, 1, op.token_hash)
+			db.bind_id(st, 2, op.user_id)
+			o.err = db.step_done(st)
+			op.ended = o.err == .None && db.changes() > 0
+			db.reset(st)
+			if op.ended { o.err = note(op.audit, 0) } // a foreign hash ended nothing, and says nothing
+		})
 	}
 	return db.write(op)
 }
@@ -368,19 +379,23 @@ set_totp_run :: proc(o: ^store.Op) {
 		o.err = db.step_done(add)
 		db.reset(add)
 	}
+	if o.err == .None { o.err = note(op.audit, 0) }
 }
 
 step_up :: proc(op: ^m.Step_Up) -> bool {
 	op.run = proc(o: ^store.Op) {
-		op := (^m.Step_Up)(o)
-		if o.err = spend(op.user_id, op.totp_step, "", op.now); o.err != .None { return }
-		st := db.writer_stmt(SQL_STEP_UP)
-		defer db.reset(st)
-		db.bind_id(st, 1, op.now)
-		db.bind_text(st, 2, op.token_hash)
-		db.bind_id(st, 3, op.user_id)
-		o.err = db.step_done(st)
-		if o.err == .None && db.changes() == 0 { o.err = .Not_Found }
+		unit(o, proc(o: ^store.Op) {
+			op := (^m.Step_Up)(o)
+			if o.err = spend(op.user_id, op.totp_step, "", op.now); o.err != .None { return }
+			st := db.writer_stmt(SQL_STEP_UP)
+			db.bind_id(st, 1, op.now)
+			db.bind_text(st, 2, op.token_hash)
+			db.bind_id(st, 3, op.user_id)
+			o.err = db.step_done(st)
+			if o.err == .None && db.changes() == 0 { o.err = .Not_Found }
+			db.reset(st)
+			if o.err == .None { o.err = note(op.audit, 0) }
+		})
 	}
 	return db.write(op)
 }
@@ -393,6 +408,15 @@ unit :: proc(o: ^store.Op, run: proc(o: ^store.Op)) {
 	run(o)
 	if o.err != .None { exec(SQL_UNDO) }
 	exec(SQL_RELEASE)
+}
+
+// The op's audit entry, as one more statement of its unit: a failure here undoes the change.
+@(private = "file")
+note :: proc(a: m.Audit, result: i64) -> m.Error {
+	if a.action == "" { return .None }
+	actor, target := a.actor_id, a.target_id
+	if a.of_result { actor, target = result, result }
+	return audit_sql.append_in(actor, a.actor_name, a.client, a.action, a.target_kind, target, a.reason, a.meta)
 }
 
 @(private = "file")
@@ -446,14 +470,25 @@ register_run :: proc(o: ^store.Op) {
 	db.bind_id(se, 5, op.expires_at)
 	db.bind_id(se, 6, op.now)
 	o.err = db.step_done(se)
+	if o.err != .None { return }
+	// The role is the invite's, known only here.
+	if op.audit.action != "" {
+		meta: [48]byte
+		op.audit.meta = fmt.bprintf(meta[:], "role=%s invite=%s", m.role_label(op.role), op.invite_hash[:8] if len(op.invite_hash) >= 8 else "none")
+		o.err = note(op.audit, op.result)
+	}
 }
 
 set_role :: proc(op: ^m.Set_Role) -> bool {
 	op.run = proc(o: ^store.Op) {
 		op := (^m.Set_Role)(o)
 		if op.role != .Admin { if o.err = keep_an_admin(op.user_id); o.err != .None { return } }
-		o.err = by_id(SQL_SET_ROLE, i64(op.role), op.user_id)
-		if o.err == .None { o.err = end_sessions(op.user_id) }
+		unit(o, proc(o: ^store.Op) {
+			op := (^m.Set_Role)(o)
+			o.err = by_id(SQL_SET_ROLE, i64(op.role), op.user_id)
+			if o.err == .None { o.err = end_sessions(op.user_id) }
+			if o.err == .None { o.err = note(op.audit, 0) }
+		})
 	}
 	return db.write(op)
 }
@@ -462,8 +497,12 @@ set_disabled :: proc(op: ^m.Set_Disabled) -> bool {
 	op.run = proc(o: ^store.Op) {
 		op := (^m.Set_Disabled)(o)
 		if op.disabled_at != 0 { if o.err = keep_an_admin(op.user_id); o.err != .None { return } }
-		o.err = by_id(SQL_SET_DISABLED, op.disabled_at, op.user_id)
-		if o.err == .None { o.err = end_sessions(op.user_id) }
+		unit(o, proc(o: ^store.Op) {
+			op := (^m.Set_Disabled)(o)
+			o.err = by_id(SQL_SET_DISABLED, op.disabled_at, op.user_id)
+			if o.err == .None { o.err = end_sessions(op.user_id) }
+			if o.err == .None { o.err = note(op.audit, 0) }
+		})
 	}
 	return db.write(op)
 }
@@ -509,47 +548,58 @@ end_sessions :: proc(user_id: i64) -> m.Error {
 
 create_invite :: proc(op: ^m.Create_Invite) -> bool {
 	op.run = proc(o: ^store.Op) {
-		inv := (^m.Create_Invite)(o).invite
-		st := db.writer_stmt(SQL_ADD_INVITE)
-		defer db.reset(st)
-		db.bind_text(st, 1, inv.code_hash)
-		db.bind_int(st, 2, int(inv.role))
-		db.bind_int(st, 3, inv.max_uses)
-		db.bind_id(st, 4, inv.created_by)
-		db.bind_id(st, 5, inv.created_at)
-		db.bind_id(st, 6, inv.expires_at)
-		o.err = db.step_done(st)
+		unit(o, proc(o: ^store.Op) {
+			op := (^m.Create_Invite)(o)
+			inv := op.invite
+			st := db.writer_stmt(SQL_ADD_INVITE)
+			db.bind_text(st, 1, inv.code_hash)
+			db.bind_int(st, 2, int(inv.role))
+			db.bind_int(st, 3, inv.max_uses)
+			db.bind_id(st, 4, inv.created_by)
+			db.bind_id(st, 5, inv.created_at)
+			db.bind_id(st, 6, inv.expires_at)
+			o.err = db.step_done(st)
+			db.reset(st)
+			if o.err == .None { o.err = note(op.audit, 0) }
+		})
 	}
 	return db.write(op)
 }
 
 delete_invite :: proc(op: ^m.Delete_Invite) -> bool {
 	op.run = proc(o: ^store.Op) {
-		st := db.writer_stmt(SQL_DROP_INVITE)
-		defer db.reset(st)
-		db.bind_text(st, 1, (^m.Delete_Invite)(o).code_hash)
-		o.err = db.step_done(st)
-		if o.err == .None && db.changes() == 0 { o.err = .Not_Found }
+		unit(o, proc(o: ^store.Op) {
+			op := (^m.Delete_Invite)(o)
+			st := db.writer_stmt(SQL_DROP_INVITE)
+			db.bind_text(st, 1, op.code_hash)
+			o.err = db.step_done(st)
+			if o.err == .None && db.changes() == 0 { o.err = .Not_Found }
+			db.reset(st)
+			if o.err == .None { o.err = note(op.audit, 0) }
+		})
 	}
 	return db.write(op)
 }
 
 issue_reset :: proc(op: ^m.Issue_Reset) -> bool {
 	op.run = proc(o: ^store.Op) {
-		op := (^m.Issue_Reset)(o)
-		dr := db.writer_stmt(SQL_DROP_RESETS)
-		db.bind_id(dr, 1, op.user_id)
-		o.err = db.step_done(dr)
-		db.reset(dr)
-		if o.err != .None { return }
-		st := db.writer_stmt(SQL_ADD_RESET)
-		defer db.reset(st)
-		db.bind_text(st, 1, op.code_hash)
-		db.bind_id(st, 2, op.user_id)
-		db.bind_id(st, 3, op.created_by)
-		db.bind_id(st, 4, op.now)
-		db.bind_id(st, 5, op.expires_at)
-		o.err = db.step_done(st)
+		unit(o, proc(o: ^store.Op) {
+			op := (^m.Issue_Reset)(o)
+			dr := db.writer_stmt(SQL_DROP_RESETS)
+			db.bind_id(dr, 1, op.user_id)
+			o.err = db.step_done(dr)
+			db.reset(dr)
+			if o.err != .None { return }
+			st := db.writer_stmt(SQL_ADD_RESET)
+			db.bind_text(st, 1, op.code_hash)
+			db.bind_id(st, 2, op.user_id)
+			db.bind_id(st, 3, op.created_by)
+			db.bind_id(st, 4, op.now)
+			db.bind_id(st, 5, op.expires_at)
+			o.err = db.step_done(st)
+			db.reset(st)
+			if o.err == .None { o.err = note(op.audit, 0) }
+		})
 	}
 	return db.write(op)
 }
@@ -587,6 +637,7 @@ redeem_reset_run :: proc(o: ^store.Op) {
 	o.err = db.step_done(pw)
 	db.reset(pw)
 	if o.err == .None { o.err = end_sessions(op.user_id) }
+	if o.err == .None { o.err = note(op.audit, 0) }
 }
 
 set_display :: proc(op: ^m.Set_Display) -> bool {

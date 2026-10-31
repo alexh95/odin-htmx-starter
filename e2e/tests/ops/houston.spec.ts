@@ -17,6 +17,7 @@ test.describe('ops in Houston', T, () => {
         await admin.page.goto(`/admin/ops?mode=${mode}`);
         await expect(admin.page.locator('#ops-store')).toContainText('page cache');
         await expect(admin.page.locator('#ops-store')).toContainText('statements');
+        await expect(admin.page.locator('#ops-drops')).toHaveText('0 audit entries dropped'); // M4-04
         const first = await since(admin.page);
         await expect.poll(async () => {
           await admin.page.request.get('/livez');

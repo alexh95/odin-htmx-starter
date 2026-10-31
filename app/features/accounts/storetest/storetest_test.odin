@@ -67,6 +67,8 @@ the_store_keeps_users_and_sessions :: proc(t: ^testing.T) {
 	testing.expect_value(t, db.open_db(":memory:", .Ephemeral, "storetest"), "")
 	defer db.close()
 	db.migrate("accounts", sql.MIGRATIONS[:])
+	// Audit's table, for the entries accounts' changes write with themselves (M4-04).
+	db.migrate("audit", {{1, "0001_audit.sql", #load("../../../stores/sqlite/audit/migrations/0001_audit.sql", string)}})
 
 	// A member who registered before the admin existed holds the name: boot refuses it (M4-11).
 	testing.expect_value(t, create(t, "taken", .User), store.Error.None)
@@ -251,6 +253,26 @@ members :: proc(t: ^testing.T) {
 	last := store.new_op(m.Set_Role, 0)
 	last.user_id, last.role, last.done = root.id, .Mod, DONE
 	testing.expect_value(t, write(t, last, sql.set_role(last)), store.Error.Constraint)
+
+	// A change writes its entry in its own unit (M4-04): one for the change that went in, none for
+	// the refused one.
+	entries :: proc(action: string) -> int {
+		q := db.read("SELECT count(*) FROM audit_log WHERE action = ?")
+		defer db.reset(q)
+		db.bind_text(q, 1, action)
+		err: store.Error
+		return db.column_int(q, 0) if db.next_row(q, &err) else -1
+	}
+	back := store.new_op(m.Set_Role, 0)
+	back.user_id, back.role, back.done = alex.id, .Mod, DONE
+	back.audit = {actor_id = root.id, actor_name = "root", action = "accounts.role", target_kind = "user", target_id = alex.id, meta = "role=Moderator"}
+	testing.expect_value(t, write(t, back, sql.set_role(back)), store.Error.None)
+	refused := store.new_op(m.Set_Role, 0)
+	refused.user_id, refused.role, refused.done = root.id, .Mod, DONE
+	refused.audit = {actor_id = root.id, actor_name = "root", action = "accounts.role_refused", target_kind = "user", target_id = root.id}
+	testing.expect_value(t, write(t, refused, sql.set_role(refused)), store.Error.Constraint)
+	testing.expect_value(t, entries("accounts.role"), 1)
+	testing.expect_value(t, entries("accounts.role_refused"), 0)
 	off := store.new_op(m.Set_Disabled, 0)
 	off.user_id, off.disabled_at, off.done = root.id, 999, DONE
 	testing.expect_value(t, write(t, off, sql.set_disabled(off)), store.Error.Constraint)

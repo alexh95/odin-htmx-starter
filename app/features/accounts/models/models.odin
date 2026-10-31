@@ -51,6 +51,7 @@ Register :: struct {
 	expires_at:  i64,
 	result:      i64,  // the new id
 	role:        Role, // what the invite gave
+	audit:       Audit, // written with the change (M4-04)
 }
 
 // An admin's change to a member: the role, or disabled (now) or enabled (0). The last enabled
@@ -60,22 +61,26 @@ Set_Role :: struct {
 	using op: store.Op,
 	user_id:  i64,
 	role:     Role,
+	audit:       Audit, // written with the change (M4-04)
 }
 
 Set_Disabled :: struct {
 	using op:    store.Op,
 	user_id:     i64,
 	disabled_at: i64,
+	audit:       Audit, // written with the change (M4-04)
 }
 
 Create_Invite :: struct {
 	using op: store.Op,
 	invite:   Invite,
+	audit:       Audit, // written with the change (M4-04)
 }
 
 Delete_Invite :: struct {
 	using op:  store.Op,
 	code_hash: string,
+	audit:       Audit, // written with the change (M4-04)
 }
 
 // A one-time reset code for a member, replacing any they had.
@@ -86,6 +91,7 @@ Issue_Reset :: struct {
 	created_by: i64,
 	now:        i64,
 	expires_at: i64,
+	audit:       Audit, // written with the change (M4-04)
 }
 
 // A reset code spent on a new password: the failures cleared and every session ended. No live
@@ -96,6 +102,7 @@ Redeem_Reset :: struct {
 	code_hash: string,
 	pw_hash:   string,
 	now:       i64,
+	audit:       Audit, // written with the change (M4-04)
 }
 
 Set_Display :: struct {
@@ -125,6 +132,21 @@ Session :: struct {
 }
 
 Error :: store.Error
+
+// The audit entry a change writes in its own transaction (M4-04): plain values, since the store
+// writes it (stores/sqlite/audit's append_in, the one store-to-store edge). `action` "" writes
+// none. An entry with no change of its own (a failed sign-in) is its own op, through store:audit.
+Audit :: struct {
+	actor_id:    i64,
+	actor_name:  string,
+	client:      string,
+	action:      string,
+	target_kind: string,
+	target_id:   i64,
+	reason:      string,
+	meta:        string,
+	of_result:   bool, // the actor and the target are the op's result: a registration's new member
+}
 
 // The store reads a role through this: it imports no authz.
 Role :: authz.Role
@@ -164,6 +186,7 @@ Open_Session :: struct {
 	// none), or a recovery code's hash. Already spent, the op fails with .Constraint.
 	totp_step:     i64,
 	recovery_hash: string,
+	audit:       Audit, // written with the change (M4-04)
 }
 
 // TOTP on (a secret and the hashes of its recovery codes) or off ("" and none). The user's old
@@ -176,6 +199,7 @@ Set_Totp :: struct {
 	codes:     [RECOVERY_CODES]string,
 	enrol:     bool, // only over no secret: .Constraint, and nothing written, when one is set (M4-01)
 	was:       string, // else, when set: only over this secret, .Constraint when it changed meanwhile
+	audit:       Audit, // written with the change (M4-04)
 }
 
 // A step-up: the session's step_up_at is now. By code, the step is spent as a sign-in's is.
@@ -185,6 +209,7 @@ Step_Up :: struct {
 	user_id:    i64,
 	now:        i64,
 	totp_step:  i64,
+	audit:       Audit, // written with the change (M4-04)
 }
 
 Touch_Session :: struct {
@@ -199,6 +224,7 @@ Close_Session :: struct {
 	token_hash: string,
 	user_id:    i64,
 	ended:      bool, // out: a session of theirs went (a foreign hash ends nothing)
+	audit:       Audit, // written with the change (M4-04)
 }
 
 Store_User_By_Name :: proc(username: string) -> (User, Error)

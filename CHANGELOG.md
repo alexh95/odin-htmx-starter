@@ -16,6 +16,10 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
   has signed in to an account before carries a device cookie for it (`__Host-dev`, 180 days) and meets a backoff of
   its own, so wrong passwords from elsewhere don't shut it out; a name with no account still backs off as an
   account does (M4-05).
+- **A change and its audit entry commit together** (M4-04): an accounts change (a role, a disable, a reset, an invite,
+  a sign-in, a step-up, two-step on or off, a revoke) writes its entry as one more statement of its own write, so
+  neither is ever kept without the other. An entry with no change of its own (a failed sign-in) is still its own
+  write; one a full queue refuses is counted, and `/admin/ops` shows how many.
 - **`totp.spec`'s stale-session case gets a 3 s step-up window**: its steps after the step-up didn't always fit in
   1 s on webkit.
 

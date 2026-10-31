@@ -35,6 +35,7 @@ Sample :: struct {
 	oldest_tick_ms: int,
 	store:          obs.Store_Memory, // the SQLite connections' caches, schemas and statements
 	has_store:      bool,
+	drops:          u64, // writes queued for no one (audit's entries) a full writer refused, since boot (M4-04)
 }
 
 // A module's health, as it pushed it to obs (§10.4).

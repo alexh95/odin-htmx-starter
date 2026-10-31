@@ -9,6 +9,7 @@ package store
 
 import "base:intrinsics"
 import "core:mem"
+import "core:sync"
 import "core:unicode"
 import "core:unicode/utf8"
 
@@ -120,6 +121,31 @@ new_op :: proc($T: typeid, bytes: int) -> ^T where intrinsics.type_is_struct(T) 
 }
 
 OP_SLACK :: 256
+
+// ---- drops: writes a store queued for no one and lost (M4-04) -------------------------------
+//
+// A store that queues writes nobody waits on (audit's appends) counts the ones a full writer
+// refused in a Drops of its own, registered here, so /admin/ops can show them without importing
+// that store.
+
+Drops :: struct {
+	name: string,
+	n:    u64, // atomic
+}
+
+MAX_DROPS :: 8
+
+@(private) drops_table: [MAX_DROPS]^Drops
+@(private) drops_n: int // atomic
+
+// From the store's @(init): before any thread runs.
+register_drops :: proc "contextless" (d: ^Drops) {
+	if i := sync.atomic_add(&drops_n, 1); i < MAX_DROPS { drops_table[i] = d }
+}
+
+dropped :: proc "contextless" (d: ^Drops) { sync.atomic_add(&d.n, 1) }
+
+every_drops :: proc "contextless" () -> []^Drops { return drops_table[:min(sync.atomic_load(&drops_n), MAX_DROPS)] }
 
 op_allocator :: proc(op: ^Op) -> mem.Allocator {
 	return mem.arena_allocator(&op.arena)

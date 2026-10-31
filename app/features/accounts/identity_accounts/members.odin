@@ -23,7 +23,6 @@ import "../../../platform/workers"
 import accounts ".."
 import m "../models"
 import views "../views"
-import audit_store "store:audit"
 
 @(private)
 registers := web.Limit{n = 3, window = time.Hour}
@@ -163,10 +162,12 @@ hashed :: proc(t: ^workers.Task) {
 	code := string(h.code_hash[:h.code_hash_n])
 	now := accounts.now_ms()
 	if h.reset {
-		op := store.new_op(Resetting, len(phc) + len(code))
+		display := string(h.display[:h.display_n])
+		op := store.new_op(Resetting, len(phc) + len(code) + len(display))
 		a := store.op_allocator(op)
 		op.hashing, op.user_id, op.now = h, h.user_id, now
 		op.pw_hash, op.code_hash = strings.clone(phc, a), strings.clone(code, a)
+		op.audit = {actor_id = h.user_id, actor_name = strings.clone(display, a), client = strings.clone(client_id(h.client), a), action = "accounts.reset", target_kind = "user", target_id = h.user_id}
 		op.done = reset_done
 		if !accounts.redeem_reset(op) {
 			store.free_op(op)
@@ -182,6 +183,8 @@ hashed :: proc(t: ^workers.Task) {
 	op.username, op.display, op.pw_hash = strings.clone(name, a), strings.clone(display, a), strings.clone(phc, a)
 	op.invite_hash, op.token, op.token_hash = strings.clone(code, a), strings.clone(token, a), strings.clone(token_hash, a)
 	op.now, op.expires_at = now, now + accounts.lifetimes.max_ms
+	// Its actor and target are the new member, and its meta the role the invite gave: the store's.
+	op.audit = {actor_name = op.display, client = strings.clone(client_id(h.client), a), action = "accounts.register", target_kind = "user", of_result = true}
 	op.done = registered
 	if !accounts.register(op) {
 		store.free_op(op)
@@ -196,11 +199,6 @@ registered :: proc(o: ^store.Op) {
 	defer {
 		store.free_op(op)
 		free(h, runtime.heap_allocator())
-	}
-	if op.err == .None { // audited before the client is known to be there (M4-04)
-		meta: [48]byte
-		audit_store.append({op.result, op.display, client_id(h.client)}, "accounts.register", {"user", op.result}, "",
-			fmt.bprintf(meta[:], "role=%s invite=%s", authz.ROLE_LABELS[op.role], op.invite_hash[:8] if len(op.invite_hash) >= 8 else "none"))
 	}
 	res := web.resume(&h.deferred)
 	if res == nil { return }
@@ -281,11 +279,9 @@ reset_done :: proc(o: ^store.Op) {
 		store.free_op(op)
 		free(h, runtime.heap_allocator())
 	}
-	if op.err == .None {
-		audit_store.append({op.user_id, string(h.display[:h.display_n]), client_id(h.client)}, "accounts.reset", {"user", op.user_id}, "", "")
-		// The reset ended every session in the write; an intruder's open pages go now too (M4-09).
-		hub.revoke(u64(op.user_id))
-	}
+	// The reset ended every session in the write, and wrote its entry; an intruder's open pages go
+	// now too (M4-09).
+	if op.err == .None { hub.revoke(u64(op.user_id)) }
 	res := web.resume(&h.deferred)
 	if res == nil { return }
 	req := web.request(&h.deferred)
