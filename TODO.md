@@ -18,10 +18,11 @@ copy-and-start ergonomics and good defaults matter more than feature depth.
 
 ## Known flakes (seen once, passed on a rerun: not fixed)
 
-- [ ] **dbview's drill, Linux** (run 41251995318, job "Drills (full, Linux)", on `eea5cae`): a query running to its
+- [x] **dbview's drill, Linux** (run 41251995318, job "Drills (full, Linux)", on `eea5cae`): a query running to its
       2 s budget left the writes' slowest at 63 ms (alone: 1.1 ms), against the drill's bar; it passed on the rerun.
-      Look at what else a write waited on there (a checkpoint, the runner), and whether the bar holds on a busy
-      runner.
+      Found: the bar (the slowest ≤ max(50 ms, 3× alone)) caught one write on a four-core runner whose core the
+      query was burning. What the drill holds is that dbview never takes the writer's lock, which would hold a write
+      the query's whole 2 s: the floor is 250 ms now, far below that.
 - [x] **contacts' search highlighting** (run 41251995318, jobs "E2E (full, firefox)" and "E2E (full-vanilla,
       chromium)", on `eea5cae`): "a query that shrinks when lowered marks the original span" found no match for
       `Turİng`; it passed on the rerun. Found: it searched the seed's Turing, which can be the first row, and

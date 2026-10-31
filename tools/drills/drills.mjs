@@ -919,7 +919,9 @@ async function phaseDbview(f) {
   const beside = await writes(1800);
   const q = await query;
   const max = (a) => (a.length ? a[a.length - 1] : Infinity);
-  const ok = alone.length > 20 && beside.length > 20 && /stopped past the 2 s budget/.test(q.body) && max(beside) <= Math.max(50, 3 * max(alone));
+  // The writer's lock would hold a write for the query's whole 2 s: the bar sits far below that and
+  // above a busy runner's hiccup (one write at 63 ms with the query burning a core, run 41251995318).
+  const ok = alone.length > 20 && beside.length > 20 && /stopped past the 2 s budget/.test(q.body) && max(beside) <= Math.max(250, 3 * max(alone));
   record('dbview: a query running to its 2 s budget leaves the writes\' latency alone (never the writer\'s lock)', ok,
     `alone: ${alone.length} writes, slowest ${max(alone).toFixed(1)} ms; beside the query: ${beside.length}, slowest ${max(beside).toFixed(1)} ms; query ${q.status} ${/stopped past/.test(q.body) ? 'stopped at its budget' : JSON.stringify(q.body.slice(0, 80))}`);
   await stop(s);
