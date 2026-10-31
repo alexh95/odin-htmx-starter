@@ -52,7 +52,7 @@ the_log_appends_filters_and_keeps :: proc(t: ^testing.T) {
 	testing.expect_value(t, nbio.acquire_thread_event_loop(), nil)
 	defer nbio.release_thread_event_loop()
 	testing.expect_value(t, db.open_db(":memory:", .Ephemeral, "storetest"), "")
-	defer db.close()
+	// Closed at the end, by the case that needs it closed.
 	db.migrate("audit", sql.MIGRATIONS[:])
 
 	alex := m.Actor{id = 1, name = "Alex", client = "00ff00ff00ff00ff"}
@@ -85,4 +85,10 @@ the_log_appends_filters_and_keeps :: proc(t: ^testing.T) {
 	testing.expect_value(t, count(), 4)
 	testing.expect(t, run("DELETE FROM audit_log WHERE action = 'old'"))
 	testing.expect_value(t, count(), 3)
+
+	// A refused append is lost, and counted (M4-04): once the store has closed, the writer refuses.
+	before := sql.dropped()
+	db.close()
+	testing.expect(t, !sql.append(alex, "accounts.sign_in", {"session", 0}, "", ""))
+	testing.expect_value(t, sql.dropped(), before + 1)
 }

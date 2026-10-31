@@ -33,6 +33,7 @@ test.describe('ops', T, () => {
           return since(admin.page);
         }, { timeout: 10_000 }).toBeGreaterThan(first);
         await expect(admin.page.locator('#ops-modules')).toContainText('hub');
+        await expect(admin.page.locator('#ops-drops')).toHaveCount(0); // no store that counts drops in a memory build (M4-04)
         await expect(admin.page.locator('#ops-http svg.spark polyline')).toHaveCount(1);
         expect(admin.errors).toEqual([]);
       } finally {

@@ -36,6 +36,7 @@ Sample :: struct {
 	store:          obs.Store_Memory, // the SQLite connections' caches, schemas and statements
 	has_store:      bool,
 	drops:          u64, // writes queued for no one (audit's entries) a full writer refused, since boot (M4-04)
+	has_drops:      bool, // a store that counts them is linked: none (a memory build), and the card says nothing
 }
 
 // A module's health, as it pushed it to obs (§10.4).

@@ -36,6 +36,9 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
   envadmin's cookie are read through `platform/signed`'s `open`, the one parser of `<body>.<MAC>` text, with a unit
   and a random-input test; `platform/fuzz` is the parsers' tests' shared draw, and the nightly's `fuzz` job runs
   the five fuzzed packages fifty times over from a new seed each night, under ASan.
+- **/admin/ops opened in the first second after boot has its Store card**: rendered before the first sample, the
+  page had none, and the panel's swaps fill only the cards a page has; it now takes a reading of its own. The
+  card's drop count shows only where a store counts drops (none in a memory build).
 - **`totp.spec`'s stale-session case gets a 3 s step-up window**: its steps after the step-up didn't always fit in
   1 s on webkit.
 
