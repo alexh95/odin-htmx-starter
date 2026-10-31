@@ -107,13 +107,16 @@ test.describe('accounts', T, () => {
 
   test('a sign-in rotates the session the request carried', async ({ browser, baseURL }) => {
     const { context, page } = await signIn(browser, baseURL!);
+    // The worker's server is shared, and every spec signs in as the admin: count only the change.
+    await page.goto('/accounts/sessions');
+    const sessions = await page.locator('.session').count();
     const [before] = (await context.cookies()).filter((c) => c.name === 'sid');
     const again = await context.request.post('/login', form());
     expect(again.status()).toBe(303);
     const [after] = (await context.cookies()).filter((c) => c.name === 'sid');
     expect(after.value).not.toBe(before.value);
     await page.goto('/accounts/sessions');
-    await expect(page.locator('.session')).toHaveCount(1); // the old one closed, not left beside it
+    await expect(page.locator('.session')).toHaveCount(sessions); // the old one closed, not left beside it
     await context.close();
   });
 
