@@ -3,8 +3,9 @@
 The Inbox (PLAN §14.2, D36): a member's notifications from every producer, live on every page of theirs. Packages:
 `notify` (the domain: what a producer may send, the newest 200 per member, read ones gone after 30 days), `models`
 (the item and the store contract), `views` (the page's live log, the push, the home card), `web` (`/notify`,
-`/notify/list`, `POST /notify/read`, `send`, the `notify.user` member topic, the hourly `notify.prune` job). Its store
-at M2: memory (`app/stores/memory/notify/`); SQLite joins at M6.
+`/notify/list`, `POST /notify/read`, `send`, the `notify.user` member topic, the hourly `notify.prune` job). Its stores:
+memory (`app/stores/memory/notify/`, M2) and SQLite (`app/stores/sqlite/notify/`, M6, kept across restarts);
+`storetest` holds both to one contract.
 
 **Producers** import `notify_web` (the one web-to-web import, §6.2) and call `notify_web.send(user, kind, ref, html)`:
 `kind` is their namespaced name (`chat.mention`), `ref` a path on this site, `html` their escaped line. notify never

@@ -16,7 +16,7 @@
     {"name": "landing", "lines": 300, "stores": [], "sqlite": "none", "deps": [], "switched": [], "declares": ["ROUTES", "EXTS", "init"], "profiles": ["lab"]},
     {"name": "modules", "lines": 100, "stores": [], "sqlite": "none", "deps": [], "switched": [], "declares": ["ROUTES", "EXTS"], "profiles": ["full"]},
     {"name": "notes", "lines": 400, "stores": ["memory", "sqlite"], "sqlite": "any", "deps": [], "switched": [], "declares": ["ROUTES", "EXTS", "home_card"], "profiles": ["minimal", "streams"]},
-    {"name": "notify", "lines": 500, "stores": ["memory"], "sqlite": "never", "deps": [], "switched": [], "declares": ["ROUTES", "EXTS", "TOPICS", "JOBS", "home_card"], "profiles": ["streams"]},
+    {"name": "notify", "lines": 700, "stores": ["memory", "sqlite"], "sqlite": "any", "deps": [], "switched": [], "declares": ["ROUTES", "EXTS", "TOPICS", "JOBS", "home_card"], "profiles": ["streams"]},
     {"name": "ops", "lines": 400, "stores": [], "sqlite": "none", "deps": [], "switched": [], "declares": ["ROUTES", "EXTS", "TOPICS", "JOBS", "init"], "profiles": ["streams", "full"]},
     {"name": "scripting", "lines": 300, "stores": [], "sqlite": "none", "deps": [], "switched": [], "declares": ["ROUTES", "EXTS", "BUNDLES"], "profiles": ["lab"]},
     {"name": "status", "lines": 500, "stores": [], "sqlite": "none", "deps": [], "switched": [], "declares": ["ROUTES", "EXTS", "init"], "profiles": ["lab", "streams", "full"]}

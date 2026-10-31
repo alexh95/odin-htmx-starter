@@ -54,6 +54,9 @@ go; Alex's step is the last: the 2–3 invites (Q23), only after the audit.
 - [ ] **7. Notify on SQLite** (§14.2): `stores/sqlite/notify`, 200 per user, read ones gone after 30 days, mutes per
       room and kind in `accounts_prefs`; mentions and DMs from chat, job failures to admins. *Check:* notify's
       storetest over both families; e2e of a mention's bell and its count.
+      Progress (2026-11-01): the SQLite store (the newest 200 trimmed in the add's batch, the sweep, marking read)
+      and `notify/storetest` over both families, done first because chat imports notify and `full` is on SQLite.
+      Left: mutes, the producers (with slice 2's chat in `full`), job failures, the e2e.
 - [ ] **8. Uploads** (§14.2, §17.6, X13, X14): create, `PUT /uploads/<id>?off=` chunks of ≤ 4 MiB, finish (sniff,
       decode, sha256, a content-addressed blob); the chunked-upload shim in app.js; progress on
       `uploads.upload:<id>`; caps, content checks and serving headers; 20 an hour and 2 at once per user; chat

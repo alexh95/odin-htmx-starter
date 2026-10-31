@@ -10,6 +10,8 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 
 ### Added
 
+- **notify on SQLite** (M6 slice 7, its store): `stores/sqlite/notify` keeps a member's newest 200 across restarts,
+  trimmed in the add's own batch; `features/notify/storetest` holds both families to one contract.
 - **M6's first spike, hx-ws's errors** (`docs/spikes/M6.1.md`): a refused or dropped socket's `htmx:ws:error` carries a
   bare Event (no browser gives a reason) and chromium sends none for a socket that was open, so chat's "Auto" will
   count `htmx:ws:close` events with no connection between them; `ws-errors.spec` keeps it measured in every engine.
