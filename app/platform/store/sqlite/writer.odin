@@ -88,6 +88,16 @@ write_now :: proc(run: proc() -> bool) -> bool {
 	return sqlite.exec(db.writer.db, "COMMIT") == sqlite.OK
 }
 
+// Copies the WAL into the file and empties it, under the writer's lock: at boot, after a write
+// whose old values must not linger in the WAL's frames (M4-12's sealing). false when a reader
+// held it back.
+checkpoint_truncate :: proc() -> bool {
+	guard.lock(&db.wlock)
+	defer guard.unlock(&db.wlock)
+	if !db.is_open || db.writer.db == nil { return false }
+	return sqlite.exec(db.writer.db, "PRAGMA wal_checkpoint(TRUNCATE)") == sqlite.OK
+}
+
 @(private)
 writer_register :: proc() {
 	wq.depth = obs.register_gauge("app_store_writer_queue", "", "Writes waiting for the writer task.")

@@ -20,6 +20,12 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
   a sign-in, a step-up, two-step on or off, a revoke) writes its entry as one more statement of its own write, so
   neither is ever kept without the other. An entry with no change of its own (a failed sign-in) is still its own
   write; one a full queue refuses is counted, and `/admin/ops` shows how many.
+- **TOTP secrets are sealed at rest, and Houston's backups leave the database's volume** (M4-12): with
+  `ACCOUNTS_TOTP_KEY_FILE` (32 bytes), each secret is stored sealed (XChaCha20-Poly1305, bound to its row); the first
+  boot with the key seals a v2.3.0 database's plaintext ones, zeroes the old bytes and empties the WAL, and sealed
+  secrets with no key refuse to boot. A device cookie's key now comes from it too, so devices outlive a restart.
+  `deploy/compose.yaml` mounts `/backups` on its own (`FULL_BACKUPS`, else a volume of its own) and the key file
+  (`FULL_TOTP_KEY`), one `.env` line each; `docs/DATA.md` says how.
 - **`totp.spec`'s stale-session case gets a 3 s step-up window**: its steps after the step-up didn't always fit in
   1 s on webkit.
 

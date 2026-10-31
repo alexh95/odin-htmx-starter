@@ -101,6 +101,9 @@ count_admins :: proc() -> (int, m.Error) {
 }
 
 // At boot, after the migrations: the first admin from ACCOUNTS_ADMIN_HASH.
+totp_secrets :: proc(into: ^[dynamic]m.Totp_Row) -> m.Error { return accounts_store.totp_secrets(into) }
+reseal_totps :: proc(rows: []m.Totp_Row) -> m.Error { return accounts_store.reseal_totps(rows) }
+
 bootstrap_admin :: proc(username, pw_hash: string) -> (created: bool, err: m.Error) {
 	return accounts_store.bootstrap_admin(username, pw_hash)
 }

@@ -227,6 +227,15 @@ Close_Session :: struct {
 	audit:       Audit, // written with the change (M4-04)
 }
 
+// A member's stored TOTP secret, for sealing them at boot (M4-12): `old` as it is stored, `new`
+// what it becomes ("" leaves it).
+Totp_Row :: struct {
+	user_id:  i64,
+	old, new: string,
+}
+
+Store_Totp_Secrets :: proc(into: ^[dynamic]Totp_Row) -> Error // every set one, at boot
+Store_Reseal_Totps :: proc(rows: []Totp_Row) -> Error           // at boot, in one transaction; a row changed meanwhile is left
 Store_User_By_Name :: proc(username: string) -> (User, Error)
 Store_User_By_Id :: proc(id: i64) -> (User, Error)
 Store_Session :: proc(token_hash: string) -> (Session, Error)

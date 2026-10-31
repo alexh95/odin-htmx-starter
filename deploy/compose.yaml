@@ -139,10 +139,18 @@ services:
       # A PHC string is all `$`, which compose would read as variables in .env: it comes as a
       # file (env reads NAME_FILE), the admin-hash secret beside compose.yaml.
       ACCOUNTS_ADMIN_HASH_FILE: /run/secrets/admin_hash
-      STATUS_DISK: /data # the disk part: the volume with the database and its backups
+      STATUS_DISK: /data # the disk part: the volume with the database
+      # Backups go outside the database's volume (M4-12): FULL_BACKUPS in .env names the host's
+      # directory for them (a bind mount, the backup disk's), else a volume of their own.
+      BACKUP_DIR: /backups
+      # TOTP secrets are sealed with the key FULL_TOTP_KEY names in .env (a 32-byte file beside
+      # compose.yaml, as admin-hash: owner 10001, mode 400); unset, they stay plaintext, said at boot.
+      ACCOUNTS_TOTP_KEY_FILE: ${FULL_TOTP_KEY:+/run/keys/totp}
     secrets: [admin_hash]
     volumes:
       - full-data:/data
+      - ${FULL_BACKUPS:-full-backups}:/backups
+      - ${FULL_TOTP_KEY:-/dev/null}:/run/keys/totp:ro
 
 networks:
   stack:
@@ -156,6 +164,7 @@ networks:
 volumes:
   caddy-data:
   full-data:
+  full-backups:
 
 secrets:
   # One line, from `bin --hash-password` (Alex's step: the password never leaves them).

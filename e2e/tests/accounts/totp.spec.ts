@@ -2,6 +2,9 @@ import { test, expect } from '../../fixtures';
 import { startServer, stopServer, type Server, mainOrigin } from '../../helpers/server';
 import { ADMIN, signIn, totp } from '../../helpers/accounts';
 import type { Page } from '@playwright/test';
+import { mkdtempSync, readFileSync, existsSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 // Two-step sign-in (PLAN §17.1, Q11): enrolment by a code from the app, the code step after
 // the password, recovery codes that each work once, step-up on `.Step_Up` rows, and an Admin
@@ -109,6 +112,43 @@ test.describe('two-step sign-in', T, () => {
       await expect(page.locator('.totp-secret')).toBeVisible();
       await context.close();
     });
+  });
+
+  // M4-12: with a key, secrets are sealed: a v2.3.0 database's plaintext one at boot, and a new
+  // one as it is written; sealed ones and no key refuse to boot.
+  test("a key seals the stored secrets, a plaintext database's at boot", async ({ browser }) => {
+    test.setTimeout(90_000);
+    const dir = mkdtempSync(path.join(tmpdir(), 'totp-key-'));
+    const db = path.join(dir, 'h.db');
+    const keyFile = path.join(dir, 'totp.key');
+    writeFileSync(keyFile, 'a1'.repeat(32) + '\n');
+    const stored = () => ['', '-wal'].map((x) => (existsSync(db + x) ? readFileSync(db + x).toString('latin1') : '')).join('');
+    const run = async (env: NodeJS.ProcessEnv, body: (base: string) => Promise<void>) => {
+      const s = await startServer(test.info().config, { DB_PATH: db, ...env });
+      try { await body(mainOrigin(s.port)); } finally { await stopServer(s); }
+    };
+    try {
+      let secret = '';
+      await run({}, async (base) => { // no key: the v2.3.0 way
+        const one = await signIn(browser, base);
+        secret = (await enrol(one.page)).secret;
+        await one.context.close();
+      });
+      expect(stored()).toContain(secret);
+      await run({ ACCOUNTS_TOTP_KEY_FILE: keyFile }, async (base) => {
+        const two = await browser.newContext({ baseURL: base });
+        const page = await two.newPage();
+        await password(page);
+        await page.locator('#code').fill(totp(secret, 1)); // the enrolment spent this step's
+        await page.getByRole('button', { name: 'Continue' }).click();
+        await page.waitForURL((u) => u.pathname === '/');
+        await two.close();
+      });
+      expect(stored()).not.toContain(secret); // sealed at that boot, and the page cache's copy is gone
+      await expect(startServer(test.info().config, { DB_PATH: db })).rejects.toThrow(/sealed/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test('an Admin without a second factor is a Member until it is on', async ({ browser }) => {

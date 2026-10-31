@@ -48,6 +48,7 @@ ENV := [?]env.Row {
 	{name = "ACCOUNTS_REGISTRATION", kind = .Enum, def = "invite", choices = "invite|open|closed", doc = "who may register at /register: with an invite (Q10), anyone, or no one"},
 	{name = "ACCOUNTS_REGISTER_PER_HOUR", kind = .Int, def = "3", doc = "registrations tried per client per hour"},
 	{name = "ACCOUNTS_CODES_PER_HOUR", kind = .Int, def = "10", doc = "invite and reset codes tried per client per hour"},
+	{name = "ACCOUNTS_TOTP_KEY_FILE", kind = .Path, def = "", doc = "a file holding the 32-byte key TOTP secrets are sealed with (raw, or 64 hex digits); unset = stored in plaintext, said at boot"},
 	{name = "ACCOUNTS_AUDIT_KEY", kind = .Secret, def = "", doc = "keys the audit log's client ids (an HMAC of the address), at least 32 bytes; unset = a key per boot, so a client's entries group within one run only"},
 }
 
@@ -69,7 +70,9 @@ st: struct {
 	// Keys the audit's client ids: unkeyed, the 2^32 IPv4 addresses hash back in seconds (M4-07).
 	audit_key:   []byte,
 	boot_key:    [32]byte,
-	device_key:  [32]byte, // MACs the device cookies (doors.odin); a boot's, so a restart forgets every device
+	device_key:  [32]byte, // MACs the device cookies (doors.odin): the TOTP key's, else a boot's
+	totp_key:     [32]byte, // seals the TOTP secrets (seal.odin)
+	has_totp_key: bool,
 }
 
 // At boot, from app.boot: the env rows, the lifetimes and the argon pool.
@@ -103,6 +106,7 @@ init :: proc() {
 	crypto.rand_bytes(st.pending_key[:])
 	crypto.rand_bytes(st.boot_key[:])
 	crypto.rand_bytes(st.device_key[:])
+	load_totp_key()
 	k := env.str("ACCOUNTS_AUDIT_KEY")
 	st.audit_key = transmute([]byte)k if len(k) >= 32 else st.boot_key[:]
 	if k != "" && len(k) < 32 {
@@ -130,6 +134,7 @@ cli :: proc() { password.cli() }
 // From main, after the migrations: the first admin, while no enabled one exists. A hash that
 // isn't one of platform/password's refuses to boot; no admin and no hash warns.
 bootstrap :: proc() {
+	seal_stored_secrets()
 	phc := env.str("ACCOUNTS_ADMIN_HASH")
 	if phc == "" {
 		if n, _ := accounts.count_admins(); n == 0 {

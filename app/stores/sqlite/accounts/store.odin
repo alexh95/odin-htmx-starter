@@ -36,6 +36,8 @@ MIGRATIONS := [?]store.Migration {
 @(private) SQL_RECOVERY_LEFT :: "SELECT count(*) FROM accounts_recovery_codes WHERE user_id = ? AND used_at = 0"
 @(private) SQL_SPEND_STEP :: "UPDATE users SET totp_last_step = ?1 WHERE id = ?2 AND totp_last_step < ?1"
 @(private) SQL_SPEND_CODE :: "UPDATE accounts_recovery_codes SET used_at = ? WHERE user_id = ? AND code_hash = ? AND used_at = 0"
+@(private) SQL_TOTP_SECRETS :: "SELECT id, totp_secret FROM users WHERE totp_secret <> ''"
+@(private) SQL_RESEAL_TOTP :: "UPDATE users SET totp_secret = ?1 WHERE id = ?2 AND totp_secret = ?3"
 @(private) SQL_SET_TOTP :: "UPDATE users SET totp_secret = ?, totp_last_step = ? WHERE id = ?"
 @(private) SQL_ENROL_TOTP :: "UPDATE users SET totp_secret = ?, totp_last_step = ? WHERE id = ? AND totp_secret = ''"
 @(private) SQL_KEEP_TOTP :: "UPDATE users SET totp_secret = ?, totp_last_step = ? WHERE id = ? AND totp_secret = ?"
@@ -221,6 +223,53 @@ boot: struct {
 	username, pw_hash: string,
 	created:           bool,
 	err:               m.Error,
+}
+
+totp_secrets :: proc(into: ^[dynamic]m.Totp_Row) -> (err: m.Error) {
+	q := db.read(SQL_TOTP_SECRETS)
+	defer db.reset(q)
+	for db.next_row(q, &err) { append(into, m.Totp_Row{user_id = db.column_id(q, 0), old = db.clone_col(q, 1)}) }
+	return
+}
+
+@(private) SQL_SECURE_ON :: "PRAGMA secure_delete = ON"
+@(private) SQL_SECURE_OFF :: "PRAGMA secure_delete = OFF"
+
+@(private = "file")
+pragma :: proc(sql: string) {
+	st := db.writer_stmt(sql)
+	e: m.Error
+	_ = db.next_row(st, &e)
+	db.reset(st)
+}
+
+@(private) resealing: struct {
+	rows: []m.Totp_Row,
+	err:  m.Error,
+}
+
+reseal_totps :: proc(rows: []m.Totp_Row) -> m.Error {
+	resealing.rows, resealing.err = rows, .None
+	ok := db.write_now(proc() -> bool {
+		// The old text's bytes are zeroed where it stood, not left in the page beside the new (M4-12).
+		pragma(SQL_SECURE_ON)
+		defer pragma(SQL_SECURE_OFF)
+		for r in resealing.rows {
+			if r.new == "" { continue }
+			st := db.writer_stmt(SQL_RESEAL_TOTP)
+			db.bind_text(st, 1, r.new)
+			db.bind_id(st, 2, r.user_id)
+			db.bind_text(st, 3, r.old)
+			resealing.err = db.step_done(st)
+			db.reset(st)
+			if resealing.err != .None { return false }
+		}
+		return true
+	})
+	if !ok { return resealing.err if resealing.err != .None else .Failed }
+	// And no frame of the WAL keeps the plaintext either.
+	_ = db.checkpoint_truncate()
+	return .None
 }
 
 bootstrap_admin :: proc(username, pw_hash: string) -> (created: bool, err: m.Error) {

@@ -92,8 +92,8 @@ name_key :: proc(name: string) -> u64 {
 // ---- the device cookie ----------------------------------------------------------------------
 //
 // `<user id>.<16 hex digits>.<MAC>`: the digits are the device's key, random at its first
-// sign-in to the account, and the MAC (HMAC-SHA256 under st.device_key, cut to 16 bytes) binds
-// them to the account. It names a device, not a session: it outlives sign-outs, for
+// sign-in to the account, and the MAC (HMAC-SHA256 under st.device_key, cut to 16 bytes, a key
+// derived from the TOTP key when there is one, else a boot's) binds them to the account. It names a device, not a session: it outlives sign-outs, for
 // DEVICE_LIFE, and proves only that this client once knew the account's password.
 
 @(private) DEVICE_COOKIE :: "dev"

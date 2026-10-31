@@ -76,6 +76,26 @@ second line, not the first.
 
 Rehearse it once before you need it: `e2e/tests/platform/backup.spec.ts` does exactly this.
 
+**Houston's own** (M5's `store.backup` job): nightly into `BACKUP_DIR`, the newest 7 kept. In
+`deploy/compose.yaml` that is `/backups`, a mount of its own outside the database's volume: a volume
+of its own by default, or the host directory `FULL_BACKUPS` names in the stack's `.env` (one line;
+the backup disk's directory, chowned to `10001:10001` once), from where a nightly pull takes them off
+the machine.
+
+**TOTP secrets at rest** (M4-12): with `ACCOUNTS_TOTP_KEY_FILE` set, each member's TOTP secret is
+stored sealed (XChaCha20-Poly1305, bound to the row), so a backup or a stolen database file gives no
+one a second factor. The key is 32 bytes in a file, raw or as 64 hex digits:
+
+```sh
+head -c 32 /dev/urandom > totp-key && chown 10001:10001 totp-key && chmod 400 totp-key
+```
+
+In the stack, `FULL_TOTP_KEY=./totp-key` in `.env` mounts it (beside compose.yaml, as admin-hash).
+The first boot with the key seals every plaintext secret, zeroes the old bytes and empties the WAL;
+backups taken before it still hold them in plaintext. Keep the key apart from the backups: a
+database whose secrets are sealed refuses to boot without it, and with it lost every member's
+two-step sign-in must be turned off by an admin and enrolled again.
+
 **One machine, one database.** With `DB_PATH` on a volume, `fly scale count 2` gives two machines
 two separate databases that drift apart. Persistent SQLite here means one machine; past that is the
 Postgres row of the table below.

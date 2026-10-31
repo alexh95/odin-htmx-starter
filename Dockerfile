@@ -68,10 +68,10 @@ RUN sh app/prepare.sh
 # release jobs pass the commit or the tag. Declared after prepare so a new commit doesn't re-run it.
 ARG PROFILE=skeleton
 ARG VERSION=dev
-# /out/data is the empty /data the runtime stage copies (and chowns to the app's
-# UID): distroless has no shell to create it there.
+# /out/data and /out/backups are the empty /data and /backups the runtime stage copies (and
+# chowns to the app's UID): distroless has no shell to create them there.
 RUN VERSION="${VERSION}" sh build.sh "${PROFILE}" -o:speed \
- && mkdir -p /out/data && cp "app/bin/${PROFILE}" /out/bin
+ && mkdir -p /out/data /out/backups && cp "app/bin/${PROFILE}" /out/bin
 
 # ---- sources: what the runtime base is made of ---------------------------
 # Distroless records each package it carries in /var/lib/dpkg/status.d; SOURCES.md
@@ -101,6 +101,9 @@ COPY --from=sources /SOURCES.md /app/SOURCES.md
 # A volume that already holds root-owned files, or that the platform mounts as
 # root (a Fly volume), needs a one-time `chown -R 10001:10001` first.
 COPY --from=build --chown=10001:10001 /out/data /data
+# /backups is where a deploy's BACKUP_DIR points, a mount of its own outside /data (M4-12): a
+# bind mount from the host is the host directory's, which wants `chown 10001:10001` once.
+COPY --from=build --chown=10001:10001 /out/backups /backups
 # A fixed numeric UID, so a volume can be chowned to it from outside and
 # Kubernetes' runAsNonRoot can check it without reading /etc/passwd.
 USER 10001:10001

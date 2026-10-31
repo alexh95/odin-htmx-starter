@@ -64,7 +64,7 @@ read_pending :: proc(token: string) -> (user_id: i64, ok: bool) {
 // A code from the app (the step it matched), or else a recovery code's hash; both zero: neither.
 @(private)
 read_code :: proc(u: m.User, text: string) -> (step: i64, recovery_hash: string) {
-	secret, ok := totp.decode(u.totp_secret)
+	secret, ok := totp.decode(open_secret(u.id, u.totp_secret))
 	if !ok { return }
 	if s, vok := totp.verify(secret[:], text, totp.now()); vok { return s, "" }
 	return 0, accounts.hash_recovery(text)
@@ -263,7 +263,7 @@ totp_on :: proc(req: ^web.Request, res: ^web.Response) {
 		web.respond_html(res, html.field_msg(false, "That code doesn't match: check the app's clock, and try the next one."), .Unprocessable_Content)
 		return
 	}
-	set_totp(req, res, totp.encode(secret[:]), step, "accounts.totp_on", enrol = true)
+	set_totp(req, res, seal_secret(u.id, totp.encode(secret[:])), step, "accounts.totp_on", enrol = true)
 }
 
 // POST /accounts/totp/codes (a step-up): ten new recovery codes, the old ones gone.
