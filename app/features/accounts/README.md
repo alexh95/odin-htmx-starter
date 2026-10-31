@@ -79,6 +79,9 @@ own dependency (the generator brings it with `--identity accounts`), not `nick`'
 The e2e suite (`e2e/helpers/accounts.ts`) and the load driver boot their servers with one test hash and lift the
 limits; the specs that test the limits, the backoff and the lifetimes start servers of their own.
 
+A name with no account backs off as an account does (in memory, a fixed table), so the backoff's 429 doesn't tell
+which names exist; `/reset` checks the code before hashing, by the same read whether or not the name exists (M4-05).
+
 ## Data (M4)
 
 `accounts_models` holds the types and the store contract; the store is SQLite's alone

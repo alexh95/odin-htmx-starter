@@ -241,9 +241,23 @@ reset :: proc(req: ^web.Request, res: ^web.Response) {
 	f := web.form(req)
 	if p := accounts.check_new_password(f["password"], f["again"]); p != "" { refuse(res, p); return }
 	u, err := accounts.user_by_name(strings.trim_space(f["username"]))
+	if err != .None && err != .Not_Found {
+		web.respond_store_error(req, res, err)
+		return
+	}
+	// The code is checked before anything is hashed, by the same read for a name with no account
+	// (user 0): a wrong code answers alike, and as quickly, whether or not the name exists (M4-05).
 	code_hash := accounts.hash_code(f["code"], accounts.RESET_GROUPS)
-	if err != .None || code_hash == "" {
-		// The write would say the same for a wrong code; an unknown name says no more.
+	live := false
+	if code_hash != "" {
+		ok, rerr := accounts.reset_live(code_hash, u.id if err == .None else 0, accounts.now_ms())
+		if rerr != .None {
+			web.respond_store_error(req, res, rerr)
+			return
+		}
+		live = ok && err == .None
+	}
+	if !live {
 		refuse(res, "That code doesn't match, or was used.")
 		return
 	}

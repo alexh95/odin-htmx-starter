@@ -12,9 +12,11 @@ import "core:crypto/hmac"
 import "core:crypto/sha2"
 import "core:encoding/endian"
 import "core:fmt"
+import "core:hash"
 import "core:strings"
 import "core:time"
 
+import "../../../platform/guard"
 import "../../../platform/html"
 import "../../../platform/hub"
 import "../../../platform/password"
@@ -104,6 +106,7 @@ Login :: struct {
 	user_id:      i64,
 	failed:       int,
 	known:        bool, // an enabled user by that name: a wrong password counts against it
+	ghost:        u64,  // otherwise the name's key in `ghosts`, where its wrong passwords count
 	totp:         bool, // the account has a second factor: a sign-in asks for a code next
 	https:        bool,
 	client:       u64, // web.client_key: the audit's client id
@@ -168,13 +171,16 @@ sign_in :: proc(req: ^web.Request, res: ^web.Response) {
 		return
 	}
 	known := err == .None && u.disabled_at == 0
-	if now := accounts.now_ms(); known && u.backoff_until > now {
-		web.respond_limited(res, time.Duration(u.backoff_until - now) * time.Millisecond,
+	ghost := u64(0) if known else ghost_key(name)
+	until := u.backoff_until if known else ghost_until(ghost)
+	if now := accounts.now_ms(); until > now {
+		web.respond_limited(res, time.Duration(until - now) * time.Millisecond,
 			html.field_msg(false, "Too many wrong passwords: wait a little, then try again."))
 		return
 	}
 
 	l := new_login(req, u, known, safe_next(f["next"]), .Sign_In)
+	l.ghost = ghost
 	web.defer_response(req, res, &l.deferred)
 	// An unknown name is verified against the dummy all the same: the answer's time is the same.
 	if !password.submit(&l.verify, pw, u.pw_hash if known else "", verified) {
@@ -193,6 +199,8 @@ verified :: proc(t: ^workers.Task) {
 		if l.known {
 			count_failure(l.user_id, l.failed + 1)
 			audit_store.append({client = client_id(l.client)}, "accounts.sign_in_failed", {"user", l.user_id}, "", "factor=password")
+		} else if l.ghost != 0 {
+			ghost_failed(l.ghost)
 		}
 		answer(l, html.field_msg(false, "Wrong username or password." if l.then == .Sign_In else "That isn't your password."), .Unprocessable_Content)
 	case l.then == .Step_Up:
@@ -273,6 +281,53 @@ count_failure :: proc(user_id: i64, failed: int) {
 	op.backoff_until = accounts.now_ms() + accounts.backoff_ms(failed)
 	op.done = proc(o: ^store.Op) { store.free_op(o) }
 	if !accounts.login_failed(op) { store.free_op(op) }
+}
+
+// ---- names with no account back off too (M4-05) --------------------------------------------
+//
+// Without this, the fourth wrong password in a row answered 429 only for a name that exists. A
+// name with no account (or a disabled one) counts its wrong passwords here, with an account's
+// backoff, for the process's life. The table is fixed, so a flood of names allocates nothing:
+// two names in one slot take turns, and the newer one starts again from no failures.
+
+@(private) GHOSTS :: 4096
+
+@(private)
+Ghost :: struct {
+	key:    u64,
+	failed: int,
+	until:  i64,
+}
+
+@(private)
+ghosts: struct {
+	mu:    guard.Mutex,
+	slots: [GHOSTS]Ghost,
+}
+
+// Never 0, which is "a known account" in Login.
+@(private)
+ghost_key :: proc(name: string) -> u64 {
+	lower := strings.to_lower(name, context.temp_allocator) // usernames compare without case
+	return hash.fnv64a(transmute([]byte)lower) | 1
+}
+
+@(private)
+ghost_until :: proc(key: u64) -> i64 {
+	guard.lock(&ghosts.mu)
+	defer guard.unlock(&ghosts.mu)
+	g := &ghosts.slots[key % GHOSTS]
+	return g.until if g.key == key else 0
+}
+
+@(private)
+ghost_failed :: proc(key: u64) {
+	guard.lock(&ghosts.mu)
+	defer guard.unlock(&ghosts.mu)
+	g := &ghosts.slots[key % GHOSTS]
+	if g.key != key { g^ = {key = key} }
+	g.failed += 1
+	g.until = accounts.now_ms() + accounts.backoff_ms(g.failed)
 }
 
 // A session seen again, written at most once a minute (load_viewer).

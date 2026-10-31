@@ -245,6 +245,7 @@ create_invite :: proc(op: ^m.Create_Invite) -> bool { return accounts_store.crea
 delete_invite :: proc(op: ^m.Delete_Invite) -> bool { return accounts_store.delete_invite(op) }
 issue_reset :: proc(op: ^m.Issue_Reset) -> bool { return accounts_store.issue_reset(op) }
 redeem_reset :: proc(op: ^m.Redeem_Reset) -> bool { return accounts_store.redeem_reset(op) }
+reset_live :: proc(code_hash: string, user_id, now: i64) -> (bool, m.Error) { return accounts_store.reset_live(code_hash, user_id, now) }
 set_display :: proc(op: ^m.Set_Display) -> bool { return accounts_store.set_display(op) }
 theme_of :: proc(user_id: i64) -> (m.Theme, m.Error) { return accounts_store.theme_of(user_id) }
 set_theme :: proc(op: ^m.Set_Theme) -> bool { return accounts_store.set_theme(op) }

@@ -275,9 +275,15 @@ members :: proc(t: ^testing.T) {
 		settle(t, before + 1)
 		return last_err
 	}
+	code_live :: proc(code: string, user, now: i64) -> bool { ok, _ := sql.reset_live(code, user, now); return ok }
+	testing.expect(t, code_live("r1", mod.result, 400))
+	testing.expect(t, !code_live("r1", open.result, 400)) // another member's code
+	testing.expect(t, !code_live("r1", 0, 400))           // a name with no account
+	testing.expect(t, !code_live("r1", mod.result, 9000)) // expired
 	testing.expect_value(t, redeem(t, open.result, "r1"), store.Error.Constraint) // another member's code
 	testing.expect_value(t, redeem(t, mod.result, "r1"), store.Error.None)
 	testing.expect_value(t, redeem(t, mod.result, "r1"), store.Error.Constraint) // once
+	testing.expect(t, !code_live("r1", mod.result, 400)) // spent
 	kim, _ := sql.user_by_id(mod.result)
 	testing.expect_value(t, kim.pw_hash, "$new")
 	_, serr = sql.session("a3")

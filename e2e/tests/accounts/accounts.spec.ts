@@ -123,6 +123,20 @@ test.describe('accounts', T, () => {
     });
   });
 
+  // M4-05: the fourth try's 429 says nothing about whether the name exists.
+  test('a name with no account backs off the same way', async ({ request }) => {
+    await own({}, async (_, base) => {
+      const ghost = (password: string) => ({ form: { username: 'Nobody-Here', password }, maxRedirects: 0 });
+      for (let i = 0; i < 3; i++) expect((await request.post(`${base}/login`, ghost('wrong-wrong-wrong'))).status()).toBe(422);
+      const shut = await request.post(`${base}/login`, ghost('wrong-wrong-wrong'));
+      expect(shut.status()).toBe(429);
+      expect(await shut.text()).toContain('Too many wrong passwords');
+      // Names compare without case, here as for accounts; a real account is untouched.
+      expect((await request.post(`${base}/login`, { form: { username: 'nobody-here', password: 'x' }, maxRedirects: 0 })).status()).toBe(429);
+      expect((await request.post(`${base}/login`, form())).status()).toBe(303);
+    });
+  });
+
   test('sign-ins from one client are limited', async ({ request }) => {
     await own({ ACCOUNTS_LOGIN_PER_CLIENT: '2' }, async (_, base) => {
       expect((await request.post(`${base}/login`, form())).status()).toBe(303);

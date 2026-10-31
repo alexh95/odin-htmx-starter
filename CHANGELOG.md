@@ -33,6 +33,10 @@ all fixed and re-read.
   budget (it waited out the SYN retries, about two minutes on Linux), and its reads share what is left of it. A name
   to resolve still takes the resolver's own time. On Windows a closed port reads as no connection rather than
   refused, since Windows retries a refused connect for about 2 s.
+- **Sign-in and `/reset` no longer tell which usernames exist** (M4-05): a name with no account backs off after
+  three wrong passwords as an account does (kept in memory, in a fixed table), so the fourth try's 429 says nothing;
+  `/reset` checks the code with one read before hashing anything, the same read for a name with no account, so a
+  wrong code answers alike and as quickly.
 - **Status and the memory jobs store lock through the guard** (M5-10): status's lock is a `guard.Mutex` (its probers
   sleep on a semaphore, never under the lock), and the memory jobs store takes the memory family's `Lock`.
 - **The drills' Linux servers get their env single-quoted**: the backup and dbview drills' admin hash (all `$`) was

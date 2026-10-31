@@ -225,6 +225,7 @@ Store_Set_Disabled :: proc(op: ^Set_Disabled) -> bool
 Store_Create_Invite :: proc(op: ^Create_Invite) -> bool
 Store_Delete_Invite :: proc(op: ^Delete_Invite) -> bool
 Store_Issue_Reset :: proc(op: ^Issue_Reset) -> bool
+Store_Reset_Live :: proc(code_hash: string, user_id, now: i64) -> (bool, Error) // the member's unspent, unexpired code
 Store_Redeem_Reset :: proc(op: ^Redeem_Reset) -> bool
 Store_Set_Display :: proc(op: ^Set_Display) -> bool
 Store_Theme_Of :: proc(user_id: i64) -> (Theme, Error) // {} when the member never chose

@@ -130,6 +130,15 @@ test.describe('members', T, () => {
       const code = (await admin.page.locator('.reset-code').textContent())!.trim();
       expect(code).toMatch(/^[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}$/);
 
+      // M4-05: a wrong code for a member and the right code under a name with no account answer alike.
+      const tryReset = (username: string, c: string) => robin.context.request.post(`${base}/reset`,
+        { form: { username, code: c, password: 'a-brand-new-password', again: 'a-brand-new-password' } });
+      for (const [who, c] of [['robin', 'aaaa-bbbb-cccc'], ['nobody-here', code]]) {
+        const r = await tryReset(who, c);
+        expect(r.status()).toBe(422);
+        expect(await r.text()).toContain('match, or was used.');
+      }
+
       const reset = async (c: string) => {
         await robin.page.goto('/reset');
         await robin.page.locator('#username').fill('robin');

@@ -58,6 +58,7 @@ MIGRATIONS := [?]store.Migration {
 @(private) SQL_DROP_INVITE :: "DELETE FROM accounts_invites WHERE code_hash = ?"
 @(private) SQL_DROP_RESETS :: "DELETE FROM accounts_reset_codes WHERE user_id = ? AND used_at = 0"
 @(private) SQL_ADD_RESET :: "INSERT INTO accounts_reset_codes(code_hash, user_id, created_by, created_at, expires_at) VALUES(?, ?, ?, ?, ?)"
+@(private) SQL_RESET_LIVE :: "SELECT 1 FROM accounts_reset_codes WHERE code_hash = ?1 AND user_id = ?2 AND used_at = 0 AND expires_at > ?3"
 @(private) SQL_SPEND_RESET :: "UPDATE accounts_reset_codes SET used_at = ?1 WHERE code_hash = ?2 AND user_id = ?3 AND used_at = 0 AND expires_at > ?1"
 @(private) SQL_SET_PASSWORD :: "UPDATE users SET pw_hash = ?, failed_logins = 0, backoff_until = 0 WHERE id = ?"
 @(private) SQL_SET_DISPLAY :: "UPDATE users SET display = ? WHERE id = ?"
@@ -551,6 +552,17 @@ issue_reset :: proc(op: ^m.Issue_Reset) -> bool {
 		o.err = db.step_done(st)
 	}
 	return db.write(op)
+}
+
+// A read before the reset's hash (M4-05): a wrong code answers as quickly for a member as for
+// a name with no account, which `user_id` 0 is.
+reset_live :: proc(code_hash: string, user_id, now: i64) -> (live: bool, err: m.Error) {
+	q := db.read(SQL_RESET_LIVE)
+	defer db.reset(q)
+	db.bind_text(q, 1, code_hash)
+	db.bind_id(q, 2, user_id)
+	db.bind_id(q, 3, now)
+	return db.next_row(q, &err), err
 }
 
 redeem_reset :: proc(op: ^m.Redeem_Reset) -> bool {
