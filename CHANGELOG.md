@@ -29,6 +29,9 @@ all fixed and re-read.
 
 ### Fixed
 
+- **/admin/ops opened in the first second after boot has its Store card**: rendered before the first sample, the
+  page had none, and the panel's swaps fill only the cards a page has; it now takes a reading of its own.
+
 - **A status probe gives up on a blackholed external in 2 s** (M5-09): connect is non-blocking with the probe's 2 s
   budget (it waited out the SYN retries, about two minutes on Linux), and its reads share what is left of it. A name
   to resolve still takes the resolver's own time. On Windows a closed port reads as no connection rather than

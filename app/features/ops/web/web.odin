@@ -48,10 +48,25 @@ init :: proc() {
 
 @(private)
 sample :: proc() {
+	_, seq := ops.record(reading())
+	samples := make([dynamic]ops.Sample, 0, ops.HISTORY, context.temp_allocator)
+	_ = ops.history(&samples)
+	modules := make([dynamic]ops.Module, context.temp_allocator)
+	ops.modules(&modules)
+	b := strings.builder_make(context.temp_allocator)
+	ops_views.cards(&b, samples[:], modules[:], true)
+	html := strings.to_string(b)
+	ops.keep_panel(html, seq)
+	hub.publish(PANEL, html)
+}
+
+// The process now, as a sample records it.
+@(private)
+reading :: proc() -> ops.Sample {
 	n := hub.numbers()
 	_, age := obs.oldest_tick()
 	mem, has_store := obs.store_memory()
-	_, seq := ops.record({
+	return {
 		at_ns          = sys.now_unix_ns(),
 		requests       = obs.requests_total(),
 		streams        = stream.open_total(),
@@ -64,16 +79,7 @@ sample :: proc() {
 		oldest_tick_ms = int(age / 1e6),
 		store          = mem,
 		has_store      = has_store,
-	})
-	samples := make([dynamic]ops.Sample, 0, ops.HISTORY, context.temp_allocator)
-	_ = ops.history(&samples)
-	modules := make([dynamic]ops.Module, context.temp_allocator)
-	ops.modules(&modules)
-	b := strings.builder_make(context.temp_allocator)
-	ops_views.cards(&b, samples[:], modules[:], true)
-	html := strings.to_string(b)
-	ops.keep_panel(html, seq)
-	hub.publish(PANEL, html)
+	}
 }
 
 // ---- the page and its refreshes -----------------------------------------------------------------
@@ -88,6 +94,9 @@ page :: proc(req: ^web.Request, res: ^web.Response) {
 	web.impl(res, "ops.mode", ops_views.MODES[mode].name)
 	samples := make([dynamic]ops.Sample, 0, ops.HISTORY, context.temp_allocator)
 	seq := ops.history(&samples)
+	// Before the first sample, a reading of its own: the panel's swaps fill only the cards the
+	// page has, so a page without the Store card would never get one.
+	if len(samples) == 0 { append(&samples, reading()) }
 	modules := make([dynamic]ops.Module, context.temp_allocator)
 	ops.modules(&modules)
 	limits := make([dynamic]ops.Limit, context.temp_allocator)
