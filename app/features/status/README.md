@@ -10,8 +10,8 @@ while none changed). A probe's message is shown to `Admin_Ops` only, but an exte
 what it answers anyone.
 
 `STATUS_PROBES` (`name=host:port,…`, at most 16) adds externals: each has a thread of its own that probes its `/healthz`
-every 10 s, and at once when a page wants an answer fresher than 5 s, with a 2 s socket timeout (resolve and connect have
-none of their own: on a stack network a stopped container doesn't resolve; the page's 2.5 s cut-off bounds them). One
+every 10 s, and at once when a page wants an answer fresher than 5 s, within 2 s, connect and reads together (a name to
+resolve takes the resolver's own time on top: on a stack network a stopped container doesn't resolve at all). One
 probe is in flight per external however many pages ask; at most 64 pages wait on one, and the rest get its last
 answer. `STATUS_DISK` (`.`; `/data` in Houston's container) names the filesystem the disk part reports: degraded under
 10 % free. In `lab` that is the witness board (M3): `deploy/compose.yaml` names the

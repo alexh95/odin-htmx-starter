@@ -1,6 +1,7 @@
 #+build windows
 package sys
 
+import "core:net"
 import win32 "core:sys/windows"
 import "core:time"
 
@@ -42,4 +43,25 @@ disk_free :: proc(path: string) -> (free, total: i64, ok: bool) {
 	avail, all: win32.ULARGE_INTEGER
 	if !win32.GetDiskFreeSpaceExW(w, &avail, &all, nil) { return }
 	return i64(avail), i64(all), true
+}
+
+// Connects `sock` to an IPv4 `ep`, giving up after `within` (status's probes, M5-09): a blocking
+// connect to an address that drops packets waits out the SYN retries, about 21 s here.
+connect_within :: proc(sock: net.TCP_Socket, ep: net.Endpoint, within: time.Duration) -> (ok, timed_out: bool) {
+	ip, is4 := ep.address.(net.IP4_Address)
+	if !is4 || net.set_blocking(sock, false) != nil { return }
+	defer net.set_blocking(sock, true)
+	s := win32.SOCKET(sock)
+	sa := win32.sockaddr_in{sin_family = win32.ADDRESS_FAMILY(win32.AF_INET), sin_port = u16be(ep.port), sin_addr = {transmute(u32)ip}}
+	if win32.connect(s, (^win32.SOCKADDR_STORAGE_LH)(&sa), size_of(sa)) == 0 { return true, false }
+	if win32.WSAGetLastError() != win32.WSAEWOULDBLOCK { return }
+	// A refused connect shows in the except set, not the write set.
+	writable, failed: win32.fd_set
+	writable.fd_count, writable.fd_array[0] = 1, s
+	failed = writable
+	ms := i64(time.duration_milliseconds(within))
+	tv := win32.timeval{tv_sec = win32.c_long(ms / 1000), tv_usec = win32.c_long(ms % 1000 * 1000)}
+	n := win32.select(0, nil, &writable, &failed, &tv)
+	if n == 0 { return false, true }
+	return n > 0 && failed.fd_count == 0, false
 }

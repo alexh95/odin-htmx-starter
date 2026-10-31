@@ -6,11 +6,12 @@ package status
 // (§10.4), whether every event loop still ticks, the process itself, the disk the data is on,
 // and the STATUS_PROBES externals (the lab's witness board, M3: the other witnesses' /healthz).
 // Each external has a prober thread of its own, probing every WATCH_EVERY and whenever a page
-// asks for an answer fresher than FRESH (resolve and connect have no timeout of their own: a
-// blackholed external holds its prober for the OS's connect timeout, and pages get "no answer"
-// at ANSWER_WITHIN meanwhile, M5-09): a page waits on that thread's next answer (one probe
-// in flight per external, however many pages ask), and its part goes out when it comes (M5:
-// the parts swap in parallel order). A page never waits longer than ANSWER_WITHIN.
+// asks for an answer fresher than FRESH. A probe's connect and reads share one PROBE_TIMEOUT
+// (M5-09); a name to resolve takes the resolver's own time on top (core:net's 1 s a name server
+// on POSIX, the system's on Windows), so give externals an address where that matters. A page
+// waits on that thread's next answer (one probe in flight per external, however many pages ask),
+// and its part goes out when it comes (M5: the parts swap in parallel order). A page never waits
+// longer than ANSWER_WITHIN.
 
 import "core:fmt"
 import "core:hash"
@@ -21,6 +22,7 @@ import "core:thread"
 import "core:time"
 
 import "../../platform/env"
+import "../../platform/guard"
 import "../../platform/obs"
 import "../../platform/sys"
 
@@ -59,6 +61,7 @@ External :: struct {
 	answered:   i64,  // mono ns of the last answer; 0: none yet
 	asked:      bool, // a page wants an answer: the prober goes now
 	waiters:    [dynamic]^Waiter,
+	wake:       sync.Sema, // posted once per ask; the prober sleeps on it between probes
 }
 
 // A page waiting for one external's next answer. `answered` runs on the prober's thread, so it
@@ -71,9 +74,8 @@ Waiter :: struct {
 
 @(private)
 externals: struct {
-	mu:   sync.Mutex,
-	wake: sync.Cond,
-	list: [dynamic]External,
+	mu:   guard.Mutex, // loop handlers take it, so a trap under it is dirty (M5-10)
+	list: [dynamic]External, // never grows after init: the probers hold pointers into it
 }
 
 @(private)
@@ -121,8 +123,8 @@ externals_count :: proc() -> int { return len(externals.list) }
 // An external's last answer, its message in the temp arena; `fresh` when it is recent enough to
 // send as it is.
 external :: proc(i: int) -> (p: Probe, fresh: bool) {
-	sync.mutex_lock(&externals.mu)
-	defer sync.mutex_unlock(&externals.mu)
+	guard.lock(&externals.mu)
+	defer guard.unlock(&externals.mu)
 	e := &externals.list[i]
 	p = Probe{e.name, e.state, strings.clone(e.message, context.temp_allocator), true}
 	return p, e.answered != 0 && sys.mono_ns() - e.answered < i64(FRESH)
@@ -131,14 +133,14 @@ external :: proc(i: int) -> (p: Probe, fresh: bool) {
 // Asks for external i's next answer, which calls w.answered; false when too many already wait
 // (the caller sends the last answer).
 wait_for :: proc(i: int, w: ^Waiter) -> bool {
-	sync.mutex_lock(&externals.mu)
-	defer sync.mutex_unlock(&externals.mu)
+	guard.lock(&externals.mu)
+	defer guard.unlock(&externals.mu)
 	e := &externals.list[i]
 	if len(e.waiters) >= MAX_WAITERS { return false }
 	w.index = i
 	append(&e.waiters, w)
+	if !e.asked { sync.sema_post(&e.wake) }
 	e.asked = true
-	sync.cond_broadcast(&externals.wake)
 	return true
 }
 
@@ -148,26 +150,28 @@ prober :: proc(i: int) {
 	host := externals.list[i].host
 	for {
 		state, message := probe(host)
-		sync.mutex_lock(&externals.mu)
+		guard.lock(&externals.mu)
 		e := &externals.list[i]
 		delete(e.message)
 		e.state, e.message, e.answered, e.asked = state, message, sys.mono_ns(), false
 		waiting := make([]^Waiter, len(e.waiters), context.temp_allocator)
 		copy(waiting, e.waiters[:])
 		clear(&e.waiters)
-		sync.mutex_unlock(&externals.mu)
+		guard.unlock(&externals.mu)
 		for w in waiting { w.answered(w) }
 		// This thread is no request: nothing frees its temp allocator but this, and every probe's
 		// request line and resolver lookups land there (M3-01).
 		free_all(context.temp_allocator)
+		// The lock is never held while sleeping: the watchdog would read a long hold as a stuck lock.
 		since := time.tick_now()
-		sync.mutex_lock(&externals.mu)
-		for !externals.list[i].asked {
+		for {
+			guard.lock(&externals.mu)
+			asked := externals.list[i].asked
+			guard.unlock(&externals.mu)
 			left := WATCH_EVERY - time.tick_since(since)
-			if left <= 0 { break }
-			_ = sync.cond_wait_with_timeout(&externals.wake, &externals.mu, left)
+			if asked || left <= 0 { break }
+			_ = sync.sema_wait_with_timeout(&externals.list[i].wake, left)
 		}
-		sync.mutex_unlock(&externals.mu)
 	}
 }
 
@@ -177,17 +181,22 @@ probe :: proc(host: string) -> (state, message: string) {
 	t0 := time.tick_now()
 	ep, rerr := net.resolve_ip4(host)
 	if rerr != nil { return "down", fmt.aprintf("%s doesn't resolve", host) }
-	sock, derr := net.dial_tcp(ep)
-	if derr != nil { return "down", fmt.aprintf("%s refused the connection", host) }
+	any_sock, serr := net.create_socket(.IP4, .TCP)
+	if serr != nil { return "down", fmt.aprintf("%s: no socket", host) }
+	sock := any_sock.(net.TCP_Socket)
 	defer net.close(sock)
-	net.set_option(sock, .Receive_Timeout, PROBE_TIMEOUT)
+	connected, timed_out := sys.connect_within(sock, ep, PROBE_TIMEOUT)
+	if timed_out { return "down", fmt.aprintf("%s: no connection in %.0f ms", host, time.duration_milliseconds(PROBE_TIMEOUT)) }
+	if !connected { return "down", fmt.aprintf("%s refused the connection", host) }
 	net.set_option(sock, .Send_Timeout, PROBE_TIMEOUT)
 	req := fmt.tprintf("GET /healthz HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", host)
 	if _, err := net.send_tcp(sock, transmute([]byte)req); err != nil { return "down", fmt.aprintf("%s: the request didn't go out", host) }
 	buf: [2048]byte
 	n := 0
-	// The socket timeout bounds each read; this bounds them all, against a peer that drips (M5-09).
-	for n < len(buf) && time.tick_since(t0) < PROBE_TIMEOUT {
+	// Each read waits only for what is left of PROBE_TIMEOUT, against a peer that drips (M5-09).
+	for n < len(buf) {
+		left := PROBE_TIMEOUT - time.tick_since(t0)
+		if left <= 0 || net.set_option(sock, .Receive_Timeout, left) != nil { break }
 		got, err := net.recv_tcp(sock, buf[n:])
 		if err != nil || got == 0 { break }
 		n += got
@@ -224,11 +233,11 @@ local :: proc(version: string, out: ^[dynamic]Probe) {
 
 board :: proc(version: string, out: ^[dynamic]Probe) {
 	local(version, out)
-	sync.mutex_lock(&externals.mu)
+	guard.lock(&externals.mu)
 	for e in externals.list {
 		append(out, Probe{e.name, e.state, strings.clone(e.message, context.temp_allocator), true})
 	}
-	sync.mutex_unlock(&externals.mu)
+	guard.unlock(&externals.mu)
 }
 
 // The data's filesystem: degraded under DISK_LOW free.

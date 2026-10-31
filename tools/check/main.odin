@@ -19,10 +19,13 @@ package main
 //              publish names a declared family
 //   exts       every mounted web package declares EXTS; BUNDLE_EXTS and
 //              PAGE_BUNDLES name exactly the mounted packages with EXTS or BUNDLES
+//   locks      no package names core:sync's locks but the platform packages in
+//              RAW_LOCK_OWNERS, each with its reason: a lock a handler takes is a
+//              guard.Mutex, so a trap under it is dirty (D15)
 //   parity     every route of each built profile reached by the e2e run and by
 //              the load run, or waived with a reason in tests/parity-waivers.txt
 //              (PLAN §19.1.11)
-//   all        imports, profile, routes, contracts, topics and exts (parity needs the runs)
+//   all        imports, profile, routes, contracts, topics, exts and locks (parity needs the runs)
 //
 // It reads the source with core:odin/parser and builds nothing; parity alone
 // asks the built binaries (`--routes --json`) and reads the suites' counter
@@ -37,7 +40,7 @@ import "core:os"
 import "core:slice"
 import "core:strings"
 
-COMMANDS := [?]string{"imports", "profile", "routes", "contracts", "topics", "exts", "parity"}
+COMMANDS := [?]string{"imports", "profile", "routes", "contracts", "topics", "exts", "locks", "parity"}
 
 main :: proc() {
 	root := "."
@@ -50,7 +53,7 @@ main :: proc() {
 			i += 1
 			root = args[i]
 		case "all":
-			append(&cmds, "imports", "profile", "routes", "contracts", "topics", "exts")
+			append(&cmds, "imports", "profile", "routes", "contracts", "topics", "exts", "locks")
 		case:
 			if !slice.contains(COMMANDS[:], a) { usage() }
 			append(&cmds, a)
@@ -67,6 +70,7 @@ main :: proc() {
 		case "contracts": check_contracts(&tree)
 		case "topics":    check_topics(&tree)
 		case "exts":      check_exts(&tree)
+		case "locks":     check_locks(&tree)
 		case "parity":    check_parity(&tree)
 		}
 	}
@@ -78,7 +82,7 @@ main :: proc() {
 }
 
 usage :: proc() {
-	fmt.eprintln("usage: odin run tools/check -- <imports|profile|routes|contracts|topics|exts|parity|all> … [--root DIR]")
+	fmt.eprintln("usage: odin run tools/check -- <imports|profile|routes|contracts|topics|exts|locks|parity|all> … [--root DIR]")
 	os.exit(2)
 }
 

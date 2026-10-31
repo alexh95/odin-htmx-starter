@@ -22,6 +22,7 @@ checks :: proc(t: ^testing.T) {
 	check_contracts(&tree)
 	check_topics(&tree)
 	check_exts(&tree)
+	check_locks(&tree)
 	testing.expectf(t, len(problems) == 0, "the tree has problems:\n%s", strings.join(problems[:], "\n"))
 
 	// The bad fixture: every check trips on what it was written to catch.
@@ -33,6 +34,7 @@ checks :: proc(t: ^testing.T) {
 	check_contracts(&bad)
 	check_topics(&bad)
 	check_exts(&bad)
+	check_locks(&bad)
 	check_parity(&bad)
 	want := [?]string {
 		// imports
@@ -81,6 +83,10 @@ checks :: proc(t: ^testing.T) {
 		`PAGE_BUNDLES doesn't name features/x/web`,
 		`features/w/web declares no EXTS`,
 		`BUNDLE_EXTS names features/u/web, which no host of bad mounts`,
+		// locks
+		`features/x/locked.odin:7: features/x takes core:sync's Mutex`,
+		`features/x/locked.odin:10: features/x takes core:sync's mutex_lock`,
+		`features/x/locked.odin:12: features/x takes core:sync's mutex_unlock`,
 		// parity
 		`a route waiver without a reason: route | GET /x/y | load |`,
 		`app/bin/bad isn't built`,

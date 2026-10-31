@@ -1,8 +1,11 @@
 #+build linux, darwin, freebsd, openbsd, netbsd
 package sys
 
+import "core:c"
+import "core:net"
 import "core:strings"
 import "core:sys/posix"
+import "core:time"
 
 // Soft to hard (PLAN §8.6 step 2): a container's soft limit is 1024 by default, and at
 // that limit the server stopped accepting after 1,012 streams (13 §3.5). F-8's cap
@@ -69,4 +72,23 @@ disk_free :: proc(path: string) -> (free, total: i64, ok: bool) {
 	st: posix.statvfs_t
 	if posix.statvfs(strings.clone_to_cstring(path, context.temp_allocator), &st) != .OK { return }
 	return i64(st.f_bavail) * i64(st.f_frsize), i64(st.f_blocks) * i64(st.f_frsize), true
+}
+
+// Connects `sock` to an IPv4 `ep`, giving up after `within` (status's probes, M5-09): a blocking
+// connect to an address that drops packets waits out the kernel's SYN retries, about two minutes.
+connect_within :: proc(sock: net.TCP_Socket, ep: net.Endpoint, within: time.Duration) -> (ok, timed_out: bool) {
+	ip, is4 := ep.address.(net.IP4_Address)
+	if !is4 || net.set_blocking(sock, false) != nil { return }
+	defer net.set_blocking(sock, true)
+	fd := posix.FD(sock)
+	sa := posix.sockaddr_in{sin_family = .INET, sin_port = posix.in_port_t(ep.port), sin_addr = {transmute(posix.in_addr_t)ip}}
+	if posix.connect(fd, (^posix.sockaddr)(&sa), size_of(sa)) == .OK { return true, false }
+	if posix.errno() != .EINPROGRESS { return }
+	p := posix.pollfd{fd = fd, events = {.OUT}}
+	n := posix.poll(&p, 1, c.int(time.duration_milliseconds(within)))
+	if n == 0 { return false, true }
+	err: c.int
+	size := posix.socklen_t(size_of(err))
+	if n < 0 || posix.getsockopt(fd, posix.SOL_SOCKET, .ERROR, &err, &size) != .OK || err != 0 { return }
+	return true, false
 }

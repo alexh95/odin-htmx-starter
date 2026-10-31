@@ -81,7 +81,7 @@ app/prepare.sh              # once: htmx, SQLite, each profile's bundled assets 
 ./build.sh skeleton         # build app/bin/skeleton; -o:speed etc. pass through (build.bat)
 CMD=check ./build.sh minimal    # odin check on the profile's families; CMD=test runs its tests
 app/run.sh                  # build and serve skeleton on :8080 (PROFILE=minimal for minimal)
-odin run tools/check -- all # imports, profile, routes, contracts, topics, exts (parity after both suites ran)
+odin run tools/check -- all # imports, profile, routes, contracts, topics, exts, locks (parity after both suites ran)
 sh .github/scripts/unit-tests.sh   # every package with tests, leaks fatal
 node tools/drills/drills.mjs skeleton   # crash, shutdown, restart, fd and budget drills
 sh tools/profile/profile.sh skeleton pages   # Linux: perf samples and top functions (--spall: every call)

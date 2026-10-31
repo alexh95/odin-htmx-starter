@@ -80,7 +80,8 @@ test.describe('status', T, () => {
         return [await page.locator('#st-alive .status-state').innerText(), await page.locator('#st-gone .status-state').innerText()];
       }, { timeout: 15000 }).toEqual(['ok', 'down']);
       await expect(page.locator('#st-alive')).toContainText(/version \S+, \d+ ms/);
-      await expect(page.locator('#st-gone')).toContainText('refused');
+      // Windows retries a refused SYN for about 2 s, past the probe's 2 s connect: there it reads as no connection.
+      await expect(page.locator('#st-gone')).toContainText(process.platform === 'win32' ? /refused|no connection in \d+ ms/ : /refused/);
     } finally {
       await context.close();
       await stopServer(s);

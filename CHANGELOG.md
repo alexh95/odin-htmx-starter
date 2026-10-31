@@ -21,8 +21,20 @@ read-only SQL on the query pool, which never takes the writer's lock (its drill 
 query that runs to its 2 s budget). An independent audit (`docs/audit/M5.md`) found 0 CRITICAL or HIGH and 4 MEDIUM,
 all fixed and re-read.
 
+### Added
+
+- **`tools/check locks`** (PLAN §19.2.1, M5-10): no package names core:sync's mutexes, condition variables or their
+  lock procs but five platform packages, each listed with its reason; everything a handler locks is a `guard.Mutex`,
+  so a trap under it is dirty. `all` runs it.
+
 ### Fixed
 
+- **A status probe gives up on a blackholed external in 2 s** (M5-09): connect is non-blocking with the probe's 2 s
+  budget (it waited out the SYN retries, about two minutes on Linux), and its reads share what is left of it. A name
+  to resolve still takes the resolver's own time. On Windows a closed port reads as no connection rather than
+  refused, since Windows retries a refused connect for about 2 s.
+- **Status and the memory jobs store lock through the guard** (M5-10): status's lock is a `guard.Mutex` (its probers
+  sleep on a semaphore, never under the lock), and the memory jobs store takes the memory family's `Lock`.
 - **The drills' Linux servers get their env single-quoted**: the backup and dbview drills' admin hash (all `$`) was
   expanded by `sh`, so their file-DB servers exited at boot and master's Linux drills were red from 6c66e62.
 - **A frequent job asked for by hand runs at once** (M5-13, the re-read): it no longer waits for the long-run thread,

@@ -36,8 +36,8 @@ metrics only). Pushes are on the standing go; apollo, tags and anything on Alex'
       a unit or drill assertion that the publisher renders once a second.
       Done: the `opsviewers` drill (Windows 0.0 / 1.6 / 3.1 ms of CPU a second at 1 / 10 / 100 viewers, 11 refreshes
       each in 10 s; Linux in CI's `streams` drills), `docs/perf/OPS-VIEWERS.md`.
-- [x] **3. status, full** (§15.4): `STATUS_PROBES` externals with 2 s timeouts (each read's and the reads' together;
-      resolve and connect have none of their own, so the page's 2.5 s cut-off is what bounds them: M5-09), disk
+- [x] **3. status, full** (§15.4): `STATUS_PROBES` externals with a 2 s timeout (connect and the reads share it,
+      M5-09; a name to resolve takes the resolver's own time on top), disk
       free and backup age as parts, one `multipart/parallel` response whose parts arrive as each answers. *Check:* a
       spec with a slow and a fast external asserting the fast part swaps first (the parallel order); the ptag variant.
       Done: a prober thread per external with waiters (single-flight), the 2.5 s cut-off on the page's loop, the disk
@@ -78,8 +78,9 @@ metrics only). Pushes are on the standing go; apollo, tags and anything on Alex'
       Progress (2026-10-31): `docs/audit/M5.md` (0 CRITICAL or HIGH, 4 MEDIUM, 6 LOW, 2 NIT; all fixed or said in
       `f42f032`, re-read; the re-read's M5-13 LOW fixed in `23244f2`, its two NIT said). Parity
       (`docs/perf/PARITY-M5.md`): Linux 20 of 20; Windows 19 of 20, `pages@mem`'s p99 1.11-1.12 of HEAD at 2.2 times its
-      throughput, accepted as a pass by Alex (2026-10-31). Stamps and the 2.4.0 lead written. Open in the audit: M5-09's connect and resolve,
-      M5-10's memory store lock and `tools/check locks`. Left: the tag.
+      throughput, accepted as a pass by Alex (2026-10-31). Stamps and the 2.4.0 lead written. M5-09 (connect within the 2 s, reads within what is
+      left) and M5-10 (status and the memory jobs store on guard locks, `tools/check locks`) closed 2026-10-31. Left:
+      the tag.
 
 ## M4 — identity and the Houston shell (v2.3.0)
 

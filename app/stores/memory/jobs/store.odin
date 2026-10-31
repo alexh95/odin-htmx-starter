@@ -8,9 +8,9 @@ package jobs_store_memory
 import "base:runtime"
 import "core:slice"
 import "core:strings"
-import "core:sync"
 
 import m "../../../features/jobs/models"
+import mem_store "../../../platform/store/memory"
 
 IMPL :: "memory"
 
@@ -18,13 +18,13 @@ KEPT :: 500
 
 @(private)
 mem: struct {
-	mu:   sync.Mutex,
+	mu:   mem_store.Lock,
 	runs: [dynamic]m.Run_Row, // their strings on the heap
 }
 
 save :: proc(rows: []m.Run_Row) -> m.Error {
-	sync.mutex_lock(&mem.mu)
-	defer sync.mutex_unlock(&mem.mu)
+	mem_store.lock(&mem.mu)
+	defer mem_store.unlock(&mem.mu)
 	a := runtime.heap_allocator()
 	for r in rows {
 		kept := r
@@ -49,8 +49,8 @@ save :: proc(rows: []m.Run_Row) -> m.Error {
 }
 
 recent :: proc(limit: int, into: ^[dynamic]m.Run_Row) -> m.Error {
-	sync.mutex_lock(&mem.mu)
-	defer sync.mutex_unlock(&mem.mu)
+	mem_store.lock(&mem.mu)
+	defer mem_store.unlock(&mem.mu)
 	first := len(into)
 	for r in mem.runs {
 		c := copy_of(r)
@@ -63,8 +63,8 @@ recent :: proc(limit: int, into: ^[dynamic]m.Run_Row) -> m.Error {
 }
 
 run :: proc(boot, id: i64) -> (m.Run_Row, m.Error) {
-	sync.mutex_lock(&mem.mu)
-	defer sync.mutex_unlock(&mem.mu)
+	mem_store.lock(&mem.mu)
+	defer mem_store.unlock(&mem.mu)
 	for r in mem.runs {
 		if r.boot == boot && r.id == id { return copy_of(r), .None }
 	}
@@ -74,8 +74,8 @@ run :: proc(boot, id: i64) -> (m.Run_Row, m.Error) {
 fail_lapsed :: proc(boot, now: i64) -> (int, m.Error) { return 0, .None }
 
 prune :: proc(before: i64) -> (int, m.Error) {
-	sync.mutex_lock(&mem.mu)
-	defer sync.mutex_unlock(&mem.mu)
+	mem_store.lock(&mem.mu)
+	defer mem_store.unlock(&mem.mu)
 	n := 0
 	for i := 0; i < len(mem.runs); {
 		if r := mem.runs[i]; r.ended_at != 0 && r.ended_at < before {
