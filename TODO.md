@@ -27,9 +27,12 @@ security audit of accounts, sessions, chat and uploads with 0 CRITICAL/HIGH **be
 M2's (`streams`, the memory store, all four transports); M6 puts it in `full` on SQLite. Pushes are on the standing
 go; Alex's step is the last: the 2–3 invites (Q23), only after the audit.
 
-- [ ] **1. Spike: htmx 4's `htmx:ws:error` detail** (§14.1's "Auto", UNVERIFIED (M6)): what the event carries on a
+- [x] **1. Spike: htmx 4's `htmx:ws:error` detail** (§14.1's "Auto", UNVERIFIED (M6)): what the event carries on a
       refused and a dropped socket in chromium, webkit and firefox, so Auto can fall back to SSE after two failed
       connects. *Check:* a decision record in `docs/spikes/`, with the measured details.
+      Done: `docs/spikes/M6.1.md`: the error's detail is a bare Event (no browser gives a reason), and chromium sends
+      none for a socket that was open; Auto counts `htmx:ws:close` events with no connection between them.
+      `e2e/tests/lab/ws-errors.spec.ts` keeps it measured (firefox in CI).
 - [ ] **2. Chat on SQLite** (§14.1, D30): `stores/sqlite/chat` with rooms (public, private, announcements; a DM as a
       two-member room with an opaque slug), members and messages (rowids), through M2's writer task; publish after
       commit with the rowid; `@rowid` keyset replay. `full` mounts chat on its main host, perms `Chat_*` (D35).

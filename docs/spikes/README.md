@@ -19,6 +19,7 @@ or M2 keeps (the fork's changes, the stream prototype, `tools/bundle`, `tools/ba
 | S0.10 Bundles | `tools/bundle` and the bundle race | [S0.10.md](S0.10.md) |
 | S0.11 Tuned SQLite | S10's flags across OSes | [S0.11.md](S0.11.md) |
 | S0.12 apollo facts | the host's numbers | [S0.12.md](S0.12.md) |
+| M6.1 hx-ws's errors | what Auto falls back on: closes, not errors | [M6.1.md](M6.1.md) |
 
 ## The Fly witness at M0
 

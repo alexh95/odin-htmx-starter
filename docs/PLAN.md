@@ -3312,7 +3312,8 @@ Polling / Multipart" setting: a compatibility mode for networks whose proxies ki
   the `Viewer`), a cookie elsewhere, `?transport=` in tests, else `CHAT_TRANSPORT`. Responses carry
   `x-impl: chat.transport=<t>`, log lines `impl=`.
 - "Auto" is WS, falling back to SSE after two failed connects. It reads the `htmx:ws:error` event detail, which is
-  **UNVERIFIED (M6)**: a spike at the M6 start settles it.
+  **UNVERIFIED (M6)**: a spike at the M6 start settles it. *Settled (M6.1):* the detail is a bare Event, so Auto
+  counts `htmx:ws:close` events with no connection between them.
 - `Composer` (Enter sends) and `AutoScroll` behave the same over A–D (07 §1.2). Specs run per transport
   (`@chat-ws` …) and resume without duplicates, including across a server restart (D37).
 
