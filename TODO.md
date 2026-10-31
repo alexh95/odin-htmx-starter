@@ -22,10 +22,10 @@ copy-and-start ergonomics and good defaults matter more than feature depth.
       2 s budget left the writes' slowest at 63 ms (alone: 1.1 ms), against the drill's bar; it passed on the rerun.
       Look at what else a write waited on there (a checkpoint, the runner), and whether the bar holds on a busy
       runner.
-- [ ] **contacts' search highlighting** (run 41251995318, jobs "E2E (full, firefox)" and "E2E (full-vanilla,
+- [x] **contacts' search highlighting** (run 41251995318, jobs "E2E (full, firefox)" and "E2E (full-vanilla,
       chromium)", on `eea5cae`): "a query that shrinks when lowered marks the original span" found no match for
-      `Turİng`; it passed on the rerun. Look at what the worker's server held then (the demo's cap and reset, a spec
-      that changes contacts beside it).
+      `Turİng`; it passed on the rerun. Found: it searched the seed's Turing, which can be the first row, and
+      crud.spec renames and deletes the first row on the same worker's server. The case adds its own row now.
 
 ## M6 — Comms, and the family beta (v2.5.0)
 

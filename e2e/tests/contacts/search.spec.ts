@@ -65,6 +65,13 @@ test.describe('search highlighting', { tag: '@contacts' }, () => {
   };
 
   test('a query that shrinks when lowered marks the original span', async ({ request }) => {
+    // Its own row: the seed's Turing can be the first row, which crud.spec renames and deletes on the
+    // same worker's server (a flake with four workers, run 41251995318). Lower case sorts after the seed.
+    const res = await request.post('/contacts', {
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      data: 'name=zz%20Turing&email=zz-turing@example.dev&role=0&status=1',
+    });
+    expect(res.status()).toBe(200);
     expect(await results(request, 'Turİng')).toContain('<mark>Turing</mark>');
     const dotted = await results(request, 'İ');
     expect(dotted).toContain('Tur<mark>i</mark>ng');
