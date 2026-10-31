@@ -95,6 +95,7 @@ events :: proc(req: ^web.Request, res: ^web.Response) {
 	replay := make([dynamic]^Msg, 0, 16, context.temp_allocator)
 	guard.lock(&h.mu)
 	join_loop()
+	revoked := revoked_since(ctx.viewer, ctx.start)
 	snapshot := h.seq
 	for i in 0 ..< n {
 		r := h.rings.by_topic[want[i].topic]
@@ -135,6 +136,13 @@ events :: proc(req: ^web.Request, res: ^web.Response) {
 	s.last = snapshot
 	s.session = ctx.viewer.session
 	add_sub(s)
+	// Revoked while this request was on its way: kicked as the revoke kicked its other streams.
+	if revoked {
+		for m in replay { release(m) }
+		stream.write(c, stream.sse_event("", "kicked", want[0].topic))
+		stream.end(c)
+		return
+	}
 	// Before the writes below: one can end the stream, whose close frees `s` (and tells the
 	// watchers it closed). Outside the hub mutex, since a watcher may publish (someone came online).
 	for i in 0 ..< n {

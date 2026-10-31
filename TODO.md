@@ -272,11 +272,10 @@ Alex, asked in one batch.
 - [ ] **M4 audit, open** (`docs/audit/M4.md`): M4-03's rest (the sign-in's overall bucket and the per-account
       backoff, §17.5: a stranger can slow every sign-in, never lock one out; decide before stage 2); M4-04's rest
       (an entry a full writer queue drops is not logged; entries are their own op, not the change's transaction);
-      M4-09's rest (the subscribe-after-kick race;
-      a sign-out's and a revoke's streams end since 2026-10-31); M4-12's rest (`totp_secret` encrypted
-      at rest with a `_FILE` key; backups outside the app's volume); M4-13's rest (`read_pending` and envadmin's
-      `read`; coverage-guided fuzzing in the nightly). Fixed: M4-05 (2026-10-31), M4-06, M4-07, M4-08, M4-10, M4-11, M4-14, M4-15,
-      M4-16, M4-12's busybox pin (and M3-08's), M4-13's four parsers (and M3-09's `ws_field`).
+      M4-12's rest (`totp_secret` encrypted at rest with a `_FILE` key; backups outside the app's volume); M4-13's
+      rest (`read_pending` and envadmin's `read`; coverage-guided fuzzing in the nightly). Fixed: M4-05 and M4-09
+      (2026-10-31), M4-06, M4-07, M4-08, M4-10, M4-11, M4-14, M4-15, M4-16, M4-12's busybox pin (and M3-08's),
+      M4-13's four parsers (and M3-09's `ws_field`).
 
 ## M3 — pipeline, apollo LAN, the landing page (v2.2.0)
 

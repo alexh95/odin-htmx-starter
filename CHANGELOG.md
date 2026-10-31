@@ -39,7 +39,8 @@ all fixed and re-read.
   wrong code answers alike and as quickly.
 - **A sign-out, or a member revoking a device, ends that device's open pages' streams** (M4-09): they went on until
   their next request. `authz.Viewer.session` keys a session, `/events` records it, and `hub.revoke_session` kicks only
-  that session's streams; the member's other devices stay signed in.
+  that session's streams; the member's other devices stay signed in. A stream admitted for a viewer loaded just
+  before a revoke is kicked as it opens, where it missed the kick and kept the old grant.
 - **Status and the memory jobs store lock through the guard** (M5-10): status's lock is a `guard.Mutex` (its probers
   sleep on a semaphore, never under the lock), and the memory jobs store takes the memory family's `Lock`.
 - **The drills' Linux servers get their env single-quoted**: the backup and dbview drills' admin hash (all `$`) was

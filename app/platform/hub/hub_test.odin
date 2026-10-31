@@ -5,6 +5,8 @@ import "core:strings"
 import "core:testing"
 import "core:thread"
 
+import "../sys"
+
 @(private = "file")
 msg :: proc(seq: u64, key: string, html := "x") -> ^Msg {
 	m := new(Msg)
@@ -265,4 +267,18 @@ wanted_topics_parse_strictly :: proc(t: ^testing.T) {
 	testing.expect(t, family == "notify.user" && key == "42")
 	family, key = split_topic("home.presence")
 	testing.expect(t, family == "home.presence" && key == "")
+}
+
+// A stream admitted across a revoke (M4-09): its viewer, loaded before the change, finds the record.
+@(test)
+a_revoke_is_found_by_a_stream_admitted_meanwhile :: proc(t: ^testing.T) {
+	defer h.revoked_n = 0
+	before := sys.mono_ns()
+	revoke_session(7, 0xab) // no host mounted: nothing to kick, only the record
+	testing.expect(t, revoked_since({id = 7, session = 0xab}, before))
+	testing.expect(t, !revoked_since({id = 7, session = 0xcd}, before)) // another of their devices
+	testing.expect(t, !revoked_since({id = 8, session = 0xab}, before))
+	testing.expect(t, !revoked_since({id = 7, session = 0xab}, sys.mono_ns() + 1)) // a request after it reads the change itself
+	revoke(7)
+	testing.expect(t, revoked_since({id = 7, session = 0xcd}, before)) // every session
 }

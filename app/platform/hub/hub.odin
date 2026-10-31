@@ -135,6 +135,8 @@ h: struct {
 	ring_bytes: int,
 	rings_max:  int, // HUB_RINGS_BYTES
 	rings_held: int, // what every ring holds, in bytes
+	revoked:    [REVOKES_KEPT]Revoked, // the newest revokes, a ring: what a stream admitted meanwhile missed
+	revoked_n:  int,
 	hosts:      map[string][]Topic, // per host name, mounted at boot
 	families:   map[string]^Topic,  // every mounted row, for publish
 	published:  obs.Counter,
@@ -248,6 +250,10 @@ revoke :: proc(user_id: u64) { revoke_session(user_id, 0) }
 // Ends the streams one session of a member's opened (a sign-out, a member's revoke of a device:
 // M4-09), as `revoke` ends all of them; `session` is authz.Viewer.session, 0 for every session.
 revoke_session :: proc(user_id, session: u64) {
+	guard.lock(&h.mu)
+	h.revoked[h.revoked_n % REVOKES_KEPT] = {user_id, session, sys.mono_ns()}
+	h.revoked_n += 1
+	guard.unlock(&h.mu)
 	buf: [24]byte
 	id := strconv.write_uint(buf[:], user_id, 10)
 	for _, rows in h.hosts {
@@ -255,6 +261,27 @@ revoke_session :: proc(user_id, session: u64) {
 			if row.member { kick(strings.concatenate({row.family, ":", id}, context.temp_allocator), stream.WS_POLICY, session) }
 		}
 	}
+}
+
+// A revoke's record, kept for the streams being admitted while it happens: a viewer loaded just
+// before the change committed would otherwise subscribe after the kick, with the old grant (M4-09).
+// Recorded before the kicks are posted, and read under the same mutex as `join_loop`, so a stream
+// either is counted on its loop before the kicks go out, or finds the record.
+REVOKES_KEPT :: 64
+
+Revoked :: struct {
+	user, session: u64, // session 0: every session of the user
+	at:            i64, // mono ns
+}
+
+// Under the hub mutex: whether `v` was revoked since `since` (mono ns, the request's start).
+@(private)
+revoked_since :: proc(v: authz.Viewer, since: i64) -> bool {
+	if v.id == 0 { return false }
+	for r in h.revoked[:min(h.revoked_n, REVOKES_KEPT)] {
+		if r.user == v.id && r.at >= since && (r.session == 0 || r.session == v.session) { return true }
+	}
+	return false
 }
 
 @(private)
