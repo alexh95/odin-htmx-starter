@@ -3983,8 +3983,9 @@ container has ≤ 2 CPUs, as apollo's `full` does: Q34, answered 2026-10-26), at
 so the pool holds threads × 19 MiB and never allocates per login. The parameters are OWASP's (19 MiB, t = 2, p = 1):
 S0.5 measured 19–32 ms per verify on the dev PC (medians, both OSes, a busy box; two at once barely slower), while the
 64 MiB preset took 119–191 ms and is out; OWASP's 7 MiB, t = 5 preset is the fallback for a tight `mem_limit`. Whether
-apollo verifies in ≤ 100 ms is **UNVERIFIED (M4)**: `--hash-password` prints its own derive time, so Alex's bootstrap
-step measures it. Compares are constant-time; unknown usernames get a dummy hash; passwords are 10–256 bytes; failures
+apollo verifies in ≤ 100 ms was **UNVERIFIED (M4)**: `--hash-password` prints its own derive time. *Measured
+2026-11-01* from the v2.3.0 image on apollo (a throwaway password, nothing written): `derive: 33.9 ms`, a 98-byte PHC
+string, so a sign-in there costs about a third of the 100 ms budget. Compares are constant-time; unknown usernames get a dummy hash; passwords are 10–256 bytes; failures
 cause per-account exponential backoff, never a hard lockout (no lockout-as-DoS, 07 §5.2); the last admin can't be
 demoted or disabled. Alex makes the bootstrap hash with `--hash-password` and never shares the password (M4).
 
