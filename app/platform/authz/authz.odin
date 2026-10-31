@@ -71,6 +71,7 @@ Viewer :: struct {
 	step_up_at: i64, // unix seconds of the session's last password or TOTP check; 0 = never
 	style:      string, // the member's kept theme (an identity that keeps one); "" = the brand's, or the browser's
 	scheme:     string,
+	session:    u64, // the session's key, for the hub: a sign-out ends that device's streams alone; 0 = none
 }
 
 GUEST :: Viewer{role = .Guest}

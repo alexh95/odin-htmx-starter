@@ -191,8 +191,16 @@ load_viewer :: proc(ask: authz.Ask) -> (v: authz.Viewer, set_cookie: string) {
 	t, _ := accounts.theme_of(u.id)
 	return authz.Viewer{
 		id = u64(u.id), name = u.display, role = role, step_up_at = s.step_up_at / 1000,
-		style = t.style, scheme = t.scheme,
+		style = t.style, scheme = t.scheme, session = session_key(s.token_hash),
 	}, ""
+}
+
+// A session's key for the hub (authz.Viewer.session): its hash's first 16 hex digits, never 0.
+@(private)
+session_key :: proc(token_hash: string) -> u64 {
+	if len(token_hash) < 16 { return 1 }
+	k, _ := strconv.parse_u64_of_base(token_hash[:16], 16)
+	return k | 1
 }
 
 // ---- the cookie -------------------------------------------------------------------------

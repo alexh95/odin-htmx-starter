@@ -99,15 +99,16 @@ Kind :: enum u8 {
 }
 
 Msg :: struct {
-	refs:   int, // atomic
-	kind:   Kind,
-	policy: Policy,
-	code:   u16,
-	seq:    u64, // 0 for a kick, which never enters a ring
-	rowid:  i64,
-	topic:  string,
-	key:    string,
-	html:   string,
+	refs:    int, // atomic
+	kind:    Kind,
+	policy:  Policy,
+	code:    u16,
+	seq:     u64, // 0 for a kick, which never enters a ring
+	session: u64, // a kick's: only the streams this session opened; 0 = every one
+	rowid:   i64,
+	topic:   string,
+	key:     string,
+	html:    string,
 }
 
 @(private)
@@ -232,9 +233,9 @@ publish :: proc(topic, html: string, rowid: i64 = 0, key := "") -> u64 {
 // Ends every stream subscribed to `topic`: a kick, a revoke (§9.4). SSE gets the
 // named event `kicked`, which navigates the page; a socket closes with `code`
 // (1008 stops hx-ws for good).
-kick :: proc(topic: string, code: u16) {
+kick :: proc(topic: string, code: u16, session := u64(0)) {
 	m := new_msg(.Kick, .Queue, topic, "", "")
-	m.code = code
+	m.code, m.session = code, session
 	post(m, 0)
 }
 
@@ -242,12 +243,16 @@ kick :: proc(topic: string, code: u16) {
 // member topics is kicked with 1008, which hx-ws doesn't retry, and a page whose #live names
 // where to go (data-revoke) goes there on `kicked`. A row mounted on two hosts is kicked twice,
 // which ends nothing more.
-revoke :: proc(user_id: u64) {
+revoke :: proc(user_id: u64) { revoke_session(user_id, 0) }
+
+// Ends the streams one session of a member's opened (a sign-out, a member's revoke of a device:
+// M4-09), as `revoke` ends all of them; `session` is authz.Viewer.session, 0 for every session.
+revoke_session :: proc(user_id, session: u64) {
 	buf: [24]byte
 	id := strconv.write_uint(buf[:], user_id, 10)
 	for _, rows in h.hosts {
 		for row in rows {
-			if row.member { kick(strings.concatenate({row.family, ":", id}, context.temp_allocator), stream.WS_POLICY) }
+			if row.member { kick(strings.concatenate({row.family, ":", id}, context.temp_allocator), stream.WS_POLICY, session) }
 		}
 	}
 }
@@ -360,6 +365,7 @@ Sub :: struct {
 	slot:     int,
 	watch:    [MAX_TOPICS]Watch_Proc, // per topic, told when the stream ends
 	viewer:   authz.Viewer,           // whom /events subscribed, for `watch`; its name on the heap
+	session:  u64,                    // the session /events admitted it for (authz.Viewer.session)
 }
 
 @(private)
@@ -418,6 +424,7 @@ deliver :: proc(m: ^Msg) {
 				stream.multipart_part(c, m.html, {{"HX-Part-ID", id}})
 			}
 		case .Kick:
+			if m.session != 0 && s.session != m.session { continue }
 			switch c.proto {
 			case .Sse:
 				stream.write(c, stream.sse_event("", "kicked", m.topic))

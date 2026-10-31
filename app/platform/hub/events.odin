@@ -133,6 +133,7 @@ events :: proc(req: ^web.Request, res: ^web.Response) {
 	// Anything at or below the snapshot still in this loop's inbox is skipped by
 	// `last`; anything above it arrives after this handler returns.
 	s.last = snapshot
+	s.session = ctx.viewer.session
 	add_sub(s)
 	// Before the writes below: one can end the stream, whose close frees `s` (and tells the
 	// watchers it closed). Outside the hub mutex, since a watcher may publish (someone came online).

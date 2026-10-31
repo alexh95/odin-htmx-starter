@@ -58,6 +58,37 @@ test.describe('revoke', T, () => {
     });
   });
 
+  // M4-09: a member's revoke of one device ends that device's streams, and only its.
+  test("revoking a device sends its page to sign in again; this device's page stays", async ({ browser }) => {
+    await own({ ACCOUNTS_REGISTRATION: 'open' }, async (_, base) => {
+      const here = await member(browser, base, 'ada');
+      const there = await browser.newContext({ baseURL: base });
+      const away = await there.newPage();
+      let opened = 0;
+      away.on('request', (r) => { if (new URL(r.url()).pathname === '/events') opened += 1; });
+      await away.goto('/login');
+      await away.locator('#username').fill('ada');
+      await away.locator('#password').fill('a-long-enough-password');
+      await away.getByRole('button', { name: 'Sign in' }).click();
+      await away.waitForURL((u) => u.pathname === '/');
+      await away.goto('/accounts/profile');
+      await expect(away.locator('#live[data-revoke="/login"]')).toHaveCount(1);
+      await expect.poll(() => opened).toBeGreaterThan(0);
+
+      const watcher = await here.context.newPage(); // this device's own open page, on its own stream
+      await watcher.goto('/accounts/profile');
+      await expect(watcher.locator('#live[data-revoke="/login"]')).toHaveCount(1);
+
+      await here.page.goto('/accounts/sessions');
+      await here.page.locator('.session', { hasNotText: 'this device' }).getByRole('button', { name: 'Revoke' }).click();
+      await expect(here.page.locator('.session')).toHaveCount(1);
+      await away.waitForURL((u) => u.pathname === '/login', { timeout: 10_000 });
+      await watcher.waitForTimeout(2000);
+      expect(new URL(watcher.url()).pathname).toBe('/accounts/profile');
+      await Promise.all([here.context.close(), there.close()]);
+    });
+  });
+
   test('a page that ignores the kick settles: 403 as a guest, at most 3 reconnects in 30 s', async ({ browser }) => {
     test.setTimeout(60_000);
     await own({ ACCOUNTS_REGISTRATION: 'open' }, async (_, base) => {

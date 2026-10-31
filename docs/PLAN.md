@@ -4030,7 +4030,9 @@ page's own kick (the lab's) still reconnects. UNVERIFIED (M4) answered: hx-sse k
 backoff (5 times in 30 s), so core.js marks an element whose stream was refused with 401, 403 or 404 and cancels its
 next connection (`htmx:sse:before:connection`). `identity_accounts` declares `accounts.user` (`member = true`); `full`
 mounts the hub for it. A role change and a disable revoke; revoking one session doesn't (the member's topic spans
-their devices), and that device's stream ends at its next request.
+their devices), and that device's stream ends at its next request. *Since M5 (M4-09):* `authz.Viewer.session` keys
+a session, `/events` records it on the stream, and `hub.revoke_session(user, session)` kicks only the streams that
+session opened, which a sign-out and a member's revoke of a device call; the member's other devices stay.
 
 **As built (M4, slice 9):** `/admin/modules` is `features/modules`, a web package alone (LAN only). `platform/app` fills
 `web.build` at `app.check` (profile, families, features, the main bundle's extensions, every route per host with its

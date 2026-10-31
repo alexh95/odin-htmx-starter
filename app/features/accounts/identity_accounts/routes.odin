@@ -414,6 +414,8 @@ closing :: proc(req: ^web.Request, res: ^web.Response, token_hash, to: string) {
 closed :: proc(o: ^store.Op) {
 	op := (^Closing)(o)
 	defer store.free_op(op)
+	// That device's open pages go now, not at their next request (M4-09); its other sessions stay.
+	if op.ended { hub.revoke_session(u64(op.user_id), session_key(op.token_hash)) }
 	if op.ended && op.to == "" {
 		meta: [24]byte
 		audit_store.append({op.user_id, op.name, client_id(op.client)}, "accounts.revoke", {"session", 0}, "",

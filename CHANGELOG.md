@@ -37,6 +37,9 @@ all fixed and re-read.
   three wrong passwords as an account does (kept in memory, in a fixed table), so the fourth try's 429 says nothing;
   `/reset` checks the code with one read before hashing anything, the same read for a name with no account, so a
   wrong code answers alike and as quickly.
+- **A sign-out, or a member revoking a device, ends that device's open pages' streams** (M4-09): they went on until
+  their next request. `authz.Viewer.session` keys a session, `/events` records it, and `hub.revoke_session` kicks only
+  that session's streams; the member's other devices stay signed in.
 - **Status and the memory jobs store lock through the guard** (M5-10): status's lock is a `guard.Mutex` (its probers
   sleep on a semaphore, never under the lock), and the memory jobs store takes the memory family's `Lock`.
 - **The drills' Linux servers get their env single-quoted**: the backup and dbview drills' admin hash (all `$`) was
