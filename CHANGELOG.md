@@ -8,7 +8,7 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 
 ## [Unreleased]
 
-## [2.3.0] - 2026-10-30
+## [2.3.0] - 2026-10-31
 
 The starter's fourth milestone, M4: identity and the Houston shell. `full`, Houston's profile, signs members in with
 argon2id passwords to server-side sessions on SQLite, with TOTP and recovery codes, step-up before sensitive writes,
@@ -19,7 +19,8 @@ capped and reset nightly. A member's theme follows them to every device (Houston
 `full-vanilla` runs the same specs on the vanilla client, and nightly fuzzes the generator's selections (a covering
 array, random selections and every singleton), which found a selection the generator accepted and couldn't boot. An
 independent audit (`docs/audit/M4.md`) found 1 HIGH, fixed and re-read; most of its LOW and NIT findings are fixed
-too. Houston's first deploy is Alex's (stage 1b, no invites yet).
+too. Stage 1b through NPM passed with 2.2.0's witnesses; Houston's first deploy there (`starter-full`, no invites
+yet) is Alex's.
 
 ### Added
 
@@ -184,7 +185,7 @@ too. Houston's first deploy is Alex's (stage 1b, no invites yet).
   green CI run on the tag's `release/X.Y` as well as on the default branch (2.2.0 is tagged on `release/2.2`,
   cut from rc.2, while master had moved on to M4).
 
-## [2.2.0] - 2026-10-30
+## [2.2.0] - 2026-10-31
 
 The starter's third milestone, M3: the pipeline and apollo's LAN. A `v*` tag builds each hosted profile's image on
 distroless, natively on amd64 and arm64, publishes one multi-arch list per profile to GHCR (`vX.Y.Z` and `sha-<7>`,
@@ -194,8 +195,11 @@ smoke. The four witnesses (minimal, streams, skeleton, lab) run at v2.2.0-rc.1 o
 broken tag rolled back by itself, 50 VUs through a promote saw no 5xx, and two-host k6 failed nothing. `landing`, the
 starter's own page, shows the catalog and builds the init command; the lab's witness board probes the others. Chat's
 reconnects replace the log across a gap on every transport. An independent audit (`docs/audit/M3.md`) found 1 HIGH,
-fixed and re-read; the parity gate passes on both legs (`docs/perf/PARITY.md`). Stage 1b, through NPM, waits on
-Alex's NPM steps.
+fixed and re-read; the parity gate passes on both legs (`docs/perf/PARITY.md`). Stage 1b, through NPM, passes:
+every witness answers over HTTP/2 and renders with no error or CSP violation, http and the alias host 301 to the
+canonical https origin, an SSE stream gets its first frame unbuffered (21 ms) and a WebSocket upgrades (the
+smoke, 15 of 15), and 1000 SSE streams held for an hour through NPM with no early end and no quiet minute, the lab
+flat at 7 MiB (the smoke and the hold are on master, as `deploy/npm-smoke.mjs` and `deploy/npm-hold.mjs`).
 
 ### Fixed
 
