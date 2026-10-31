@@ -8,7 +8,7 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 
 ## [Unreleased]
 
-## [2.3.0] - 2026-10-31
+## [2.3.0] - 2026-11-01
 
 The starter's fourth milestone, M4: identity and the Houston shell. `full`, Houston's profile, signs members in with
 argon2id passwords to server-side sessions on SQLite, with TOTP and recovery codes, step-up before sensitive writes,
@@ -185,7 +185,7 @@ yet) is Alex's.
   green CI run on the tag's `release/X.Y` as well as on the default branch (2.2.0 is tagged on `release/2.2`,
   cut from rc.2, while master had moved on to M4).
 
-## [2.2.0] - 2026-10-31
+## [2.2.0] - 2026-11-01
 
 The starter's third milestone, M3: the pipeline and apollo's LAN. A `v*` tag builds each hosted profile's image on
 distroless, natively on amd64 and arm64, publishes one multi-arch list per profile to GHCR (`vX.Y.Z` and `sha-<7>`,
