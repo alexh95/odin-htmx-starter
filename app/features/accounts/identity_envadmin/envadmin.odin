@@ -12,8 +12,6 @@ package accounts_identity_envadmin
 
 import "core:crypto"
 import "core:crypto/hash"
-import "core:crypto/hmac"
-import "core:encoding/base64"
 import "core:fmt"
 import "core:os"
 import "core:strconv"
@@ -22,9 +20,9 @@ import "core:time"
 
 import "../../../platform/authz"
 import "../../../platform/env"
-import "../../../platform/escape"
 import "../../../platform/obs"
 import "../../../platform/password"
+import "../../../platform/signed"
 
 NAME :: "envadmin"
 SETS_COOKIE :: true
@@ -113,21 +111,12 @@ sign :: proc(key: []byte, issued, expires: i64) -> string {
 	strings.write_i64(&b, issued)
 	strings.write_byte(&b, '.')
 	strings.write_i64(&b, expires)
-	body := strings.to_string(b)
-	mac: [32]byte
-	hmac.sum(.SHA256, mac[:], transmute([]byte)body, key)
-	return strings.concatenate({body, ".", base64.encode(mac[:], base64.ENC_URL_TABLE, context.temp_allocator, {.No_Padding})}, context.temp_allocator)
+	return signed.sign(strings.to_string(b), key)
 }
 
 // When the value was issued, if its MAC is `key`'s and `now` is before its end.
 read :: proc(value: string, key: []byte, now: i64) -> (issued: i64, ok: bool) {
-	dot := strings.last_index_byte(value, '.')
-	if dot <= 0 { return }
-	body := value[:dot]
-	mac: [32]byte
-	hmac.sum(.SHA256, mac[:], transmute([]byte)body, key)
-	sent, sok := escape.b64_decode(value[dot + 1:], url = true)
-	if !sok || len(sent) != len(mac) || crypto.compare_constant_time(sent, mac[:]) != 1 { return }
+	body := signed.open(value, key) or_return // the untrusted part, fuzzed there (M4-13)
 	i_text, _, e_text := strings.partition(body, ".")
 	i, iok := strconv.parse_i64_of_base(i_text, 10)
 	e, eok := strconv.parse_i64_of_base(e_text, 10)

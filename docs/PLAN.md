@@ -364,6 +364,8 @@ Below L4, platform imports a feature only through a family collection: `platform
 | `platform/sys` | 1 | glibc `_setjmp`, sigaction and sigaltstack, the Windows VEH and `_resetstkoflw`, setrlimit, the vDSO clock; the thread-local counters the guard classifies by (here because `platform/sqlite`, L1, raises `in_sqlite`) |
 | `platform/sqlite` | 1 | the SQLite binding (core only); raises `in_sqlite` around every call |
 | `platform/escape` | 1 | the injection boundary, `w esc url_encode json_esc`: a leaf, so `platform/markdown` (L2) escapes with it and `platform/html` re-exports it (M1, **NEW**) |
+| `platform/signed` | 1 | `<body>.<MAC>` text the server hands out and reads back (a pending sign-in, envadmin's cookie): `sign` and `open`, the one parser of it, fuzzed (M5, M4-13, **NEW**) |
+| `platform/fuzz` | 1 | the parsers' tests' seeded random input, `FUZZ_SCALE`/`FUZZ_SEED` for the nightly; only tests import it (M5, M4-13, **NEW**) |
 | `platform/ext` | 1 | the closed `Ext` enum of htmx extensions with its registration-name and file tables; imports nothing; re-exported as `web.Ext` (RESOLUTIONS X33) |
 | `platform/store` | 2 | what every store shares: `Migration`, `Error`, `enum_from_int`, `Search_Hit` (domains return it) and `Find_Source` (a row of `main`'s `FIND_SOURCES`) |
 | `platform/store/sqlite` | 2 | store v3: the writer connection, per-loop readers, the writer task, the query pool (D16); `open` and `migrate`, which answer `--backup` and `--adopt-profile`; the pure-trap reader reset, pulled from guard's recovery count before each reader use and on a per-loop 1 s timer (S0.6); `sqlite3_db_status` numbers pushed to obs (LC §5) |
@@ -816,7 +818,7 @@ app/cmd/<p>/   brand.odin main.odin routes.odin routes_test.odin   (all hand-wri
 platform  L4 app      ─► identity:., store:., L1–L3             (only cmd/* imports it; it holds front)
           L3 web html hub stream stream/client client/* theme/*   (html ─► client:., theme:.)
           L2 store store/sqlite store/memory env authz authz/anonymous obs guard workers markdown password totp
-          L1 sys sqlite ext escape
+          L1 sys sqlite ext escape signed fuzz
 ```
 
 Each feature `f` is a set of packages (D4, with RESOLUTIONS X30 applied to the web row and LC §5's models and stores):

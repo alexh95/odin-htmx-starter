@@ -11,18 +11,14 @@ package accounts_identity_accounts
 // confirmed by a code) and hands out ten recovery codes, shown once and stored hashed.
 
 import "base:runtime"
-import "core:crypto"
-import "core:crypto/hash"
-import "core:crypto/hmac"
-import "core:encoding/base64"
 import "core:fmt"
 import "core:strconv"
 import "core:strings"
 import "core:time"
 
-import "../../../platform/escape"
 import "../../../platform/html"
 import "../../../platform/password"
+import "../../../platform/signed"
 import "../../../platform/store"
 import "../../../platform/totp"
 import "../../../platform/web"
@@ -39,21 +35,13 @@ PENDING_LIFE :: 5 * 60
 
 @(private)
 pending :: proc(user_id: i64) -> string {
-	body := fmt.tprintf("%d.%d", user_id, time.time_to_unix(time.now()) + PENDING_LIFE)
-	mac: [32]byte
-	hmac.sum(hash.Algorithm.SHA256, mac[:], transmute([]byte)body, st.pending_key[:])
-	return strings.concatenate({body, ".", base64.encode(mac[:], base64.ENC_URL_TABLE, context.temp_allocator, {.No_Padding})}, context.temp_allocator)
+	return signed.sign(fmt.tprintf("%d.%d", user_id, time.time_to_unix(time.now()) + PENDING_LIFE), st.pending_key[:])
 }
 
+// What it parses is the server's own text: signed.open, fuzzed, takes the untrusted part (M4-13).
 @(private)
 read_pending :: proc(token: string) -> (user_id: i64, ok: bool) {
-	dot := strings.last_index_byte(token, '.')
-	if dot <= 0 { return }
-	body := token[:dot]
-	mac: [32]byte
-	hmac.sum(hash.Algorithm.SHA256, mac[:], transmute([]byte)body, st.pending_key[:])
-	sent, sok := escape.b64_decode(token[dot + 1:], url = true)
-	if !sok || len(sent) != len(mac) || crypto.compare_constant_time(sent, mac[:]) != 1 { return }
+	body := signed.open(token, st.pending_key[:]) or_return
 	id_text, _, until_text := strings.partition(body, ".")
 	id, iok := strconv.parse_i64_of_base(id_text, 10)
 	until, uok := strconv.parse_i64_of_base(until_text, 10)

@@ -26,6 +26,10 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
   secrets with no key refuse to boot. A device cookie's key now comes from it too, so devices outlive a restart.
   `deploy/compose.yaml` mounts `/backups` on its own (`FULL_BACKUPS`, else a volume of its own) and the key file
   (`FULL_TOTP_KEY`), one `.env` line each; `docs/DATA.md` says how.
+- **Every parser of signed text is fuzzed, and the nightly fuzzes all of them** (M4-13): a pending sign-in and
+  envadmin's cookie are read through `platform/signed`'s `open`, the one parser of `<body>.<MAC>` text, with a unit
+  and a random-input test; `platform/fuzz` is the parsers' tests' shared draw, and the nightly's `fuzz` job runs
+  the five fuzzed packages fifty times over from a new seed each night, under ASan.
 - **`totp.spec`'s stale-session case gets a 3 s step-up window**: its steps after the step-up didn't always fit in
   1 s on webkit.
 

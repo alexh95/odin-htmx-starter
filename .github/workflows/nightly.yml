@@ -4,7 +4,7 @@ name: nightly
 # ASan over the e2e suite and a k6 quick run, on Linux. At M2: TSan, the 1 h soak and
 # Autobahn|Testsuite against the lab's WebSocket echo. At M4: the generated envadmin selection,
 # the covering array, the seeded random selections and every singleton.
-# Windows ASan, libFuzzer and the combination matrices join with the milestones that need them.
+# At M5: the parsers of untrusted text on random input (M4-13). Windows ASan joins when a milestone needs it.
 on:
   schedule:
     - cron: '17 3 * * *'
@@ -58,6 +58,31 @@ jobs:
         run: |
           if ls /tmp/asan/report.* >/dev/null 2>&1; then cat /tmp/asan/report.*; exit 1; fi
           echo "no ASan reports"
+
+  # The parsers of untrusted text (M4-13: signed, escape, totp, password, stream) on random input,
+  # fifty times their every-push rounds, from a seed the run picks, under ASan: each night tries
+  # inputs no run tried before. Odin builds no libFuzzer target, so this is platform/fuzz's
+  # seeded draw, not coverage-guided; FUZZ_SEED in the log reproduces a failure.
+  fuzz:
+    name: Parsers on random input (ASan, Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      FUZZ_SCALE: '50'
+      FUZZ_SEED: ${{ github.run_id }}
+      ASAN_OPTIONS: detect_leaks=0:halt_on_error=1:use_sigaltstack=0
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-odin
+      - name: The fuzzed packages
+        run: |
+          echo "FUZZ_SEED=$FUZZ_SEED FUZZ_SCALE=$FUZZ_SCALE"
+          for d in app/platform/signed app/platform/escape app/platform/totp app/platform/password app/platform/stream; do
+            echo "== $d"
+            odin test "$d" -collection:store=app/stores/memory -collection:identity=app/platform/authz/anonymous \
+              -collection:client=app/platform/client/vanilla -collection:theme=app/platform/theme/lite \
+              -sanitize:address -debug -define:ODIN_TEST_FAIL_ON_BAD_MEMORY=true -out:app/bin/fuzz-test
+          done
 
   # The identity no hosted profile builds (PLAN §19.1; LC §11): a project generated with
   # --identity envadmin (notes on the memory store) is built and runs the whole e2e suite,

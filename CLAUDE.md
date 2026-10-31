@@ -161,7 +161,7 @@ app/cmd/<p>/      brand.odin main.odin routes.odin routes_test.odin  ->  everyth
 platform  L4 app        -> identity:., store:. (the family's NAME), L1-L3; only cmd/* imports it
           L3 web stream hub html client/* theme/*   (html -> client:., theme:.)
           L2 store store/sqlite store/memory env authz authz/anonymous obs guard workers markdown password totp
-          L1 sys sqlite ext escape
+          L1 sys sqlite ext escape signed fuzz
 ```
 
 - **A feature reaches another only through its domain** (dashboard -> contacts). No web package
