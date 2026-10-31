@@ -13,9 +13,14 @@
 // A revoke (PLAN §17.2.3): the hub's `kicked` on a member's #live (data-revoke) means the
 // session ended or its role changed, so the page goes to sign in again rather than letting
 // hx-sse reconnect as a guest. A page's own kick (the lab's #live) reconnects as before.
+// A sign-out kicks its own session's streams, this page's among them (M4-09), as its answer
+// (an HX-Redirect) arrives: going to sign in at once aborted that navigation. So the kick waits
+// a moment, and a page that has started leaving meanwhile goes where it was going.
+var leaving = false;
+addEventListener("beforeunload", function () { leaving = true; });
 document.addEventListener("kicked", function (e) {
   var live = e.target && e.target.closest ? e.target.closest("[data-revoke]") : null;
-  if (live) location.assign(live.dataset.revoke);
+  if (live) setTimeout(function () { if (!leaving) location.assign(live.dataset.revoke); }, 500);
 });
 // A stream the server refuses (401, 403, 404: the viewer may not have its topics any more) is
 // settled, not retried: hx-sse would back off and reconnect forever (PLAN §17.2.3 measured 5 in
