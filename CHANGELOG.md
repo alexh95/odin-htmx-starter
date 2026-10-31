@@ -8,7 +8,7 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 
 ## [Unreleased]
 
-## [2.2.0] - 2026-10-31
+## [2.2.0] - 2026-11-01
 
 The starter's third milestone, M3: the pipeline and apollo's LAN. A `v*` tag builds each hosted profile's image on
 distroless, natively on amd64 and arm64, publishes one multi-arch list per profile to GHCR (`vX.Y.Z` and `sha-<7>`,
