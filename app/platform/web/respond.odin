@@ -67,6 +67,13 @@ set_header :: proc(res: ^Response, name, value: string) {
 	http.headers_set(&res.headers, name, value)
 }
 
+// A Set-Cookie beside any other: headers hold one value a name, so a response that sets two
+// cookies (a session and its device, M4-03) sends the second this way. HttpOnly, SameSite=Lax,
+// Path=/; `max_age` 0 ends it.
+add_cookie :: proc(res: ^Response, name, value: string, max_age: int, secure: bool) {
+	append(&res.cookies, http.Cookie{name = name, value = value, max_age_secs = max_age, path = "/", http_only = true, secure = secure, same_site = .Lax})
+}
+
 is_htmx :: proc(req: ^Request) -> bool {
 	return http.headers_has(req.headers, "hx-request")
 }

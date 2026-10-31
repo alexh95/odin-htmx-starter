@@ -87,11 +87,12 @@ test.describe('two-step sign-in', T, () => {
   });
 
   test('a stale session steps up before new recovery codes, then is fresh', async ({ browser }) => {
-    await own({ ACCOUNTS_STEP_UP_WINDOW: '1s' }, async (_, base) => {
+    // 3 s: the steps between the step-up and Turn off must fit inside the window (a 1 s one didn't, on webkit).
+    await own({ ACCOUNTS_STEP_UP_WINDOW: '3s' }, async (_, base) => {
       const { context, page } = await signIn(browser, base);
       await enrol(page);
       await page.goto('/accounts/totp');
-      await page.waitForTimeout(2500); // the window counts whole seconds
+      await page.waitForTimeout(4500); // the window counts whole seconds
       await page.getByRole('button', { name: 'New recovery codes' }).click();
       await page.waitForURL((u) => u.pathname === '/step-up');
       expect(new URL(page.url()).searchParams.get('next')).toBe('/accounts/totp'); // the page, not the POST

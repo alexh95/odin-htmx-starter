@@ -50,11 +50,16 @@ domain (`features/accounts`, package `accounts`) and its views:
 - **Rotation**: every sign-in makes a new token and closes the session the request carried, in the same transaction
   as the new row, the user's swept dead sessions and the clearing of their failures. A sign-in counts as a step-up.
   Rotation on a privilege change arrives with role changes (slice 6).
-- **Limits** (§17.5): 5 sign-ins per 15 min per client (`ACCOUNTS_LOGIN_PER_CLIENT`), 40 from everyone
-  (`ACCOUNTS_LOGIN_OVERALL`), right or wrong. Per account, the first three wrong passwords are free, then the
-  account waits 1 s, doubling to 5 min: never a lockout. A backed-off account answers 429 without a verify, which
-  tells a guesser that the name exists after three misses; the timing of a first miss doesn't (unknown names are
-  verified against the dummy).
+- **Limits** (§17.5, M4-03): 5 sign-ins per 15 min per client (`ACCOUNTS_LOGIN_PER_CLIENT`) and 20 per network, an
+  IPv4 /24 or an IPv6 /48 (`ACCOUNTS_LOGIN_PER_NET`), right or wrong; and 40 password checks from everyone
+  (`ACCOUNTS_LOGIN_OVERALL`), counting only the attempts that reach the argon pool, so a stranger spending it from
+  outside shuts out their network, not every sign-in. A step-up counts against the member's own bucket. Per account,
+  the first three wrong passwords are free, then the account waits 1 s, doubling to 5 min: never a lockout. A
+  client that has signed in to the account before carries a device cookie for it (`__Host-dev`, 180 days, MAC'd with
+  a boot key), and meets a door of its own instead (`doors.odin`): a stranger holding the account's door shut can't
+  shut it on its owner's devices. A name with no account backs off as an account does, so the 429 says nothing about
+  whether it exists (M4-05); the timing of a first miss doesn't either (unknown names are verified against the
+  dummy).
 - **Two-step sign-in** (`platform/totp`, RFC 6238): an account with it gets a code form after its password. A code is
   taken once (`totp_last_step`), a recovery code once (`used_at`), each in the write that opens the session. An Admin
   without it loads as a Member (`ACCOUNTS_ADMIN_TOTP=required`, the default; `optional` for the suites). Step-up asks

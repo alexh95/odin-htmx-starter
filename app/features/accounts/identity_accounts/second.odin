@@ -85,18 +85,17 @@ second_factor :: proc(req: ^web.Request, res: ^web.Response) {
 		web.respond_html(res, html.field_msg(false, "That sign-in took too long: start again."), .Unprocessable_Content)
 		return
 	}
-	if now := accounts.now_ms(); u.backoff_until > now {
-		web.respond_limited(res, time.Duration(u.backoff_until - now) * time.Millisecond, html.field_msg(false, "Too many wrong codes: wait a little, then try again."))
-		return
-	}
+	device := device_of(req, c.https, u.id)
+	if shut_out(res, door(u, 0, device), "Too many wrong codes: wait a little, then try again.") { return }
 	step, recovery := read_code(u, strings.trim_space(f["code"]))
 	if step == 0 && recovery == "" {
-		count_failure(u.id, u.failed_logins + 1)
+		wrong(u.id, u.failed_logins, device)
 		audit_store.append({client = client_id(web.client_key(c.client))}, "accounts.sign_in_failed", {"user", u.id}, "", "factor=totp")
 		web.respond_html(res, html.field_msg(false, "Wrong code, or one used already."), .Unprocessable_Content)
 		return
 	}
 	l := new_login(req, u, true, safe_next(f["next"]), .Sign_In)
+	l.device = device
 	web.defer_response(req, res, &l.deferred)
 	open_session(l, step, recovery)
 }
@@ -108,8 +107,8 @@ admit_attempt :: proc(res: ^web.Response, c: ^web.Req_Ctx) -> bool {
 		web.respond_limited(res, retry, html.field_msg(false, "Too many sign-ins from here: wait a little, then try again."))
 		return false
 	}
-	if ok, retry := web.limit_hit(&logins_all, 0); !ok {
-		web.respond_limited(res, retry, html.field_msg(false, "Too many sign-ins right now: wait a little, then try again."))
+	if ok, retry := web.limit_hit(&logins_net, web.net_key(c.client)); !ok {
+		web.respond_limited(res, retry, html.field_msg(false, "Too many sign-ins from your network: wait a little, then try again."))
 		return false
 	}
 	return true
@@ -148,19 +147,20 @@ step_up :: proc(req: ^web.Request, res: ^web.Response) {
 		web.respond_store_error(req, res, err)
 		return
 	}
-	if now := accounts.now_ms(); u.backoff_until > now {
-		web.respond_limited(res, time.Duration(u.backoff_until - now) * time.Millisecond, html.field_msg(false, "Too many wrong tries: wait a little, then try again."))
-		return
-	}
+	// A device the account trusts meets its own door, not the account's, which a stranger may be
+	// holding shut (M4-03 b).
+	device := device_of(req, c.https, u.id)
+	if shut_out(res, door(u, 0, device), "Too many wrong tries: wait a little, then try again.") { return }
 	f := web.form(req)
 	secret := f["secret"]
 	l := new_login(req, u, true, safe_next(f["next"]), .Step_Up)
+	l.device = device
 	web.defer_response(req, res, &l.deferred)
 	// Six digits are a code (a password is at least ten bytes); anything else, the password.
 	if code := strings.trim_space(secret); u.totp_secret != "" && len(code) == totp.DIGITS {
 		step, _ := read_code(u, code)
 		if step == 0 {
-			count_failure(u.id, u.failed_logins + 1)
+			wrong(u.id, u.failed_logins, device)
 			answer(l, html.field_msg(false, "Wrong code, or one used already."), .Unprocessable_Content)
 			return
 		}

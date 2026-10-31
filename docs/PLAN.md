@@ -3998,7 +3998,8 @@ off the loop behind one deferred response (the verify on the argon pool, then on
 closes the one the request carried, sweeps the user's dead sessions and clears their failures); it counts as a
 step-up. `last_seen` is written at most once a minute. The first three wrong passwords are free, then 1 s doubling to
 5 min. `ACCOUNTS_SESSION_IDLE`, `ACCOUNTS_SESSION_MAX`, `ACCOUNTS_LOGIN_PER_CLIENT` and `ACCOUNTS_LOGIN_OVERALL` carry
-§17.5's values as defaults, so the suites can lift them and test them on servers of their own. Until the shell has a
+§17.5's values as defaults (*since M5, M4-03:* `ACCOUNTS_LOGIN_PER_NET` adds a bucket per /24 or /48, the overall one
+counts only password checks, and a device cookie gives a client that signed in before a backoff of its own), so the suites can lift them and test them on servers of their own. Until the shell has a
 banner slot, `COOKIE_SECURE=0` is said on the sign-in form. The first admin: `ACCOUNTS_ADMIN_HASH` with
 `ACCOUNTS_ADMIN_NAME` (`admin`), while no enabled admin exists.
 

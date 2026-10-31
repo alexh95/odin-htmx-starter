@@ -32,13 +32,17 @@ test.describe('accounts', T, () => {
   });
 
   test('the cookie is host-only, HttpOnly and Lax, and Secure only over https', async ({ request }) => {
-    const set = (await request.post('/login', form())).headers()['set-cookie'];
-    expect(set).toMatch(/^sid=[A-Za-z0-9_-]{43}; Path=\/; Max-Age=2592000; HttpOnly; SameSite=Lax$/);
+    // Two cookies, one a line: the session's, and the device's (M4-03), which carries the same attributes.
+    const lines = (await request.post('/login', form())).headers()['set-cookie'].split('\n');
+    expect(lines.find((l) => l.startsWith('sid='))).toMatch(/^sid=[A-Za-z0-9_-]{43}; Path=\/; Max-Age=2592000; HttpOnly; SameSite=Lax$/);
+    expect(lines.find((l) => l.startsWith('dev='))).toMatch(/^dev=\d+\.[0-9a-f]{16}\.[A-Za-z0-9_-]{22}; Max-Age=15552000; Path=\/; SameSite=Lax; HttpOnly$/);
     // Secure, it is __Host-sid, which a sibling host can't plant; a plain sid is then no one's (M4-08).
     await own({ COOKIE_SECURE: '1' }, async (_, base) => {
       const r = await request.post(`${base}/login`, form());
-      const secure = r.headers()['set-cookie'];
+      const both = r.headers()['set-cookie'].split('\n');
+      const secure = both.find((l) => l.startsWith('__Host-sid='))!;
       expect(secure).toMatch(/^__Host-sid=[A-Za-z0-9_-]{43}; Path=\/; .*; Secure$/);
+      expect(both.find((l) => l.startsWith('__Host-dev='))).toMatch(/; Path=\/; .*Secure/);
       const token = secure.split(';')[0].split('=')[1];
       const as = async (cookie: string) => {
         const ctx = await pwRequest.newContext();
@@ -146,6 +150,44 @@ test.describe('accounts', T, () => {
         expect(four.every((r) => [422, 429].includes(r.status()))).toBe(true);
         expect((await post('wrong-wrong-wrong')).status(), username).toBe(429);
       }
+    });
+  });
+
+  // M4-03 (b): a stranger holding an account's door shut doesn't shut it on a device that signed in before.
+  test("a device that signed in before gets through a backoff a stranger holds", async ({ browser, playwright }) => {
+    await own({}, async (_, base) => {
+      const mine = await browser.newContext({ baseURL: base });
+      expect((await mine.request.post('/login', form())).status()).toBe(303);
+      expect((await mine.cookies()).some((c) => c.name === 'dev')).toBe(true);
+      expect((await mine.request.post('/logout', { maxRedirects: 0 })).status()).toBe(303);
+      const stranger = await playwright.request.newContext({ baseURL: base });
+      for (let i = 0; i < 3; i++) expect((await stranger.post('/login', form('wrong-wrong-wrong'))).status()).toBe(422);
+      expect((await stranger.post('/login', form())).status()).toBe(429);
+      // A device cookie names one account: under another id it is no one's, and meets the account's door.
+      const real = (await mine.cookies()).find((c) => c.name === 'dev')!;
+      await mine.addCookies([{ ...real, value: real.value.replace(/^\d+/, '999') }]);
+      expect((await mine.request.post('/login', form())).status()).toBe(429);
+      await mine.addCookies([real]);
+      expect((await mine.request.post('/login', form())).status()).toBe(303);
+      await Promise.all([mine.close(), stranger.dispose()]);
+    });
+  });
+
+  // M4-03 (a): one network's tries can't spend everyone's, and refusals before the argon pool spend nothing.
+  test('sign-ins are limited per network, and the ceiling counts only password checks', async ({ request }) => {
+    await own({ ACCOUNTS_LOGIN_PER_NET: '2' }, async (_, base) => {
+      expect((await request.post(`${base}/login`, form())).status()).toBe(303);
+      expect((await request.post(`${base}/login`, form())).status()).toBe(303);
+      const third = await request.post(`${base}/login`, form());
+      expect(third.status()).toBe(429);
+      expect(await third.text()).toContain('from your network');
+    });
+    await own({ ACCOUNTS_LOGIN_OVERALL: '1' }, async (_, base) => {
+      for (let i = 0; i < 3; i++) expect((await request.post(`${base}/login`, form(''))).status()).toBe(422); // no password: no check
+      expect((await request.post(`${base}/login`, form())).status()).toBe(303);
+      const next = await request.post(`${base}/login`, form());
+      expect(next.status()).toBe(429);
+      expect(await next.text()).toContain('right now');
     });
   });
 

@@ -40,7 +40,8 @@ ENV := [?]env.Row {
 	{name = "ACCOUNTS_SESSION_IDLE", kind = .Duration, def = "14d", doc = "a session ends this long after it was last seen"},
 	{name = "ACCOUNTS_SESSION_MAX", kind = .Duration, def = "30d", doc = "a session ends this long after sign-in, seen or not"},
 	{name = "ACCOUNTS_LOGIN_PER_CLIENT", kind = .Int, def = "5", doc = "sign-in attempts per client per 15 min"},
-	{name = "ACCOUNTS_LOGIN_OVERALL", kind = .Int, def = "40", doc = "sign-in attempts from everyone per 15 min"},
+	{name = "ACCOUNTS_LOGIN_PER_NET", kind = .Int, def = "20", doc = "sign-in attempts per network (an IPv4 /24, an IPv6 /48) per 15 min"},
+	{name = "ACCOUNTS_LOGIN_OVERALL", kind = .Int, def = "40", doc = "password checks from everyone per 15 min: only attempts that reach the argon pool count"},
 	{name = "ACCOUNTS_STEP_UP_PER_MEMBER", kind = .Int, def = "10", doc = "a member's step-up attempts per 15 min"},
 	{name = "ACCOUNTS_ADMIN_TOTP", kind = .Enum, def = "required", choices = "required|optional", doc = "required: an Admin without TOTP is a Member until they turn it on (§17.1)"},
 	{name = "ACCOUNTS_STEP_UP_WINDOW", kind = .Duration, def = "10m", doc = "how recent a password or code a .Step_Up route asks for"},
@@ -68,6 +69,7 @@ st: struct {
 	// Keys the audit's client ids: unkeyed, the 2^32 IPv4 addresses hash back in seconds (M4-07).
 	audit_key:   []byte,
 	boot_key:    [32]byte,
+	device_key:  [32]byte, // MACs the device cookies (doors.odin); a boot's, so a restart forgets every device
 }
 
 // At boot, from app.boot: the env rows, the lifetimes and the argon pool.
@@ -100,6 +102,7 @@ init :: proc() {
 	authz.step_up_window = i64(env.duration("ACCOUNTS_STEP_UP_WINDOW") / time.Second)
 	crypto.rand_bytes(st.pending_key[:])
 	crypto.rand_bytes(st.boot_key[:])
+	crypto.rand_bytes(st.device_key[:])
 	k := env.str("ACCOUNTS_AUDIT_KEY")
 	st.audit_key = transmute([]byte)k if len(k) >= 32 else st.boot_key[:]
 	if k != "" && len(k) < 32 {
@@ -110,6 +113,7 @@ init :: proc() {
 		}
 	}
 	logins_client.n = env.int_("ACCOUNTS_LOGIN_PER_CLIENT")
+	logins_net.n = env.int_("ACCOUNTS_LOGIN_PER_NET")
 	logins_all.n = env.int_("ACCOUNTS_LOGIN_OVERALL")
 	step_ups.n = env.int_("ACCOUNTS_STEP_UP_PER_MEMBER")
 	threads := env.int_("ACCOUNTS_ARGON_THREADS")

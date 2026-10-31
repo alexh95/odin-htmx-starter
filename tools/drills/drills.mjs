@@ -341,7 +341,7 @@ function raw(port, payload, halfClose = true) {
 
 async function phaseMalformed() {
   // An accounts build's sign-in limits would answer full's write with 429 long before the F-16 checks.
-  const s = start(RELEASE_BIN, PROFILE === 'full' ? { ACCOUNTS_LOGIN_PER_CLIENT: '100000000', ACCOUNTS_LOGIN_OVERALL: '100000000' } : {});
+  const s = start(RELEASE_BIN, PROFILE === 'full' ? { ACCOUNTS_LOGIN_PER_CLIENT: '100000000', ACCOUNTS_LOGIN_PER_NET: '100000000', ACCOUNTS_LOGIN_OVERALL: '100000000' } : {});
   if (!(await ready(s))) return record('malformed: server starts', false);
   const N = 10000, PAR = 50, codes = {};
   for (let i = 0; i < N && s.exited === null; i += PAR) {

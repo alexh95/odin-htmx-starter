@@ -8,7 +8,18 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 
 ## [Unreleased]
 
-*The 2.4.0 entry's lead, drafted for its tag:*
+### Fixed
+
+- **A stranger can no longer slow every sign-in, or hold an account's door shut on its owner** (M4-03): sign-ins are
+  limited per client and per network (an IPv4 /24, an IPv6 /48, `ACCOUNTS_LOGIN_PER_NET`, 20 per 15 min), and the
+  ceiling over everyone (`ACCOUNTS_LOGIN_OVERALL`) counts only the attempts that reach the argon pool. A client that
+  has signed in to an account before carries a device cookie for it (`__Host-dev`, 180 days) and meets a backoff of
+  its own, so wrong passwords from elsewhere don't shut it out; a name with no account still backs off as an
+  account does (M4-05).
+- **`totp.spec`'s stale-session case gets a 3 s step-up window**: its steps after the step-up didn't always fit in
+  1 s on webkit.
+
+## [2.4.0] - 2026-11-01
 
 The starter's fifth milestone, M5: Operate. Houston gains the admin's side of running itself, every page LAN-only
 behind its own perm: `/admin/ops`, the 1 Hz panel, now with the SQLite connections' memory, whose one render a second
@@ -112,7 +123,7 @@ all fixed and re-read.
 - **The `opsviewers` drill** (M5 slice 2): 1, 10 and 100 SSE viewers of the ops panel, the server's CPU read from
   outside: flat (0 to 3.1 ms a second on Windows), every viewer refreshed each second (`docs/perf/OPS-VIEWERS.md`).
 
-## [2.3.0] - 2026-10-30
+## [2.3.0] - 2026-11-01
 
 The starter's fourth milestone, M4: identity and the Houston shell. `full`, Houston's profile, signs members in with
 argon2id passwords to server-side sessions on SQLite, with TOTP and recovery codes, step-up before sensitive writes,
@@ -123,7 +134,8 @@ capped and reset nightly. A member's theme follows them to every device (Houston
 `full-vanilla` runs the same specs on the vanilla client, and nightly fuzzes the generator's selections (a covering
 array, random selections and every singleton), which found a selection the generator accepted and couldn't boot. An
 independent audit (`docs/audit/M4.md`) found 1 HIGH, fixed and re-read; most of its LOW and NIT findings are fixed
-too. Houston's first deploy is Alex's (stage 1b, no invites yet).
+too. Stage 1b through NPM passed with 2.2.0's witnesses; Houston's first deploy there (`starter-full`, no invites
+yet) is Alex's.
 
 ### Added
 
@@ -288,7 +300,7 @@ too. Houston's first deploy is Alex's (stage 1b, no invites yet).
   green CI run on the tag's `release/X.Y` as well as on the default branch (2.2.0 is tagged on `release/2.2`,
   cut from rc.2, while master had moved on to M4).
 
-## [2.2.0] - 2026-10-30
+## [2.2.0] - 2026-11-01
 
 The starter's third milestone, M3: the pipeline and apollo's LAN. A `v*` tag builds each hosted profile's image on
 distroless, natively on amd64 and arm64, publishes one multi-arch list per profile to GHCR (`vX.Y.Z` and `sha-<7>`,
@@ -298,8 +310,11 @@ smoke. The four witnesses (minimal, streams, skeleton, lab) run at v2.2.0-rc.1 o
 broken tag rolled back by itself, 50 VUs through a promote saw no 5xx, and two-host k6 failed nothing. `landing`, the
 starter's own page, shows the catalog and builds the init command; the lab's witness board probes the others. Chat's
 reconnects replace the log across a gap on every transport. An independent audit (`docs/audit/M3.md`) found 1 HIGH,
-fixed and re-read; the parity gate passes on both legs (`docs/perf/PARITY.md`). Stage 1b, through NPM, waits on
-Alex's NPM steps.
+fixed and re-read; the parity gate passes on both legs (`docs/perf/PARITY.md`). Stage 1b, through NPM, passes:
+every witness answers over HTTP/2 and renders with no error or CSP violation, http and the alias host 301 to the
+canonical https origin, an SSE stream gets its first frame unbuffered (21 ms) and a WebSocket upgrades (the
+smoke, 15 of 15), and 1000 SSE streams held for an hour through NPM with no early end and no quiet minute, the lab
+flat at 7 MiB (the smoke and the hold are on master, as `deploy/npm-smoke.mjs` and `deploy/npm-hold.mjs`).
 
 ### Fixed
 

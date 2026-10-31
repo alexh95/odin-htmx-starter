@@ -15,7 +15,6 @@ import "core:fmt"
 import "core:strings"
 import "core:time"
 
-import "../../../platform/guard"
 import "../../../platform/html"
 import "../../../platform/hub"
 import "../../../platform/password"
@@ -65,11 +64,15 @@ ROUTES := [?]web.Route {
 	{.Post, "/admin/accounts/invites/delete", admin_uninvite, .Admin_Accounts, {.Fragment, .Lan_Only, .Step_Up}, 256},
 }
 
-// §17.5: attempts, right or wrong, per client and from everyone (n set at init).
+// §17.5: attempts, right or wrong, per client and per network (n set at init), and a ceiling over
+// everyone for the argon pool's sake, which counts only the attempts that reach it: a stranger
+// spending it shuts out the network it comes from, not every sign-in (M4-03 a).
 @(private)
 WINDOW :: 15 * time.Minute
 @(private)
 logins_client := web.Limit{n = 5, window = WINDOW}
+@(private)
+logins_net := web.Limit{n = 20, window = WINDOW}
 @(private)
 logins_all := web.Limit{n = 40, window = WINDOW}
 
@@ -106,6 +109,7 @@ Login :: struct {
 	failed:       int,
 	known:        bool, // an enabled user by that name: a wrong password counts against it
 	name_key:     u64,  // the name's door, which every wrong password counts against (M5-17)
+	device:       u64,  // a device that signed in to this account before: its tries count against it alone
 	totp:         bool, // the account has a second factor: a sign-in asks for a code next
 	https:        bool,
 	client:       u64, // web.client_key: the audit's client id
@@ -150,14 +154,7 @@ Opening :: struct {
 @(private)
 sign_in :: proc(req: ^web.Request, res: ^web.Response) {
 	c := web.ctx()
-	if ok, retry := web.limit_hit(&logins_client, web.client_key(c.client)); !ok {
-		web.respond_limited(res, retry, html.field_msg(false, "Too many sign-ins from here: wait a little, then try again."))
-		return
-	}
-	if ok, retry := web.limit_hit(&logins_all, 0); !ok {
-		web.respond_limited(res, retry, html.field_msg(false, "Too many sign-ins right now: wait a little, then try again."))
-		return
-	}
+	if !admit_attempt(res, c) { return }
 	f := web.form(req)
 	name, pw := strings.trim_space(f["username"]), f["password"]
 	if name == "" || pw == "" {
@@ -171,15 +168,15 @@ sign_in :: proc(req: ^web.Request, res: ^web.Response) {
 	}
 	known := err == .None && u.disabled_at == 0
 	key := name_key(name)
-	until := max(name_until(key), u.backoff_until if known else 0)
-	if now := accounts.now_ms(); until > now {
-		web.respond_limited(res, time.Duration(until - now) * time.Millisecond,
-			html.field_msg(false, "Too many wrong passwords: wait a little, then try again."))
+	device := device_of(req, c.https, u.id) if known else 0
+	if shut_out(res, door(u, key, device), "Too many wrong passwords: wait a little, then try again.") { return }
+	if ok, retry := web.limit_hit(&logins_all, 0); !ok {
+		web.respond_limited(res, retry, html.field_msg(false, "Too many sign-ins right now: wait a little, then try again."))
 		return
 	}
 
 	l := new_login(req, u, known, safe_next(f["next"]), .Sign_In)
-	l.name_key = key
+	l.name_key, l.device = key, device
 	web.defer_response(req, res, &l.deferred)
 	// An unknown name is verified against the dummy all the same: the answer's time is the same.
 	if !password.submit(&l.verify, pw, u.pw_hash if known else "", verified) {
@@ -195,9 +192,13 @@ verified :: proc(t: ^workers.Task) {
 	case !l.ran:
 		answer(l, html.field_msg(false, "Busy: try again in a moment."), .Service_Unavailable)
 	case !l.ok:
-		if l.name_key != 0 { name_failed(l.name_key) }
+		if l.device != 0 {
+			door_failed(&devices, l.device) // the device's own door, not the name's or the row's
+		} else {
+			if l.name_key != 0 { door_failed(&names, l.name_key) }
+			if l.known { count_failure(l.user_id, l.failed + 1) }
+		}
 		if l.known {
-			count_failure(l.user_id, l.failed + 1)
 			audit_store.append({client = client_id(l.client)}, "accounts.sign_in_failed", {"user", l.user_id}, "", "factor=password")
 		}
 		answer(l, html.field_msg(false, "Wrong username or password." if l.then == .Sign_In else "That isn't your password."), .Unprocessable_Content)
@@ -252,7 +253,7 @@ opened :: proc(o: ^store.Op) {
 		audit_store.append({l.user_id, string(l.name[:l.name_len]), client_id(l.client)}, "accounts.sign_in", {"session", 0}, "", factor)
 	case .Constraint:
 		// A code taken already, or a recovery code that is none of the account's unused ones.
-		count_failure(l.user_id, l.failed + 1)
+		wrong(l.user_id, l.failed, l.device)
 		audit_store.append({client = client_id(l.client)}, "accounts.sign_in_failed", {"user", l.user_id}, "", factor)
 	}
 	// A client that left has a session row it never got: it dies idle, or at its next sign-in's sweep.
@@ -262,7 +263,9 @@ opened :: proc(o: ^store.Op) {
 	#partial switch op.err {
 	case .None:
 		web.set_header(res, "set-cookie", issue(op.token, l.https))
-		if l.name_key != 0 { name_cleared(l.name_key) }
+		remember_device(res, l.https, l.user_id, l.device)
+		if l.name_key != 0 { door_cleared(&names, l.name_key) }
+		if l.device != 0 { door_cleared(&devices, l.device) }
 		go(req, res, string(l.next[:l.next_len]))
 	case .Constraint:
 		web.respond_html(res, html.field_msg(false, "Wrong code, or one used already."), .Unprocessable_Content)
@@ -270,6 +273,30 @@ opened :: proc(o: ^store.Op) {
 		web.respond_store_error(req, res, op.err)
 	}
 	web.finish(&l.deferred, res)
+}
+
+// The door a sign-in for `u` meets: a trusted device's own, or else the name's and, for an
+// account, its row's.
+@(private)
+door :: proc(u: m.User, name_key, device: u64) -> i64 {
+	if device != 0 { return door_until(&devices, device) }
+	return max(door_until(&names, name_key) if name_key != 0 else 0, u.backoff_until)
+}
+
+// Answers 429 while `until` is ahead; true when it did.
+@(private)
+shut_out :: proc(res: ^web.Response, until: i64, why: string) -> bool {
+	now := accounts.now_ms()
+	if until <= now { return false }
+	web.respond_limited(res, time.Duration(until - now) * time.Millisecond, html.field_msg(false, why))
+	return true
+}
+
+// A wrong code for a known account: against the device that tried, when it is one the account
+// trusts, else against the account's row.
+@(private)
+wrong :: proc(user_id: i64, failed: int, device: u64) {
+	if device != 0 { door_failed(&devices, device) } else { count_failure(user_id, failed + 1) }
 }
 
 // One more wrong password, and the account's door shut a little longer.
@@ -280,70 +307,6 @@ count_failure :: proc(user_id: i64, failed: int) {
 	op.backoff_until = accounts.now_ms() + accounts.backoff_ms(failed)
 	op.done = proc(o: ^store.Op) { store.free_op(o) }
 	if !accounts.login_failed(op) { store.free_op(op) }
-}
-
-// ---- every name's door (M4-05, M5-17, M5-18) -----------------------------------------------
-//
-// Every name tried counts its wrong passwords here, in memory, an account's and a name with no
-// account's alike, under one lock and with the count it has just raised: so concurrent tries, or
-// tries faster than the writer commits an account's row, meet the same door for both, and the
-// 429 says nothing about whether the name exists. An account's row keeps its count across a
-// restart too (`backoff_until`), which a sign-in meets as well.
-//
-// The table is fixed, so a flood of names allocates nothing. Its slot is a keyed hash (the boot
-// key), so no one can aim a name at another's slot; and a slot still shut is never taken over:
-// a name that lands on it shares its count, which costs it at worst an early 429.
-
-@(private) NAME_DOORS :: 4096
-
-@(private)
-Door :: struct {
-	key:    u64,
-	failed: int,
-	until:  i64,
-}
-
-@(private)
-names: struct {
-	mu:    guard.Mutex,
-	slots: [NAME_DOORS]Door,
-}
-
-// Never 0.
-@(private)
-name_key :: proc(name: string) -> u64 {
-	lower := strings.to_lower(name, context.temp_allocator) // usernames compare without case
-	mac: [32]byte
-	hmac.sum(.SHA256, mac[:], transmute([]byte)lower, st.boot_key[:])
-	return endian.unchecked_get_u64le(mac[:8]) | 1
-}
-
-@(private)
-name_until :: proc(key: u64) -> i64 {
-	guard.lock(&names.mu)
-	defer guard.unlock(&names.mu)
-	d := &names.slots[key % NAME_DOORS]
-	return d.until if d.key == key || d.until > accounts.now_ms() else 0
-}
-
-@(private)
-name_failed :: proc(key: u64) {
-	now := accounts.now_ms()
-	guard.lock(&names.mu)
-	defer guard.unlock(&names.mu)
-	d := &names.slots[key % NAME_DOORS]
-	if d.key != key && d.until <= now { d^ = {key = key} }
-	d.failed += 1
-	d.until = now + accounts.backoff_ms(d.failed)
-}
-
-// A right password: the name's count starts again, as the account's row does.
-@(private)
-name_cleared :: proc(key: u64) {
-	guard.lock(&names.mu)
-	defer guard.unlock(&names.mu)
-	d := &names.slots[key % NAME_DOORS]
-	if d.key == key { d^ = {} }
 }
 
 // A session seen again, written at most once a minute (load_viewer).

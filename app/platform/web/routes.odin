@@ -89,6 +89,22 @@ client_key :: proc(a: net.Address) -> u64 {
 	return 0
 }
 
+// The client's network, for a limit wider than one client (M4-03): its IPv4 /24, its IPv6 /48
+// (a site's usual allocation), an IPv4-mapped address as IPv4.
+net_key :: proc(a: net.Address) -> u64 {
+	switch v in a {
+	case net.IP4_Address:
+		b := v
+		return hash.fnv64a(b[:3])
+	case net.IP6_Address:
+		b := transmute([16]u8)v
+		mapped := b[10] == 0xff && b[11] == 0xff
+		for x in b[:10] { mapped &&= x == 0 }
+		return hash.fnv64a(b[12:15] if mapped else b[:6])
+	}
+	return 0
+}
+
 // ---- health (§10.4) ----------------------------------------------------------------
 
 // The skeleton's contract, which Fly and the CI smoke test compare: body exactly
