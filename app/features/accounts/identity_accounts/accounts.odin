@@ -137,6 +137,11 @@ cli :: proc() { password.cli() }
 // From main, after the migrations: the first admin, while no enabled one exists. A hash that
 // isn't one of platform/password's refuses to boot; no admin and no hash warns.
 bootstrap :: proc() {
+	// This identity audits: without the writer its changes would go unlogged, silently (M4-04).
+	if !accounts.has_audit_writer() {
+		fmt.eprintln("accounts: the audit writer is unset: identity_accounts' init must hand store:audit's append_in to the accounts store")
+		os.exit(70)
+	}
 	seal_stored_secrets()
 	phc := env.str("ACCOUNTS_ADMIN_HASH")
 	if phc == "" {

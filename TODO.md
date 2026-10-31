@@ -16,6 +16,17 @@ copy-and-start ergonomics and good defaults matter more than feature depth.
 > items (**bulk actions**, a **named console identity**) are **out of scope as goals** — they'd just
 > be cruft a copier deletes — and survive only as "example extensions you might add."
 
+## Known flakes (seen once, passed on a rerun: not fixed)
+
+- [ ] **dbview's drill, Linux** (run 41251995318, job "Drills (full, Linux)", on `eea5cae`): a query running to its
+      2 s budget left the writes' slowest at 63 ms (alone: 1.1 ms), against the drill's bar; it passed on the rerun.
+      Look at what else a write waited on there (a checkpoint, the runner), and whether the bar holds on a busy
+      runner.
+- [ ] **contacts' search highlighting** (run 41251995318, jobs "E2E (full, firefox)" and "E2E (full-vanilla,
+      chromium)", on `eea5cae`): "a query that shrinks when lowered marks the original span" found no match for
+      `Turİng`; it passed on the rerun. Look at what the worker's server held then (the demo's cap and reset, a spec
+      that changes contacts beside it).
+
 ## M6 — Comms, and the family beta (v2.5.0)
 
 The starter's sixth milestone ([`docs/PLAN.md`](docs/PLAN.md) §22.3, M6's row; §14.1 chat, §14.2 notify and uploads;
@@ -441,7 +452,7 @@ off until Alex sets it before the v2.2.0 tag.
       minimal through that promote's two swaps: 838,878 requests, 0 5xx, max 5.8 s. Two-host k6, skeleton at 50 VUs
       over ten scenarios: 0.00 % failed, 0.9k (pages) to 10.2k (seo) rps, static at the 1 GbE wire. Numbers in
       `docs/private/APOLLO.md`.
-- [ ] **10. Stage 1b, apollo LAN via NPM**. **M3-03** is deferred to before stage 2 (Alex, 2026-10-30; a stage-2
+- [x] **10. Stage 1b, apollo LAN via NPM**. **M3-03** is deferred to before stage 2 (Alex, 2026-10-30; a stage-2
       blocker, in M12's exit): the Caddy trusts the stack network's gateway, which
       every host-local and (suspected) IPv6 connection to `:8120` arrives from too, so any of them can name a LAN
       address. The fix: trust NPM by an address only NPM has (NPM on the stack's network, or a small shared one, at a pinned
@@ -450,11 +461,15 @@ off until Alex sets it before the v2.2.0 tag.
       starter, skeleton-lan) with §20.4's details and Advanced snippet, and the Access List "LAN only";
       `worker_connections 4096` in NPM's `events.conf`. Then: e2e smoke through NPM; 1000 SSE held 1 h through NPM
       with no idle cuts.
+      Done (2026-10-31): Alex's NPM steps; `deploy/npm-smoke.mjs` 15 of 15 (HTTP/2, a clean render, the 301s, SSE's
+      first frame unbuffered in 21 ms, the WebSocket upgrade); `deploy/npm-hold.mjs`: 1000 SSE held 60 min through NPM,
+      none ended early, none quiet a minute, NPM flat at about 303 MiB and the lab at 7 MiB, with the lab's stream caps
+      lifted for the window and put back by Alex after it (2026-10-31T23:34:59Z).
 - [ ] **M3's open findings, later**: M3-04 (the status watcher's `guard.Mutex`, `guard.call` and a bounded dial: with
       M5's `jobs`); M3-11 (a socket version above the room's
       read as a restart's: with M6's SQLite chat); M3-06's smoke of the pushed digest; M3-13's Caddy recreate (done by Alex 2026-10-31: promote never recreates the Caddy, so its new capabilities and memory limit reach
       apollo only when it is recreated: do it with slice 10's Caddy change, by hand with Alex's go).
-- [ ] **11. Exit**: the parity gate on both legs (X25), with `starter-skeleton` passing it and the 01 (A) 40-item
+- [x] **11. Exit**: the parity gate on both legs (X25), with `starter-skeleton` passing it and the 01 (A) 40-item
       checklist on apollo's LAN; `docs/audit/M3.md` by an agent that didn't write the code, 0 open CRITICAL/HIGH;
       `Audited:` stamps; CHANGELOG's 2.2.0 entry. Then Alex sets `FLY_DEPLOY=true`, the v2.2.0 tag (Alex's go) runs
       the release and `deploy-fly` from `cmd/skeleton`, and the Fly cost is recorded (warn Alex above $10/month).
@@ -467,6 +482,11 @@ off until Alex sets it before the v2.2.0 tag.
       40-item checklist at rc.2, read-only over HTTP from the LAN: every item observable from outside green, the rest
       held by CI at `65c399d`. Left: slice 10 (the stack Caddy's recreate, M3-13, done by Alex 2026-10-31; the NPM steps next) and Alex's part
       (`FLY_DEPLOY`, the v2.2.0 tag on `65c399d`).
+      **Done (2026-11-01): M3 is out as v2.2.0.** Alex set `FLY_DEPLOY=true` and tagged v2.2.0 on `8b9999a`
+      (release/2.2, the stage 1b result in its lead); release run 41253158208 green on every job (the gate, eight
+      images, four publishes, the GitHub Release, Deploy (Fly.io)); v2.2.0 is "latest", every package pulls
+      anonymously, and the Fly witness answers `x-version: v2.2.0`. The deploy updated the one machine in place
+      (rolling, health checks passed, a 6.1 MB image): the machine count, size and cost are unchanged.
 - [x] **A Firefox flake to watch** (found and fixed in M3): v2.1.0's release commit lost lab's Firefox e2e on CI's first try (run 40736711557):
       `page.goto` hit the 30 s timeout in `escaping.spec`'s hyperscript gate (both tries), `scripting.spec`'s password
       rules and `streams-hxcsp.spec`'s unnonced `hx-sse` (each passing its retry); the re-run passed with 3 flaky. The

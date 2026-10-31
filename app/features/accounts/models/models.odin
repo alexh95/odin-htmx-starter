@@ -238,6 +238,7 @@ Totp_Row :: struct {
 }
 
 Store_Set_Audit_Writer :: proc(w: Audit_Writer) // at init
+Store_Has_Audit_Writer :: proc() -> bool          // the boot check: an identity that audits must have set it
 Store_Totp_Secrets :: proc(into: ^[dynamic]Totp_Row) -> Error // every set one, at boot
 Store_Reseal_Totps :: proc(rows: []Totp_Row) -> Error           // at boot, in one transaction; a row changed meanwhile is left
 Store_User_By_Name :: proc(username: string) -> (User, Error)

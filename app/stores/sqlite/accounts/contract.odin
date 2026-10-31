@@ -5,6 +5,7 @@ import m "../../../features/accounts/models"
 // A drifted signature fails here, in this package, built or not (LC §3).
 _ : m.Store_User_By_Name : user_by_name
 _ : m.Store_Set_Audit_Writer : set_audit_writer
+_ : m.Store_Has_Audit_Writer : has_audit_writer
 _ : m.Store_Totp_Secrets : totp_secrets
 _ : m.Store_Reseal_Totps : reseal_totps
 _ : m.Store_User_By_Id : user_by_id

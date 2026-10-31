@@ -461,6 +461,7 @@ unit :: proc(o: ^store.Op, run: proc(o: ^store.Op)) {
 @(private) audit_writer: m.Audit_Writer
 
 set_audit_writer :: proc(w: m.Audit_Writer) { audit_writer = w }
+has_audit_writer :: proc() -> bool { return audit_writer != nil }
 
 // The op's audit entry, as one more statement of its unit: a failure here undoes the change.
 @(private = "file")

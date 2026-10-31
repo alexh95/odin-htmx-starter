@@ -41,6 +41,11 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 - **/admin/ops opened in the first second after boot has its Store card**: rendered before the first sample, the
   page had none, and the panel's swaps fill only the cards a page has; it now takes a reading of its own. The
   card's drop count shows only where a store counts drops (none in a memory build).
+- **A change's audit entry can't silently go unwritten**: accounts writes it through a hook its identity sets, and
+  `identity_accounts` refuses to boot without it; `members.spec` changes a role over a socket closed at once (the
+  audit's own M4-04 scenario) and finds the entry.
+- **`accounts.spec`'s rotation case counts only its own change**: the worker's server is shared, and with four
+  workers (CI's) another spec's admin session was there beside it.
 - **`totp.spec`'s stale-session case gets a 3 s step-up window**: its steps after the step-up didn't always fit in
   1 s on webkit.
 

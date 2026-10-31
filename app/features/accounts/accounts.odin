@@ -102,6 +102,7 @@ count_admins :: proc() -> (int, m.Error) {
 
 // At boot, after the migrations: the first admin from ACCOUNTS_ADMIN_HASH.
 set_audit_writer :: proc(w: m.Audit_Writer) { accounts_store.set_audit_writer(w) }
+has_audit_writer :: proc() -> bool { return accounts_store.has_audit_writer() }
 totp_secrets :: proc(into: ^[dynamic]m.Totp_Row) -> m.Error { return accounts_store.totp_secrets(into) }
 reseal_totps :: proc(rows: []m.Totp_Row) -> m.Error { return accounts_store.reseal_totps(rows) }
 

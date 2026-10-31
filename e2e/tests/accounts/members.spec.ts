@@ -1,3 +1,4 @@
+import net from 'node:net';
 import { test, expect } from '../../fixtures';
 import { startServer, stopServer, type Server, mainOrigin } from '../../helpers/server';
 import { ADMIN, signIn, totp } from '../../helpers/accounts';
@@ -104,6 +105,34 @@ test.describe('members', T, () => {
     await own({ ACCOUNTS_REGISTRATION: 'closed' }, async (_, base) => {
       expect(await (await request.get(`${base}/register`)).text()).toContain('Registration is closed');
       expect((await request.post(`${base}/register`, { form: { username: 'robin' } })).status()).toBe(403);
+    });
+  });
+
+  // M4-04, the audit's own scenario: a role change whose client leaves as soon as the request is
+  // written still has its entry, written in the change's own transaction.
+  test('a role change whose client leaves at once is audited all the same', async ({ browser }) => {
+    await own({ ACCOUNTS_REGISTRATION: 'open' }, async (s, base) => {
+      const ana = await join(browser, `${base}/register`, 'ana', 'Ana');
+      await ana.page.waitForURL((u) => u.pathname === '/');
+      const admin = await signIn(browser, base, '/admin/accounts');
+      const action = await row(admin.page, 'ana').locator('form.admin-role').getAttribute('hx-post');
+      const sid = (await admin.context.cookies()).find((c) => c.name === 'sid')!.value;
+      const body = 'role=Moderator';
+      await new Promise<void>((done, fail) => {
+        const sock = net.connect(s.port, '127.0.0.1', () => {
+          sock.write(`POST ${action} HTTP/1.1\r\nHost: ${new URL(base).host}\r\nCookie: sid=${sid}\r\nHX-Request: true\r\n` +
+            `HX-Prompt: left at once\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: ${body.length}\r\n\r\n${body}`,
+            () => { sock.destroy(); done(); });
+        });
+        sock.on('error', fail);
+      });
+      await expect.poll(async () => {
+        await admin.page.goto('/admin/audit?action=accounts.role');
+        return admin.page.locator('.audit-row', { hasText: 'left at once' }).count();
+      }, { timeout: 10_000 }).toBe(1);
+      await admin.page.goto('/admin/accounts');
+      await expect(row(admin.page, 'ana')).toContainText('Moderator');
+      await Promise.all([ana.context.close(), admin.context.close()]);
     });
   });
 
