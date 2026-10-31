@@ -274,11 +274,11 @@ wanted_topics_parse_strictly :: proc(t: ^testing.T) {
 a_revoke_is_found_by_a_stream_admitted_meanwhile :: proc(t: ^testing.T) {
 	defer h.revoked_n = 0
 	before := sys.mono_ns()
-	revoke_session(7, 0xab) // no host mounted: nothing to kick, only the record
+	record_revoke(7, 0xab) // the record alone: a kick would land in the other tests' inboxes
 	testing.expect(t, revoked_since({id = 7, session = 0xab}, before))
 	testing.expect(t, !revoked_since({id = 7, session = 0xcd}, before)) // another of their devices
 	testing.expect(t, !revoked_since({id = 8, session = 0xab}, before))
 	testing.expect(t, !revoked_since({id = 7, session = 0xab}, sys.mono_ns() + 1)) // a request after it reads the change itself
-	revoke(7)
+	record_revoke(7, 0) // a whole revoke
 	testing.expect(t, revoked_since({id = 7, session = 0xcd}, before)) // every session
 }

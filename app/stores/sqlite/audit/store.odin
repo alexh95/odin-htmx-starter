@@ -78,7 +78,7 @@ register_drops :: proc "contextless" () { store.register_drops(&drops) }
 dropped :: proc() -> u64 { return sync.atomic_load(&drops.n) }
 
 // On the writer, inside another store's op: the entry as one more statement of it (M4-04).
-append_in :: proc(actor_id: i64, actor_name, client, action, target_kind: string, target_id: i64, reason, meta: string) -> store.Error {
+append_in :: proc(actor_id: i64, actor_name, client, action, target_kind: string, target_id: i64, reason, meta: string) -> m.Error {
 	st := db.writer_stmt(SQL_APPEND)
 	defer db.reset(st)
 	db.bind_id(st, 1, time.to_unix_nanoseconds(time.now()) / 1e6)

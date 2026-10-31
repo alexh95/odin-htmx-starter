@@ -134,8 +134,7 @@ Session :: struct {
 Error :: store.Error
 
 // The audit entry a change writes in its own transaction (M4-04): plain values, since the store
-// writes it (stores/sqlite/audit's append_in, the one store-to-store edge). `action` "" writes
-// none. An entry with no change of its own (a failed sign-in) is its own op, through store:audit.
+// writes it, through its Audit_Writer. `action` "" writes none. An entry with no change of its own (a failed sign-in) is its own op, through store:audit.
 Audit :: struct {
 	actor_id:    i64,
 	actor_name:  string,
@@ -147,6 +146,10 @@ Audit :: struct {
 	meta:        string,
 	of_result:   bool, // the actor and the target are the op's result: a registration's new member
 }
+
+// How the store writes an Audit, on the writer inside its op: store:audit's append_in, which the
+// identity that audits hands over at init (no store imports another, D18); unset, it writes none.
+Audit_Writer :: proc(actor_id: i64, actor_name, client, action, target_kind: string, target_id: i64, reason, meta: string) -> Error
 
 // The store reads a role through this: it imports no authz.
 Role :: authz.Role
@@ -234,6 +237,7 @@ Totp_Row :: struct {
 	old, new: string,
 }
 
+Store_Set_Audit_Writer :: proc(w: Audit_Writer) // at init
 Store_Totp_Secrets :: proc(into: ^[dynamic]Totp_Row) -> Error // every set one, at boot
 Store_Reseal_Totps :: proc(rows: []Totp_Row) -> Error           // at boot, in one transaction; a row changed meanwhile is left
 Store_User_By_Name :: proc(username: string) -> (User, Error)

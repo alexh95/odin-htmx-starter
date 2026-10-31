@@ -254,8 +254,23 @@ members :: proc(t: ^testing.T) {
 	last.user_id, last.role, last.done = root.id, .Mod, DONE
 	testing.expect_value(t, write(t, last, sql.set_role(last)), store.Error.Constraint)
 
-	// A change writes its entry in its own unit (M4-04): one for the change that went in, none for
-	// the refused one.
+	// A change writes its entry in its own unit (M4-04), through the writer its identity hands over
+	// (audit's append_in in a build; a stand-in on audit's table here): one for the change that
+	// went in, none for the refused one.
+	sql.set_audit_writer(proc(actor_id: i64, actor_name, client, action, target_kind: string, target_id: i64, reason, meta: string) -> store.Error {
+		st := db.writer_stmt("INSERT INTO audit_log(at, actor_id, actor_name, action, target_kind, target_id, reason, client_id, meta) VALUES(0, ?, ?, ?, ?, ?, ?, ?, ?)")
+		defer db.reset(st)
+		db.bind_id(st, 1, actor_id)
+		db.bind_text(st, 2, actor_name)
+		db.bind_text(st, 3, action)
+		db.bind_text(st, 4, target_kind)
+		db.bind_id(st, 5, target_id)
+		db.bind_text(st, 6, reason)
+		db.bind_text(st, 7, client)
+		db.bind_text(st, 8, meta)
+		return db.step_done(st)
+	})
+	defer sql.set_audit_writer(nil)
 	entries :: proc(action: string) -> int {
 		q := db.read("SELECT count(*) FROM audit_log WHERE action = ?")
 		defer db.reset(q)

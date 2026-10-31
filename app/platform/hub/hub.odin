@@ -251,10 +251,7 @@ revoke :: proc(user_id: u64) { revoke_session(user_id, 0) }
 // Ends the streams one session of a member's opened (a sign-out, a member's revoke of a device:
 // M4-09), as `revoke` ends all of them; `session` is authz.Viewer.session, 0 for every session.
 revoke_session :: proc(user_id, session: u64) {
-	guard.lock(&h.mu)
-	h.revoked[h.revoked_n % REVOKES_KEPT] = {user_id, session, sys.mono_ns()}
-	h.revoked_n += 1
-	guard.unlock(&h.mu)
+	record_revoke(user_id, session)
 	// One kick, matched by user rather than topic, so it also ends the streams a handler
 	// subscribed itself (the ops panel's parts, M5-16); its topic is what `kicked` carries.
 	buf: [24]byte
@@ -279,6 +276,15 @@ REVOKES_KEPT :: 64
 Revoked :: struct {
 	user, session: u64, // session 0: every session of the user
 	at:            i64, // mono ns
+}
+
+// Before the kicks are posted: what a stream being admitted meanwhile reads.
+@(private)
+record_revoke :: proc(user_id, session: u64) {
+	guard.lock(&h.mu)
+	h.revoked[h.revoked_n % REVOKES_KEPT] = {user_id, session, sys.mono_ns()}
+	h.revoked_n += 1
+	guard.unlock(&h.mu)
 }
 
 // Under the hub mutex: whether `v` was revoked since `since` (mono ns, the request's start).

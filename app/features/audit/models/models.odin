@@ -51,3 +51,5 @@ Store_Append :: proc(actor: Actor, action: string, target: Target, reason, meta:
 Store_List :: proc(f: Filter, into: ^[dynamic]Entry) -> Error
 // Entries a full writer queue refused since boot: each is lost, and counted here (M4-04).
 Store_Dropped :: proc() -> u64
+// On the writer, inside another store's op: a change's entry as one more statement of it (M4-04).
+Store_Append_In :: proc(actor_id: i64, actor_name, client, action, target_kind: string, target_id: i64, reason, meta: string) -> Error

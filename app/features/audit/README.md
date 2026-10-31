@@ -4,7 +4,7 @@ The audit log (PLAN §17.7, D35). Writes go through `store:audit`, the one store
 import: `audit_store.append(actor, action, target, reason, meta)` queues one entry and forgets it, for an entry with
 no change of its own (a failed sign-in); one a full writer queue refuses is lost and counted (`store.Drops`, which
 `/admin/ops` shows). A change's own entry goes in the change's transaction instead: accounts' SQLite ops write it with
-`stores/sqlite/audit`'s `append_in`, so the two commit or fail together (M4-04). The SQLite family
+`store:audit`'s `append_in`, which `identity_accounts` hands their store at init, so the two commit or fail together (M4-04). The SQLite family
 keeps `audit_log`, append-only by its triggers (no update; a delete only of an entry older than 400 days); the memory
 family writes one `mod=audit` logfmt line per entry and keeps nothing. An entry never carries a message body or a
 password: the actor (id, name at the time, and the client id, never the address), a namespaced action

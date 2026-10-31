@@ -12,7 +12,6 @@ import "core:time"
 import "../../../platform/store"
 import db "../../../platform/store/sqlite"
 import m "../../../features/accounts/models"
-import audit_sql "../audit"
 
 IMPL :: "sqlite"
 
@@ -459,13 +458,17 @@ unit :: proc(o: ^store.Op, run: proc(o: ^store.Op)) {
 	exec(SQL_RELEASE)
 }
 
+@(private) audit_writer: m.Audit_Writer
+
+set_audit_writer :: proc(w: m.Audit_Writer) { audit_writer = w }
+
 // The op's audit entry, as one more statement of its unit: a failure here undoes the change.
 @(private = "file")
 note :: proc(a: m.Audit, result: i64) -> m.Error {
-	if a.action == "" { return .None }
+	if a.action == "" || audit_writer == nil { return .None }
 	actor, target := a.actor_id, a.target_id
 	if a.of_result { actor, target = result, result }
-	return audit_sql.append_in(actor, a.actor_name, a.client, a.action, a.target_kind, target, a.reason, a.meta)
+	return audit_writer(actor, a.actor_name, a.client, a.action, a.target_kind, target, a.reason, a.meta)
 }
 
 @(private = "file")

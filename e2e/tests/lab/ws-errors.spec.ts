@@ -6,7 +6,8 @@ import { startServer, stopServer, directHost } from '../../helpers/server';
 // spec so a new htmx or browser that changes it fails here, not in Auto. Each browser alike: an
 // `htmx:ws:error` whose `error` is the socket's bare `Event` (no reason: the WebSocket API gives
 // none), then `htmx:ws:close` with code 1006, on every failed attempt; an open socket that drops
-// gives `htmx:ws:close` 1006 (with or without an error first) and reconnects.
+// gives `htmx:ws:close` (1006 when the process is killed, as Windows' stop does; 1012 when it drains
+// on SIGTERM, as on Linux) and reconnects.
 const T = { tag: '@lab' };
 
 type Seen = { type: string; error?: string; code?: number | null; reason?: string };
@@ -54,17 +55,17 @@ test.describe('hx-ws errors', T, () => {
     }
   });
 
-  test('an open socket that drops: a close with 1006, then it reconnects', async ({ page }, info) => {
+  test('an open socket that drops: a close (1006, or 1012 from a drain), then it reconnects', async ({ page }, info) => {
     const s = await startServer(info.config);
     const base = `http://${directHost(s.port)}`;
     const seen = await watch(page, base, `ws://${directHost(s.port)}/lab/ws/echo`);
     await expect.poll(async () => (await seen()).some((e) => e.type === 'htmx:ws:after:connection')).toBe(true);
-    await stopServer(s); // the process ends: no close frame
+    await stopServer(s); // killed on Windows (no close frame), SIGTERM on Linux (the drain's 1012)
     await expect.poll(async () => (await seen()).some((e) => e.type === 'htmx:ws:close'), { timeout: 10_000 }).toBe(true);
     const events = await seen();
     console.log(`[${info.project.name}] dropped:`, JSON.stringify(events.slice(0, 5)));
     const close = events.find((e) => e.type === 'htmx:ws:close')!;
-    expect(close.code).toBe(1006);
+    expect([1006, 1012]).toContain(close.code);
     expect(close.reason).toBe('closed');
   });
 });

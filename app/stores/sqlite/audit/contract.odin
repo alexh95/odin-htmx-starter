@@ -6,3 +6,4 @@ import m "../../../features/audit/models"
 _ : m.Store_Append : append
 _ : m.Store_List : list
 _ : m.Store_Dropped : dropped
+_ : m.Store_Append_In : append_in

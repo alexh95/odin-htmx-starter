@@ -24,6 +24,12 @@ append :: proc(actor: m.Actor, action: string, target: m.Target, reason, meta: s
 	return true
 }
 
+// The memory family keeps no rows, so a change's entry is its log line, at once.
+append_in :: proc(actor_id: i64, actor_name, client, action, target_kind: string, target_id: i64, reason, meta: string) -> m.Error {
+	append({actor_id, actor_name, client}, action, {target_kind, target_id}, reason, meta)
+	return .None
+}
+
 // The log line is written at once, so nothing is ever refused.
 dropped :: proc() -> u64 { return 0 }
 

@@ -21,6 +21,7 @@ import "../../../platform/env"
 import "../../../platform/obs"
 import "../../../platform/password"
 import accounts ".."
+import audit_store "store:audit"
 
 NAME :: "accounts"
 SETS_COOKIE :: true
@@ -78,6 +79,8 @@ st: struct {
 // At boot, from app.boot: the env rows, the lifetimes and the argon pool.
 init :: proc() {
 	authz.theme_href = "/accounts/theme"
+	// A change's audit entry goes in the change's own write (M4-04), through audit's store.
+	accounts.set_audit_writer(audit_store.append_in)
 	env.record("ACCOUNTS_", ENV[:])
 	env.record("", COOKIE_ENV[:])
 	switch env.str("COOKIE_SECURE") {
