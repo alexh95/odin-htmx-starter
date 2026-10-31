@@ -125,6 +125,6 @@ panel :: proc(req: ^web.Request, res: ^web.Response) {
 parts :: proc(req: ^web.Request, res: ^web.Response) {
 	c := stream.multipart_begin(res, .Mixed, nil, proc(c: ^stream.Conn) { hub.unsubscribe((^hub.Sub)(c.user)) })
 	if c == nil { return }
-	c.user = hub.subscribe(c, {PANEL})
+	c.user = hub.subscribe(c, {PANEL}, web.ctx().viewer)
 	if html, _ := ops.panel(); html != "" { stream.multipart_part(c, html, nil) }
 }

@@ -43,6 +43,11 @@ all fixed and re-read.
   before a revoke is kicked as it opens, where it missed the kick and kept the old grant. A kicked page waits
   500 ms before going to sign in, and goes nowhere if it has started leaving: a sign-out kicks its own page too, and
   navigating at once aborted the sign-out's own redirect (Firefox).
+- **M5's second re-read** (`docs/audit/M5.md`, 4 LOW, 2 NIT): a revoke also ends the ops panel's parts (a kick
+  matched by user, not topic); every name's wrong passwords count on one in-memory door, so tries at once back an
+  account and a name with no account off alike, and its slots are keyed and never taken over while shut; a probe's
+  last read can't fall to no timeout; `tools/check locks` refuses `sync.Once` and futexes too (contacts builds its
+  page SQL at init); a page that didn't leave after all takes a later kick again.
 - **Status and the memory jobs store lock through the guard** (M5-10): status's lock is a `guard.Mutex` (its probers
   sleep on a semaphore, never under the lock), and the memory jobs store takes the memory family's `Lock`.
 - **The drills' Linux servers get their env single-quoted**: the backup and dbview drills' admin hash (all `$`) was

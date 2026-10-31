@@ -162,7 +162,7 @@ prober :: proc(i: int) {
 		// This thread is no request: nothing frees its temp allocator but this, and every probe's
 		// request line and resolver lookups land there (M3-01).
 		free_all(context.temp_allocator)
-		// The lock is never held while sleeping: the watchdog would read a long hold as a stuck lock.
+		// The lock is never held while sleeping: every page that reads the board would wait out the sleep.
 		since := time.tick_now()
 		for {
 			guard.lock(&externals.mu)
@@ -195,8 +195,9 @@ probe :: proc(host: string) -> (state, message: string) {
 	n := 0
 	// Each read waits only for what is left of PROBE_TIMEOUT, against a peer that drips (M5-09).
 	for n < len(buf) {
+		// Under a millisecond the option rounds to 0, which is no timeout at all (M5-19).
 		left := PROBE_TIMEOUT - time.tick_since(t0)
-		if left <= 0 || net.set_option(sock, .Receive_Timeout, left) != nil { break }
+		if left < time.Millisecond || net.set_option(sock, .Receive_Timeout, left) != nil { break }
 		got, err := net.recv_tcp(sock, buf[n:])
 		if err != nil || got == 0 { break }
 		n += got

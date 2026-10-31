@@ -9,11 +9,11 @@ package contacts_store_sqlite
 // the others, and reads its row back inside the batch, so the caller answers
 // with exactly what was stored (S0.4's candidate C).
 
+import "base:runtime"
 import "core:fmt"
 import "core:mem"
 import "core:slice"
 import "core:strings"
-import "core:sync"
 import "core:time"
 
 import "../../../platform/store"
@@ -64,13 +64,13 @@ MIGRATIONS := [?]store.Migration {
 @(private) SQL_IDS :: "SELECT id FROM contacts ORDER BY id"
 
 // One page statement per sort key and direction (ORDER BY can't be bound), built
-// once, on the first page: the statement cache keys a statement by its SQL's
-// address, so each must be built exactly once.
+// once, before main: the statement cache keys a statement by its SQL's address, so
+// each must be built exactly once (at init, not under a sync.Once: M5-20).
 @(private) page_sql: [m.Sort][2]string
-@(private) page_sql_once: sync.Once
 
-@(private)
-build_page_sql :: proc() {
+@(private, init)
+build_page_sql :: proc "contextless" () {
+	context = runtime.default_context()
 	for &by_dir, key in page_sql {
 		for &sql, desc in by_dir {
 			// id breaks ties, so a page boundary never splits equal rows unpredictably.
@@ -110,7 +110,6 @@ order_by :: proc(key: m.Sort) -> string {
 // ---- reads --------------------------------------------------------------------------------
 
 page :: proc(f: m.Filter, key: m.Sort, desc: bool, limit, offset: int, out: ^[dynamic]m.Contact) -> m.Error {
-	sync.once_do(&page_sql_once, build_page_sql)
 	q := db.read(page_sql[key][1 if desc else 0])
 	defer db.reset(q)
 	bind_filter(q, f)

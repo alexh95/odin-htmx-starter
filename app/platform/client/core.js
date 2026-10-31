@@ -16,11 +16,14 @@
 // A sign-out kicks its own session's streams, this page's among them (M4-09), as its answer
 // (an HX-Redirect) arrives: going to sign in at once aborted that navigation. So the kick waits
 // a moment, and a page that has started leaving meanwhile goes where it was going.
-var leaving = false;
-addEventListener("beforeunload", function () { leaving = true; });
+// Leaving is a moment, not a state: a beforeunload with no unload after it (an attachment, a
+// page back from the bfcache) mustn't leave the page deaf to a later kick (M5-21).
+var leftAt = 0;
+addEventListener("beforeunload", function () { leftAt = Date.now(); });
+addEventListener("pageshow", function () { leftAt = 0; });
 document.addEventListener("kicked", function (e) {
   var live = e.target && e.target.closest ? e.target.closest("[data-revoke]") : null;
-  if (live) setTimeout(function () { if (!leaving) location.assign(live.dataset.revoke); }, 500);
+  if (live) setTimeout(function () { if (Date.now() - leftAt > 2000) location.assign(live.dataset.revoke); }, 500);
 });
 // A stream the server refuses (401, 403, 404: the viewer may not have its topics any more) is
 // settled, not retried: hx-sse would back off and reconnect forever (PLAN §17.2.3 measured 5 in

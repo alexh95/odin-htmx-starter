@@ -104,7 +104,8 @@ Msg :: struct {
 	policy:  Policy,
 	code:    u16,
 	seq:     u64, // 0 for a kick, which never enters a ring
-	session: u64, // a kick's: only the streams this session opened; 0 = every one
+	user:    u64, // a revoke's kick: every stream of this user, whatever its topics; 0 = by topic
+	session: u64, // with `user`: only the streams this session opened; 0 = every one
 	rowid:   i64,
 	topic:   string,
 	key:     string,
@@ -235,9 +236,9 @@ publish :: proc(topic, html: string, rowid: i64 = 0, key := "") -> u64 {
 // Ends every stream subscribed to `topic`: a kick, a revoke (§9.4). SSE gets the
 // named event `kicked`, which navigates the page; a socket closes with `code`
 // (1008 stops hx-ws for good).
-kick :: proc(topic: string, code: u16, session := u64(0)) {
+kick :: proc(topic: string, code: u16) {
 	m := new_msg(.Kick, .Queue, topic, "", "")
-	m.code, m.session = code, session
+	m.code = code
 	post(m, 0)
 }
 
@@ -254,13 +255,19 @@ revoke_session :: proc(user_id, session: u64) {
 	h.revoked[h.revoked_n % REVOKES_KEPT] = {user_id, session, sys.mono_ns()}
 	h.revoked_n += 1
 	guard.unlock(&h.mu)
+	// One kick, matched by user rather than topic, so it also ends the streams a handler
+	// subscribed itself (the ops panel's parts, M5-16); its topic is what `kicked` carries.
 	buf: [24]byte
 	id := strconv.write_uint(buf[:], user_id, 10)
+	topic := ""
 	for _, rows in h.hosts {
 		for row in rows {
-			if row.member { kick(strings.concatenate({row.family, ":", id}, context.temp_allocator), stream.WS_POLICY, session) }
+			if row.member && topic == "" { topic = strings.concatenate({row.family, ":", id}, context.temp_allocator) }
 		}
 	}
+	m := new_msg(.Kick, .Queue, topic, "", "")
+	m.code, m.user, m.session = stream.WS_POLICY, user_id, session
+	post(m, 0)
 }
 
 // A revoke's record, kept for the streams being admitted while it happens: a viewer loaded just
@@ -392,7 +399,8 @@ Sub :: struct {
 	slot:     int,
 	watch:    [MAX_TOPICS]Watch_Proc, // per topic, told when the stream ends
 	viewer:   authz.Viewer,           // whom /events subscribed, for `watch`; its name on the heap
-	session:  u64,                    // the session /events admitted it for (authz.Viewer.session)
+	user:     u64,                    // whom it was admitted for, and for which session: a revoke
+	session:  u64,                    // finds it by these (authz.Viewer.id and .session)
 }
 
 @(private)
@@ -428,7 +436,7 @@ deliver :: proc(m: ^Msg) {
 	for i := len(local.subs) - 1; i >= 0; i -= 1 {
 		if i >= len(local.subs) { continue }
 		s := local.subs[i]
-		if !wants(s, m.topic) { continue }
+		if m.user != 0 ? !(s.user == m.user && (m.session == 0 || s.session == m.session)) : !wants(s, m.topic) { continue }
 		c := s.conn
 		switch m.kind {
 		case .Html:
@@ -451,7 +459,6 @@ deliver :: proc(m: ^Msg) {
 				stream.multipart_part(c, m.html, {{"HX-Part-ID", id}})
 			}
 		case .Kick:
-			if m.session != 0 && s.session != m.session { continue }
 			switch c.proto {
 			case .Sse:
 				stream.write(c, stream.sse_event("", "kicked", m.topic))
@@ -470,9 +477,11 @@ deliver :: proc(m: ^Msg) {
 
 // Subscribes a stream on its own loop, from its handler, to live messages only:
 // a socket's room, say, which sends its own snapshot (§14.1). Call `unsubscribe`
-// from the stream's on_close. The topics are copied.
-subscribe :: proc(c: ^stream.Conn, topics: []string) -> ^Sub {
+// from the stream's on_close. The topics are copied. A member's stream names its viewer,
+// so revoking them ends it too.
+subscribe :: proc(c: ^stream.Conn, topics: []string, viewer := authz.Viewer{}) -> ^Sub {
 	s := new_sub(c, topics)
+	s.user, s.session = viewer.id, viewer.session
 	guard.lock(&h.mu)
 	join_loop()
 	s.last = h.seq

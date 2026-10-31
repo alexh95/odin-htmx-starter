@@ -134,7 +134,7 @@ events :: proc(req: ^web.Request, res: ^web.Response) {
 	// Anything at or below the snapshot still in this loop's inbox is skipped by
 	// `last`; anything above it arrives after this handler returns.
 	s.last = snapshot
-	s.session = ctx.viewer.session
+	s.user, s.session = ctx.viewer.id, ctx.viewer.session
 	add_sub(s)
 	// Revoked while this request was on its way: kicked as the revoke kicked its other streams.
 	if revoked {

@@ -12,7 +12,6 @@ import "core:crypto/hmac"
 import "core:crypto/sha2"
 import "core:encoding/endian"
 import "core:fmt"
-import "core:hash"
 import "core:strings"
 import "core:time"
 
@@ -106,7 +105,7 @@ Login :: struct {
 	user_id:      i64,
 	failed:       int,
 	known:        bool, // an enabled user by that name: a wrong password counts against it
-	ghost:        u64,  // otherwise the name's key in `ghosts`, where its wrong passwords count
+	name_key:     u64,  // the name's door, which every wrong password counts against (M5-17)
 	totp:         bool, // the account has a second factor: a sign-in asks for a code next
 	https:        bool,
 	client:       u64, // web.client_key: the audit's client id
@@ -171,8 +170,8 @@ sign_in :: proc(req: ^web.Request, res: ^web.Response) {
 		return
 	}
 	known := err == .None && u.disabled_at == 0
-	ghost := u64(0) if known else ghost_key(name)
-	until := u.backoff_until if known else ghost_until(ghost)
+	key := name_key(name)
+	until := max(name_until(key), u.backoff_until if known else 0)
 	if now := accounts.now_ms(); until > now {
 		web.respond_limited(res, time.Duration(until - now) * time.Millisecond,
 			html.field_msg(false, "Too many wrong passwords: wait a little, then try again."))
@@ -180,7 +179,7 @@ sign_in :: proc(req: ^web.Request, res: ^web.Response) {
 	}
 
 	l := new_login(req, u, known, safe_next(f["next"]), .Sign_In)
-	l.ghost = ghost
+	l.name_key = key
 	web.defer_response(req, res, &l.deferred)
 	// An unknown name is verified against the dummy all the same: the answer's time is the same.
 	if !password.submit(&l.verify, pw, u.pw_hash if known else "", verified) {
@@ -196,11 +195,10 @@ verified :: proc(t: ^workers.Task) {
 	case !l.ran:
 		answer(l, html.field_msg(false, "Busy: try again in a moment."), .Service_Unavailable)
 	case !l.ok:
+		if l.name_key != 0 { name_failed(l.name_key) }
 		if l.known {
 			count_failure(l.user_id, l.failed + 1)
 			audit_store.append({client = client_id(l.client)}, "accounts.sign_in_failed", {"user", l.user_id}, "", "factor=password")
-		} else if l.ghost != 0 {
-			ghost_failed(l.ghost)
 		}
 		answer(l, html.field_msg(false, "Wrong username or password." if l.then == .Sign_In else "That isn't your password."), .Unprocessable_Content)
 	case l.then == .Step_Up:
@@ -264,6 +262,7 @@ opened :: proc(o: ^store.Op) {
 	#partial switch op.err {
 	case .None:
 		web.set_header(res, "set-cookie", issue(op.token, l.https))
+		if l.name_key != 0 { name_cleared(l.name_key) }
 		go(req, res, string(l.next[:l.next_len]))
 	case .Constraint:
 		web.respond_html(res, html.field_msg(false, "Wrong code, or one used already."), .Unprocessable_Content)
@@ -283,51 +282,68 @@ count_failure :: proc(user_id: i64, failed: int) {
 	if !accounts.login_failed(op) { store.free_op(op) }
 }
 
-// ---- names with no account back off too (M4-05) --------------------------------------------
+// ---- every name's door (M4-05, M5-17, M5-18) -----------------------------------------------
 //
-// Without this, the fourth wrong password in a row answered 429 only for a name that exists. A
-// name with no account (or a disabled one) counts its wrong passwords here, with an account's
-// backoff, for the process's life. The table is fixed, so a flood of names allocates nothing:
-// two names in one slot take turns, and the newer one starts again from no failures.
+// Every name tried counts its wrong passwords here, in memory, an account's and a name with no
+// account's alike, under one lock and with the count it has just raised: so concurrent tries, or
+// tries faster than the writer commits an account's row, meet the same door for both, and the
+// 429 says nothing about whether the name exists. An account's row keeps its count across a
+// restart too (`backoff_until`), which a sign-in meets as well.
+//
+// The table is fixed, so a flood of names allocates nothing. Its slot is a keyed hash (the boot
+// key), so no one can aim a name at another's slot; and a slot still shut is never taken over:
+// a name that lands on it shares its count, which costs it at worst an early 429.
 
-@(private) GHOSTS :: 4096
+@(private) NAME_DOORS :: 4096
 
 @(private)
-Ghost :: struct {
+Door :: struct {
 	key:    u64,
 	failed: int,
 	until:  i64,
 }
 
 @(private)
-ghosts: struct {
+names: struct {
 	mu:    guard.Mutex,
-	slots: [GHOSTS]Ghost,
+	slots: [NAME_DOORS]Door,
 }
 
-// Never 0, which is "a known account" in Login.
+// Never 0.
 @(private)
-ghost_key :: proc(name: string) -> u64 {
+name_key :: proc(name: string) -> u64 {
 	lower := strings.to_lower(name, context.temp_allocator) // usernames compare without case
-	return hash.fnv64a(transmute([]byte)lower) | 1
+	mac: [32]byte
+	hmac.sum(.SHA256, mac[:], transmute([]byte)lower, st.boot_key[:])
+	return endian.unchecked_get_u64le(mac[:8]) | 1
 }
 
 @(private)
-ghost_until :: proc(key: u64) -> i64 {
-	guard.lock(&ghosts.mu)
-	defer guard.unlock(&ghosts.mu)
-	g := &ghosts.slots[key % GHOSTS]
-	return g.until if g.key == key else 0
+name_until :: proc(key: u64) -> i64 {
+	guard.lock(&names.mu)
+	defer guard.unlock(&names.mu)
+	d := &names.slots[key % NAME_DOORS]
+	return d.until if d.key == key || d.until > accounts.now_ms() else 0
 }
 
 @(private)
-ghost_failed :: proc(key: u64) {
-	guard.lock(&ghosts.mu)
-	defer guard.unlock(&ghosts.mu)
-	g := &ghosts.slots[key % GHOSTS]
-	if g.key != key { g^ = {key = key} }
-	g.failed += 1
-	g.until = accounts.now_ms() + accounts.backoff_ms(g.failed)
+name_failed :: proc(key: u64) {
+	now := accounts.now_ms()
+	guard.lock(&names.mu)
+	defer guard.unlock(&names.mu)
+	d := &names.slots[key % NAME_DOORS]
+	if d.key != key && d.until <= now { d^ = {key = key} }
+	d.failed += 1
+	d.until = now + accounts.backoff_ms(d.failed)
+}
+
+// A right password: the name's count starts again, as the account's row does.
+@(private)
+name_cleared :: proc(key: u64) {
+	guard.lock(&names.mu)
+	defer guard.unlock(&names.mu)
+	d := &names.slots[key % NAME_DOORS]
+	if d.key == key { d^ = {} }
 }
 
 // A session seen again, written at most once a minute (load_viewer).

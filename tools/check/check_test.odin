@@ -85,8 +85,10 @@ checks :: proc(t: ^testing.T) {
 		`BUNDLE_EXTS names features/u/web, which no host of bad mounts`,
 		// locks
 		`features/x/locked.odin:7: features/x takes core:sync's Mutex`,
-		`features/x/locked.odin:10: features/x takes core:sync's mutex_lock`,
-		`features/x/locked.odin:12: features/x takes core:sync's mutex_unlock`,
+		`features/x/locked.odin:10: features/x takes core:sync's Once`,
+		`features/x/locked.odin:13: features/x takes core:sync's once_do`,
+		`features/x/locked.odin:14: features/x takes core:sync's mutex_lock`,
+		`features/x/locked.odin:16: features/x takes core:sync's mutex_unlock`,
 		// parity
 		`a route waiver without a reason: route | GET /x/y | load |`,
 		`app/bin/bad isn't built`,

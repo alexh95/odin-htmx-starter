@@ -4,9 +4,10 @@ package main
 //
 // A lock a handler can trap under is a guard.Mutex: the guard counts it, so the trap is dirty
 // and the server drains, instead of recovering with the lock still held and hanging the next
-// request on it. So nothing names core:sync's locks (its mutexes, benaphores and condition
-// variables, and their lock procs) but the platform packages below, each for its reason. A
-// core:sync semaphore or atomic is no lock and passes.
+// request on it. So nothing names core:sync's locks (its mutexes, benaphores, condition
+// variables, a Once, which holds a mutex across its callback, and a futex, and their procs) but
+// the platform packages below, each for its reason; the exemption is the whole package, so a
+// new lock there is read in review, not here. A semaphore or an atomic is no lock and passes.
 
 import "core:odin/ast"
 import "core:strings"
@@ -51,7 +52,8 @@ check_locks :: proc(t: ^Tree) {
 @(private = "file")
 is_raw_lock :: proc(name: string) -> bool {
 	lower := strings.to_lower(name, context.temp_allocator)
-	if strings.contains(lower, "mutex") || strings.contains(lower, "benaphore") || strings.has_suffix(lower, "cond") { return true }
+	if strings.contains(lower, "mutex") || strings.contains(lower, "benaphore") || strings.has_suffix(lower, "cond") ||
+	   strings.contains(lower, "futex") || lower == "once" || strings.has_prefix(lower, "once_") { return true }
 	switch name {
 	case "lock", "unlock", "try_lock", "shared_lock", "shared_unlock", "try_shared_lock", "guard", "shared_guard", "cond_wait", "cond_wait_with_timeout", "cond_signal", "cond_broadcast":
 		return true

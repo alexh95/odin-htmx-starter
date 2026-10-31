@@ -3728,7 +3728,7 @@ same feature is the witness board (M3).
 **As built (M3):** `STATUS_PROBES` (`name=host:port,…`) is probed by a thread of the feature's own every 10 s, each
 `/healthz` with a 2 s socket timeout; the board shows each external's last answer (its state, and its version and
 time, which are anyone's), so the parts don't wait on a probe. The lab mounts `status`; the stack's lab names the
-three other witnesses. Connect and resolve have no timeout of their own, which a stack network doesn't need (M5 bounds connect within the 2 s, M5-09).
+three other witnesses. Resolve has no timeout of its own, which a stack network doesn't need; connect has had the probe's 2 s since M5 (M5-09).
 
 **As built (M2)**, both in `streams`. `ops`: the `ops.sample` job (1 s) reads requests (`obs.requests_total`), streams,
 the hub's counters (`hub.numbers`), the loops' ticks and the resident memory (`sys.rss_bytes`: Linux's

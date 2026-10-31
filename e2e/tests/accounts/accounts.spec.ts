@@ -137,6 +137,18 @@ test.describe('accounts', T, () => {
     });
   });
 
+  // M5-17: tries at once count as tries one after another, for an account and a name with no account alike.
+  test('wrong passwords at once back off a name as they would one by one', async ({ request }) => {
+    await own({}, async (_, base) => {
+      for (const username of [ADMIN.username, 'nobody-here']) {
+        const post = (password: string) => request.post(`${base}/login`, { form: { username, password }, maxRedirects: 0 });
+        const four = await Promise.all([0, 1, 2, 3].map(() => post('wrong-wrong-wrong')));
+        expect(four.every((r) => [422, 429].includes(r.status()))).toBe(true);
+        expect((await post('wrong-wrong-wrong')).status(), username).toBe(429);
+      }
+    });
+  });
+
   test('sign-ins from one client are limited', async ({ request }) => {
     await own({ ACCOUNTS_LOGIN_PER_CLIENT: '2' }, async (_, base) => {
       expect((await request.post(`${base}/login`, form())).status()).toBe(303);
