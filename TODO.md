@@ -50,9 +50,11 @@ go; Alex's step is the last: the 2–3 invites (Q23), only after the audit.
       commit with the rowid; `@rowid` keyset replay. `full` mounts chat on its main host, perms `Chat_*` (D35).
       *Check:* chat's storetest over both families; the chat specs on `full`.
       Progress (2026-11-01): the SQLite store (rooms, messages, versions, edits and tombstones; rowids, so
-      `PERSISTED`) and `chat/storetest` over both families. Left: rooms beyond public (private, announcements, DMs),
-      members, and the mount in `full` with its specs.
-      **Open (2026-11-01): the mount in `full` failed in CI only, and is reverted (`51505e3`, of `d697760`).** Runs
+      `PERSISTED`) and `chat/storetest` over both families; `full` mounts chat and notify on its main host, and the
+      chat and notify specs and scenarios run there (an account per member); the ring's and the memory restart's
+      cases are `@chat-memory`. Left: rooms beyond public (private, announcements, DMs) and their members; SQLite's
+      own restart spec is slice 9's, its retention slice 3's.
+      **Was open (2026-11-01): the mount in `full` failed in CI only, and was reverted (`51505e3`, of `d697760`).** Runs
       41257098422 (`7efa854`) and 41257794341 (`3738749`), jobs "E2E (full, chromium)" and "E2E (full, firefox)":
       in Firefox the members' pages log "NetworkError when attempting to fetch resource" (`chat.spec`'s "reaches the
       other member once" over ws and sse, "an open edit form outlives…" over every transport; `notify.spec`'s
@@ -63,11 +65,11 @@ go; Alex's step is the last: the 2–3 invites (Q23), only after the audit.
       fails there on streams too. (a) Fixed in `0ba074e`: Firefox holds a second fetch of a URL behind an earlier
       one's open response, so a second tab's multipart pane got nothing; the pane (and ops') fetch with no-store.
       (b) Fixed in `c587a07`: the chromium rate case typed the next burst before the composer's reset cleared it.
-      (c) Open: on `full` in Firefox, members' pages still log "NetworkError when attempting to fetch resource"
-      under the four workers; the one local trace shows a starved box (a register POST 1.4 s, the next never
-      answered), and WSL was at 80% iowait, so it needs a quiet re-run before it says anything. Chromium's presence
-      case failed once in CI and passed on retry (a join published between the page's render and its #live's
-      subscribe is a candidate). The mount itself is `51505e3` reversed, as a patch, ready.
+      (c) Fixed in the commit before the mount: full is on the hyperscript client, whose bootstrap fetches its
+      scripts with no catch, and Firefox rejects a fetch a navigation cuts; every NetworkError and AbortError the
+      members' pages logged came from that one call (the starved box was a separate, local effect). Mounted again
+      after (a)–(c). Still to watch: chromium's presence case failed once in CI and passed on retry (a join
+      published between the page's render and its #live's subscribe is a candidate).
 - [ ] **3. Retention** (§14.1, Q19, D16): the per-kind caps and ages (`CHAT_ROOM_CAP`, `CHAT_DM_CAP`,
       `CHAT_ANNOUNCE_CAP` and their `_MAX_AGE`; a room's own up to 5000 / 90 d), chunked deletes every 50 inserts per
       room, a 60 s age sweep as a job, pinned messages exempt, the in-memory ring (`CHAT_RING_BYTES`), the marker.

@@ -2,11 +2,11 @@ import http from 'k6/http';
 import { check } from 'k6';
 import { setTimeout } from 'k6/timers';
 import { WebSocket } from 'k6/websockets';
-import { BASE, P95, P99 } from '../../lib/config.js';
-import { cookieHeader, signIn } from '../../lib/nick.js';
+import { MAIN as BASE, P95, P99 } from '../../lib/config.js'; // chat and the Inbox are the main host's
+import { cookieHeader, signIn } from '../../lib/member.js';
 import { options as build, summarize } from '../../lib/options.js';
 
-// tags: @chat @accounts-nick
+// tags: @chat
 //
 // A room's live transports, per iteration: the socket (the page's version first, as its
 // page sends it, 0 so it gets the snapshot; then one message sent and back through the

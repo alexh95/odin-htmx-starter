@@ -79,8 +79,11 @@ init :: proc() {
 	env.record("CHAT_", ENV[:])
 	st.transport = transport_named(env.str("CHAT_TRANSPORT")) or_else .Ws
 	chat_store.init(env.size("CHAT_RING_BYTES"))
-	chat_store.seed()
 }
+
+// The lobby, into an empty store: after the store's open and migrations, which a SQLite profile
+// runs after init.
+seed :: proc() { chat_store.seed() }
 
 default_transport :: proc() -> Transport { return st.transport }
 

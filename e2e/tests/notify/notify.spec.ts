@@ -5,7 +5,7 @@ import { leave, member, uid } from '../../helpers/members';
 // The Inbox (PLAN §14.2): a producer's notification lands on the member's page as it
 // happens, over the layout's one #live stream (notify.user:<id>), with every count;
 // chat is the producer here (a mention), and its unread counts ride the same topic.
-const T = { tag: ['@notify', '@chat', '@accounts-nick'] };
+const T = { tag: ['@notify', '@chat'] };
 
 test.describe('notify', T, () => {
   test('a mention lands in the Inbox live, and marking all read zeroes the count', async ({ browser, baseURL }) => {
@@ -70,7 +70,7 @@ test.describe('notify', T, () => {
     await leave(ann, bob);
   });
 
-  test('after a restart the Inbox refetches its log (resync), which the new process has empty', async ({ browser }) => {
+  test('after a restart the Inbox refetches its log (resync), which the new process has empty', { tag: '@notify-memory' }, async ({ browser }) => {
     test.slow();
     const config = test.info().config;
     const s1 = await startServer(config);
