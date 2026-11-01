@@ -15,7 +15,6 @@ import "../../platform/workers"
 import store_sqlite "../../platform/store/sqlite"
 import about_web "../../features/about/web"
 import audit_web "../../features/audit/web"
-import chat_web "../../features/chat/web"
 import compat_web "../../features/compat/web"
 import contacts_web "../../features/contacts/web"
 import dashboard_web "../../features/dashboard/web"
@@ -26,7 +25,6 @@ import jobs_web "../../features/jobs/web"
 import lab_web "../../features/lab/web"
 import landing_web "../../features/landing/web"
 import modules_web "../../features/modules/web"
-import notify_web "../../features/notify/web"
 import ops_web "../../features/ops/web"
 import scripting_web "../../features/scripting/web"
 import status_web "../../features/status/web"
@@ -39,8 +37,6 @@ ROUTES := [?]app.Mount {
 	{"platform", hub.ROUTES[:]},        // /events: the topics below
 	{"home", {{.Get, "/", home_web.page, .Public, {}, 0}}}, // the root: a card per feature
 	{"accounts", identity.ROUTES[:]},   // /login /logout /accounts/sessions
-	{"chat", chat_web.ROUTES[:]},       // /chat: rooms, four transports (M6, on SQLite)
-	{"notify", notify_web.ROUTES[:]},   // /notify: the Inbox
 	{"audit", audit_web.ROUTES[:]},     // /admin/audit: the log, LAN only
 	{"modules", modules_web.ROUTES[:]}, // /admin/modules: what this build is
 	{"ops", ops_web.ROUTES[:]},         // /admin/ops: the 1 Hz panel
@@ -53,8 +49,6 @@ ROUTES := [?]app.Mount {
 // Mounted by main with hub.mount("main", ..TOPICS[:]).
 TOPICS := [?][]hub.Topic {
 	identity.TOPICS[:], // the identity's member topics: what a revoke ends
-	chat_web.TOPICS[:],   // chat.room, chat.presence, chat.typing
-	notify_web.TOPICS[:], // notify.user
 	ops_web.TOPICS[:],  // ops.panel
 	jobs_web.TOPICS[:], // jobs.runs
 }
@@ -89,8 +83,6 @@ HOSTS := [?]app.Host {
 
 // Both hosts' jobs: one scheduler runs them.
 JOBS := [?][]workers.Job {
-	chat_web.JOBS[:],          // chat.presence: away after the debounce, gone after 5 min
-	notify_web.JOBS[:],        // notify.prune: read items after 30 days
 	ops_web.JOBS[:],           // ops.sample: the panel, once a second
 	jobs_web.JOBS[:],          // jobs.sync: the runs into the store and the live page
 	store_sqlite.JOBS[:],      // store.backup: nightly, the newest 7 kept

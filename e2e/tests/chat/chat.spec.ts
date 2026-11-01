@@ -6,7 +6,7 @@ import { leave, member, uid, type Member } from '../../helpers/members';
 // Chat (PLAN §14.1) over each of its four transports, chosen per page by ?transport=:
 // a message reaches every member once, escaped, edits and tombstones follow it, and a
 // restart costs a page nothing it had and duplicates nothing it gets next (D37).
-const T = { tag: ['@chat'] };
+const T = { tag: ['@chat', '@accounts-nick'] };
 const TRANSPORTS = ['ws', 'sse', 'poll', 'multipart'] as const;
 
 // A room of its own per test: the worker's server is shared by its tests.
@@ -170,8 +170,7 @@ for (const t of TRANSPORTS) {
       await leave(ann, bob);
     });
 
-    // The memory store's restart (an empty process, ids from a new epoch); SQLite's is slice 9's.
-    test('a restart: the page keeps what it had and gets what comes next, once', { tag: '@chat-memory' }, async ({ browser }) => {
+    test('a restart: the page keeps what it had and gets what comes next, once', async ({ browser }) => {
       test.slow();
       const config = test.info().config;
       const s1 = await startServer(config);
@@ -253,7 +252,7 @@ test.describe('chat', T, () => {
   // 4 messages of 2,000 `&` render to ~42 KB, past a 32 KiB queue: the snapshot a socket or a
   // multipart feed opens with sent them all at once, and every connect was cut as too slow.
   for (const t of ['ws', 'multipart'] as const) {
-    test(`a room of long messages over ${t}: the snapshot fits the stream, and live messages follow (M2-03)`, { tag: '@chat-memory' }, async ({ browser }) => {
+    test(`a room of long messages over ${t}: the snapshot fits the stream, and live messages follow (M2-03)`, async ({ browser }) => {
       const s = await startServer(test.info().config, { STREAM_MAX_QUEUED: '32KiB' });
       const base = `http://127.0.0.1:${s.port}`;
       const ann = await member(browser, base), bob = await member(browser, base);
@@ -284,8 +283,7 @@ test.describe('chat', T, () => {
   // (M2-35): upserted, it kept what the page had with a silent gap before the newest. A tag the
   // room still covers upserts as before, and so does a refetch with no tag (SSE's resync), which
   // after a restart must keep what the page had (D37).
-  // The ring's eviction (CHAT_RING_BYTES): the memory store's; SQLite's retention is slice 3's.
-  test('a poll from before what the room let go replaces the log (M2-35)', { tag: '@chat-memory' }, async ({ browser }) => {
+  test('a poll from before what the room let go replaces the log (M2-35)', async ({ browser }) => {
     const s = await startServer(test.info().config, { CHAT_RING_BYTES: '3KiB' });
     const base = `http://127.0.0.1:${s.port}`;
     const ann = await member(browser, base);
@@ -319,7 +317,7 @@ test.describe('chat', T, () => {
   // same socket it buys nothing (M3-02). A restart's reconnect is the restart specs' (above): the page
   // keeps its log.
   for (const t of ['ws', 'sse'] as const) {
-    test(`over ${t}, a reconnect past what the room let go replaces the log (M2-31, M2-35)`, { tag: '@chat-memory' }, async ({ browser }) => {
+    test(`over ${t}, a reconnect past what the room let go replaces the log (M2-31, M2-35)`, async ({ browser }) => {
       const s = await startServer(test.info().config, { CHAT_RING_BYTES: '3KiB' });
       const base = `http://127.0.0.1:${s.port}`;
       const ann = await member(browser, base), bob = await member(browser, base);

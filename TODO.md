@@ -50,10 +50,8 @@ go; Alex's step is the last: the 2–3 invites (Q23), only after the audit.
       commit with the rowid; `@rowid` keyset replay. `full` mounts chat on its main host, perms `Chat_*` (D35).
       *Check:* chat's storetest over both families; the chat specs on `full`.
       Progress (2026-11-01): the SQLite store (rooms, messages, versions, edits and tombstones; rowids, so
-      `PERSISTED`) and `chat/storetest` over both families; `full` mounts chat and notify on its main host, and the
-      chat and notify specs and scenarios run there (an account per member); the ring's and the memory restart's
-      cases are `@chat-memory`. Left: rooms beyond public (private, announcements, DMs) and their members; SQLite's
-      own restart spec is slice 9's, its retention slice 3's.
+      `PERSISTED`) and `chat/storetest` over both families. Left: rooms beyond public (private, announcements, DMs),
+      members, and the mount in `full` with its specs.
 - [ ] **3. Retention** (§14.1, Q19, D16): the per-kind caps and ages (`CHAT_ROOM_CAP`, `CHAT_DM_CAP`,
       `CHAT_ANNOUNCE_CAP` and their `_MAX_AGE`; a room's own up to 5000 / 90 d), chunked deletes every 50 inserts per
       room, a 60 s age sweep as a job, pinned messages exempt, the in-memory ring (`CHAT_RING_BYTES`), the marker.

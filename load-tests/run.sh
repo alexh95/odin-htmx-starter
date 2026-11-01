@@ -97,7 +97,6 @@ if [ -x "$BIN" ]; then
   for k in store identity client theme; do
     MEMBERS="$MEMBERS $(echo "$info" | sed "s/.*\"$k\":\"\([^\"]*\)\".*/\1/")"
   done
-  IDENTITY="$(echo "$info" | sed 's/.*"identity":"\([^"]*\)".*/\1/')"
   # A lab host (full, PLAN §7.3): its origin is 127.0.0.1, the main host's any other name.
   case "$info" in *'"hosts":{'*'"lab":['*) TWO_HOSTS=1 ;; esac
 fi
@@ -212,7 +211,6 @@ for s in $SCENARIOS; do
       --quiet \
       --env "BASE_URL=$target" \
       --env "MAIN_URL=${TWO_HOSTS:+http://localhost:$port}" --env "DASHBOARD=$DASHBOARD" \
-      --env "IDENTITY=${IDENTITY:-}" \
       --env "VUS=$vus" \
       --env "DURATION=$DURATION" \
       --env "WARMUP=$WARMUP" \

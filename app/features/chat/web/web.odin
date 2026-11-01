@@ -83,9 +83,6 @@ init :: proc() {
 	chat_transport_ws.post = socket_post
 }
 
-// From main, once the store is open: the lobby into an empty one.
-seed :: proc() { chat.seed() }
-
 // The transport a request's page uses: `?transport=` (the specs'), the member's
 // setting (a cookie), else CHAT_TRANSPORT.
 transport :: proc(req: ^web.Request) -> chat.Transport {

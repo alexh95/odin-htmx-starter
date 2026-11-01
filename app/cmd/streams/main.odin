@@ -37,7 +37,6 @@ main :: proc() {
 	app.check(HOSTS[:], JOBS[:], BUNDLE_EXTS)
 
 	notes.seed() // the memory store is always new: the sample notes go in
-	chat_web.seed() // and the lobby
 
 	// The standard set, and browsers' CSP violation reports to /csp-report (§12.2).
 	app.serve(HOSTS[:], JOBS[:], &BRAND, web.Header_Set.Reporting)
