@@ -29,6 +29,9 @@ all fixed and re-read.
 
 ### Fixed
 
+- **The image carries an empty `/backups` its user owns**: a deploy's `BACKUP_DIR` (the stack's compose sets
+  `/backups`, on a volume of its own) is writable on its first mount, so the nightly backup can write there.
+
 - **/admin/ops opened in the first second after boot has its Store card**: rendered before the first sample, the
   page had none, and the panel's swaps fill only the cards a page has; it now takes a reading of its own.
 
