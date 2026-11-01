@@ -154,15 +154,22 @@ metrics only). Pushes are on the standing go; apollo, tags and anything on Alex'
       Done: the feature (SQLite only) in `full`; `dbview.spec` (a table, a write, two statements and an attach
       refused, the caps, the 2 s stop, the audit row, the 422s) in chromium, webkit and full-vanilla; the `dbview`
       drill (writes' slowest 2.4 ms alone and beside the query); `dbview/dbview.js` reaches both routes.
-- [ ] **8. Exit**: the slice gate for every new feature; the parity gate on both legs; `docs/audit/M5.md` by an agent
+- [x] **8. Exit**: the slice gate for every new feature; the parity gate on both legs; `docs/audit/M5.md` by an agent
       that didn't write the code, 0 open CRITICAL/HIGH, and a re-read of the fixes; `Audited:` stamps; CHANGELOG's
       2.4.0 lead. Then, with Alex: the v2.4.0 tag and `starter-full` promoted.
       Progress (2026-10-31): `docs/audit/M5.md` (0 CRITICAL or HIGH, 4 MEDIUM, 6 LOW, 2 NIT; all fixed or said in
       `f42f032`, re-read; the re-read's M5-13 LOW fixed in `23244f2`, its two NIT said). Parity
       (`docs/perf/PARITY-M5.md`): Linux 20 of 20; Windows 19 of 20, `pages@mem`'s p99 1.11-1.12 of HEAD at 2.2 times its
       throughput, accepted as a pass by Alex (2026-10-31). Stamps and the 2.4.0 lead written. M5-09 (connect within the 2 s, reads within what is
-      left) and M5-10 (status and the memory jobs store on guard locks, `tools/check locks`) closed 2026-10-31. Left:
-      the tag.
+      left) and M5-10 (status and the memory jobs store on guard locks, `tools/check locks`) closed 2026-10-31.
+      **Done (2026-11-01): M5 is out as v2.4.0, and the whole stack runs it.** Alex tagged v2.4.0 on `7945dcc`
+      (release/2.4; release run 41262396834, 18 of 18), put Houston's backups on the HDD (`FULL_BACKUPS`, PLAN §11),
+      and promoted the four witnesses, then `starter-full`. Its first snapshot stopped because `/data/backups` didn't
+      exist, and nothing was recreated; `3977bbd` makes the directory first (`promote-test.ps1 -Snapshot`), and the
+      rerun went through: `pre-v2.4.0.db` taken, healthy, 0 restarts. The smoke through NPM: 21 of 21
+      (`deploy/npm-smoke.mjs --houston --version v2.4.0`), a clean Chromium pass over 15 pages on both of Houston's
+      hosts (200, CSP, DENY, nosniff, x-version v2.4.0, no console error), /readyz on both, houston `/status` 200,
+      `-Status` all five on v2.4.0. The first nightly into `/backups` is due 2026-11-02 at 03:00 UTC.
 
 ## M4 — identity and the Houston shell (v2.3.0)
 
