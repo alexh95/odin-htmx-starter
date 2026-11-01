@@ -7,7 +7,19 @@
 
   Each case writes the target's .env, runs promote, and checks whether it went on or refused; the .env
   the target had is put back at the end. Exit 1 on a case that went the wrong way.
+
+  -Snapshot adds the one case that really promotes: Houston from -TagA to -TagB on a /data with no
+  backups directory (v2.4.0's first snapshot on apollo stopped there), then back to -TagA past five
+  older snapshots, which the pruner must cut to five. It needs local/starter-full:<tag> for both,
+  built with VERSION=<tag> (the smoke checks x-version), and leaves no container or volume behind:
+
+    docker build --build-arg PROFILE=full --build-arg VERSION=pt-a -t local/starter-full:pt-a .
 #>
+param(
+	[switch] $Snapshot,
+	[string] $TagA = 'pt-a',
+	[string] $TagB = 'pt-b'
+)
 $ErrorActionPreference = 'Stop'
 $promote = Join-Path $PSScriptRoot 'promote.ps1'
 
@@ -25,6 +37,51 @@ $cases = @(
 	@{ Name = 'a tag that is no tag'; Ok = $false; Env = "TAG_FULL=latest`n" }
 )
 
+function Wsl([string] $script) {
+	$b64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("set -eu`n" + ($script -replace "`r", '')))
+	$out = wsl.exe -e bash -lc "printf '%s' '$b64' | base64 -d | bash"
+	if ($LASTEXITCODE -ne 0) { throw "wsl: $out" }
+	return $out
+}
+
+# The test stack's containers, network and volumes, by compose's project label (compose.yaml names it;
+# only WSL's ~/promote-test runs it here).
+$TEARDOWN = @'
+ids=$(docker ps -aq --filter label=com.docker.compose.project=odin-htmx-starter)
+[ -z "$ids" ] || docker rm -f $ids >/dev/null
+nets=$(docker network ls -q --filter label=com.docker.compose.project=odin-htmx-starter)
+[ -z "$nets" ] || docker network rm $nets >/dev/null
+vols=$(docker volume ls -q --filter label=com.docker.compose.project=odin-htmx-starter)
+[ -z "$vols" ] || docker volume rm $vols >/dev/null
+'@
+$BUSYBOX = 'busybox:1.37.0@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec'
+function InData([string] $sh) {
+	Wsl "id=`$(docker ps -q --filter label=com.docker.compose.project=odin-htmx-starter --filter label=com.docker.compose.service=starter-full)
+docker run --rm --volumes-from `"`$id`" --user 10001:10001 --network none --entrypoint /bin/sh $BUSYBOX -c '$sh'"
+}
+
+function SnapshotCase {
+	Wsl "$TEARDOWN
+rm -f ~/promote-test/.env ~/promote-test/deployed.json
+: > ~/promote-test/admin-hash" | Out-Null
+	$p = { param($tag) & $promote -Target local -Tag $tag -Service starter-full -ImagePrefix local/starter *>&1 | Out-String }
+	$log = & $p $TagA
+	if ($LASTEXITCODE -ne 0) { return "the first deploy failed: $log" }
+	if ((InData 'test -e /data/backups && echo yes || echo no') -ne 'no') { return "/data/backups exists before the first snapshot" }
+
+	$log = & $p $TagB
+	if ($LASTEXITCODE -ne 0) { return "$TagA -> $TagB with no /data/backups failed: $log" }
+	if ((InData "head -c 15 /data/backups/pre-$TagB.db") -ne 'SQLite format 3') { return "no SQLite snapshot pre-$TagB.db" }
+
+	InData 'for i in 1 2 3 4 5; do touch -d "2020-01-0$i" /data/backups/pre-old$i.db; done' | Out-Null
+	$log = & $p $TagA
+	if ($LASTEXITCODE -ne 0) { return "$TagB -> $TagA failed: $log" }
+	$left = @(InData 'cd /data/backups && ls -1t pre-*.db')
+	$want = @("pre-$TagA.db", "pre-$TagB.db", 'pre-old5.db', 'pre-old4.db', 'pre-old3.db')
+	if (Compare-Object $left $want -SyncWindow 0) { return "the pruner left $($left -join ', ')" }
+	return $null
+}
+
 $saved = (wsl.exe -e bash -lc 'if [ -f ~/promote-test/.env ]; then base64 -w0 ~/promote-test/.env; else echo NONE; fi') -join ''
 $bad = 0
 try {
@@ -35,6 +92,11 @@ try {
 		$pass = $went -eq $c.Ok
 		if (-not $pass) { $bad++ }
 		Write-Host ("{0} {1}: promote {2}" -f $(if ($pass) { 'PASS' } else { 'FAIL' }), $c.Name, $(if ($went) { 'went on' } else { 'refused' }))
+	}
+	if ($Snapshot) {
+		try { $why = SnapshotCase } catch { $why = $_.Exception.Message } finally { Wsl $TEARDOWN | Out-Null }
+		if ($why) { $bad++; Write-Host "FAIL the first snapshot and the prune: $why" }
+		else { Write-Host "PASS the first snapshot and the prune: $TagA -> $TagB -> $TagA" }
 	}
 } finally {
 	if ($saved -eq 'NONE') { wsl.exe -e bash -lc 'rm -f ~/promote-test/.env' | Out-Null }

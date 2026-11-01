@@ -21,6 +21,11 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 
 ### Fixed
 
+- **Promote's snapshot makes its directory first**: Houston's first snapshot (v2.4.0 on apollo) stopped at
+  `unable to open database: /data/backups/pre-v2.4.0.db`, since the old container's `/data` had no `backups` and
+  SQLite makes none. Step 3 now creates it as the app's user with the pinned busybox the pruner runs, before
+  `--backup`; a failed snapshot is still fatal. `promote-test.ps1 -Snapshot` really promotes Houston locally
+  from a `/data` with no backups directory, then again past five older snapshots, which the pruner cuts to five.
 - **A stranger can no longer slow every sign-in, or hold an account's door shut on its owner** (M4-03): sign-ins are
   limited per client and per network (an IPv4 /24, an IPv6 /48, `ACCOUNTS_LOGIN_PER_NET`, 20 per 15 min), and the
   ceiling over everyone (`ACCOUNTS_LOGIN_OVERALL`) counts only the attempts that reach the argon pool. A client that
