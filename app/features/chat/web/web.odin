@@ -572,12 +572,14 @@ open_invites :: proc(req: ^web.Request, res: ^web.Response, r: m.Room, token: st
 }
 
 // The link's page. Its token is in the path: the access log names the route's pattern only, and
-// the page sends no Referer on, so the token goes nowhere from here.
+// the page sends a Referer to this origin alone, so the token goes nowhere else. Not no-referrer:
+// under it a browser sends the form's POST `Origin: null`, which the cross-site write guard
+// refuses wherever there is no Sec-Fetch-Site to go by (plain http to a non-local host).
 @(private)
 join_page :: proc(req: ^web.Request, res: ^web.Response) {
 	token := req.url_params[0]
 	r, _, err := chat.invited_to(token)
-	web.set_header(res, "referrer-policy", "no-referrer")
+	web.set_header(res, "referrer-policy", "same-origin")
 	if err != .None {
 		web.not_found(req, res) // forged, revoked, expired or spent: no room to name
 		return
@@ -589,7 +591,7 @@ join_page :: proc(req: ^web.Request, res: ^web.Response) {
 @(private)
 join_room :: proc(req: ^web.Request, res: ^web.Response) {
 	r, inv, err := chat.invited_to(req.url_params[0])
-	web.set_header(res, "referrer-policy", "no-referrer")
+	web.set_header(res, "referrer-policy", "same-origin")
 	if err != .None {
 		web.not_found(req, res)
 		return

@@ -60,14 +60,14 @@ test.describe('chat rooms', T, () => {
       expect((await bob.page.request.post(path, { form: { body: 'let me in' } })).status()).toBe(404);
     }
 
-    // The owner's invite link lets him in, and sends no Referer on from its page.
+    // The owner's invite link lets him in, and its page sends a Referer to this origin alone.
     await open(ann.page, slug);
     const href = await inviteLink(ann.page);
     await expect(ann.page.locator('.chat-invite-list li')).toHaveCount(1);
     expect((await bob.page.request.post(`${href}x`)).status()).toBe(404); // a forged token
     expect((await bob.page.request.post(href.replace(/\.\w/, '.A'))).status()).toBe(404); // another secret
     const page = await bob.page.goto(href);
-    expect(page!.headers()['referrer-policy']).toBe('no-referrer');
+    expect(page!.headers()['referrer-policy']).toBe('same-origin');
     await bob.page.getByRole('button', { name: 'Join the room' }).click();
     await bob.page.waitForURL(`**/chat/r/${slug}`);
     await expect(bob.page.locator('.chat-members li')).toHaveText([`${ann.name} owner`, bob.name]);
