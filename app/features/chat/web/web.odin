@@ -71,6 +71,7 @@ TOPICS := [?]hub.Topic {
 
 JOBS := [?]workers.Job {
 	{"chat.presence", 5 * time.Second, sweep_presence, nil},
+	{"chat.retention", time.Minute, sweep_old, nil},
 }
 
 // §17.5: posts 5 per 10 s per member (a fixed window: up to 10 across a boundary),
@@ -668,6 +669,17 @@ watch_room :: proc(key: string, v: authz.Viewer, open: bool) {
 		return
 	}
 	if c, show := chat.join(room, v.id, v.name); show { publish_presence(c) }
+}
+
+// What is past its room kind's age goes (§14.1): the cap is the post's own to keep.
+@(private)
+sweep_old :: proc() {
+	removed, err := chat.sweep()
+	if err != .None {
+		workers.fail("the sweep stopped: %v", err)
+		return
+	}
+	if removed > 0 { workers.log("let %d messages go", removed) }
 }
 
 @(private)

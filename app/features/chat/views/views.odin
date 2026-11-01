@@ -141,6 +141,11 @@ room_page :: proc(r: m.Room, msgs: []m.Message, ver: i64, here: []chat.Presence_
 	w(&b, `</span><a class="chat-back" href="/chat">All rooms</a></header><div class="chat-main">`)
 
 	fmt.sbprintf(&b, `<div class="chat-pane" id="pane-%d"%s>`, r.id, wiring.pane)
+	// The marker (§14.1): what the log starts with is all the room still has, and it let older go.
+	if r.dropped > 0 && len(msgs) < chat.SNAPSHOT {
+		cap, days := chat.keeps(r.kind)
+		fmt.sbprintf(&b, `<p class="chat-marker muted">Older messages were removed (this room keeps the last %d messages or %d days).</p>`, cap, days)
+	}
 	fmt.sbprintf(&b, `<div id="log-%d" class="chat-log" role="log" aria-label="Messages" data-me="%d"`, r.id, me)
 	html.behave(&b, .Auto_Scroll)
 	w(&b, `>`)

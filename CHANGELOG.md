@@ -13,6 +13,12 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 - **chat on SQLite** (M6 slice 2, its store): `stores/sqlite/chat` keeps rooms and messages across restarts, ids
   the rowids (`PERSISTED`), a post or a change bumping the room's version in the writer's batch;
   `features/chat/storetest` holds both families to one contract.
+- **Chat retention** (M6 slice 3): a room keeps its kind's newest messages and none past its kind's age (`CHAT_ROOM_*`
+  500 / 7 d, `CHAT_DM_*` 1000 / 30 d, `CHAT_ANNOUNCE_*` 100 / 365 d), pinned ones exempt. SQLite trims in the post's own
+  batch every tenth of the cap (1 to 50 inserts) and the `chat.retention` job sweeps by age every minute, 1000 rows a
+  transaction at most (`0003_retention.sql`); the memory ring takes the cap. A room page says when older messages were
+  removed, with the room's limits. `retention.spec` (`CHAT_ROOM_CAP=5`: 7 sent, 5 kept and the marker) and the
+  storetest's caps, sweep and chunks.
 - **Private rooms, announcements and DMs** (M6 slice 2): a room is public, private, announcements or a DM. A private
   room and a DM are their members' alone (anyone else gets a 404 everywhere, and doesn't see them listed); a private
   room grows by its owner's invite links, rows that outlive a restart (`/chat/join/<id>.<secret>`, the secret kept

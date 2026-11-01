@@ -89,7 +89,7 @@ HOSTS := [?]app.Host {
 
 // Both hosts' jobs: one scheduler runs them.
 JOBS := [?][]workers.Job {
-	chat_web.JOBS[:],          // chat.presence: away after the debounce, gone after 5 min
+	chat_web.JOBS[:],          // chat.presence: away after the debounce, gone after 5 min; chat.retention: past the age
 	notify_web.JOBS[:],        // notify.prune: read items after 30 days
 	ops_web.JOBS[:],           // ops.sample: the panel, once a second
 	jobs_web.JOBS[:],          // jobs.sync: the runs into the store and the live page

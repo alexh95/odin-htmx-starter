@@ -51,12 +51,20 @@ reaches only members, and moderators read neither (moderation works from reports
 use), lists the open ones on the room's page and revokes them (`POST /chat/r/<slug>/invites/<id>/revoke`). An invite
 is a row (`chat_invites`): its link is `/chat/join/<id>.<secret>`, the store keeps the secret's SHA-256 only and the
 domain compares it in constant time, and it lasts 7 days, through restarts, unless revoked or spent; a forged,
-revoked, expired or spent one answers 404 alike. The link's page joins by a plain form and sends no Referer on, and
+revoked, expired or spent one answers 404 alike. The link's page joins by a plain form and sends a Referer to its own origin only, and
 the access log names the route's pattern only, so the token stays in the link. A member leaves with
 `POST /chat/r/<slug>/leave`; a DM isn't left (blocking is slice 4's). A DM
 starts from a message's menu, "Message <name>" (`POST /chat/dm/<id>`, `Chat_Dm`): the two members' room with an
 opaque slug (`dm-` and 16 hex digits), found again from either side, never made twice. The domain holds the rule
 once (`room_for`, `may_read`, `may_post`, `reads`), and every handler, transport and topic asks it.
+
+**Retention** (§14.1, Q19, D16): a public or private room keeps its newest `CHAT_ROOM_CAP` (500) messages and none older
+than `CHAT_ROOM_MAX_AGE` (7 d), a DM 1000 or 30 d (`CHAT_DM_*`), announcements 100 or 365 d (`CHAT_ANNOUNCE_*`);
+pinned messages are exempt. On SQLite the writer trims a room in the post's own batch every tenth of its cap (1 to
+50 inserts), and the `chat.retention` job sweeps by age every minute, both 1000 rows a transaction at most; the
+memory store's ring takes the cap. Either moves the room's `dropped`, so a cursor below it resyncs, and a room page
+whose log reaches back to the oldest kept message says "Older messages were removed (this room keeps the last N
+messages or D days)".
 
 **Limits** (§17.5): posts 5 per 10 s per member (`web.Limit`, a 429 with `Retry-After` into the toasts; a socket gets
 the toast down the socket), typing 1 per 2 s (the rest dropped), socket frames 20 a second (then 1008), bodies 2,000

@@ -6,9 +6,15 @@ package chat_store_sqlite
 // `@<rowid>` after a restart too (PERSISTED, D13). Reads on the loop's reader; a post or a change
 // goes through the writer task, which bumps the room's version and reads the row back in the same
 // batch, so the caller answers with exactly what was stored. Rooms, DMs and memberships are made
-// at once (write_now, rare and small): the caller answers with the room. Retention (slice 3) moves
-// `dropped` and `dropped_ver`, which say a cursor below them can't be served whole.
+// at once (write_now, rare and small): the caller answers with the room.
+//
+// Retention (§14.1, D16): a post trims its room past its kind's cap in the post's own batch, every
+// `trim_every` inserts (50 at the defaults, so a delete is amortised; every one under a small
+// cap), and the 60 s sweep lets go of what is past its kind's age, both 1000 rows a transaction at
+// most and pinned messages never. Each moves the room's `dropped` and `dropped_ver` first, which
+// say a cursor below them can't be served whole.
 
+import "base:runtime"
 import "core:fmt"
 import "core:strings"
 import "core:time"
@@ -26,9 +32,10 @@ MAX_ROOMS :: 1000
 MIGRATIONS := [?]store.Migration {
 	{1, "0001_chat.sql", #load("migrations/0001_chat.sql", string)},
 	{2, "0002_rooms.sql", #load("migrations/0002_rooms.sql", string)},
+	{3, "0003_retention.sql", #load("migrations/0003_retention.sql", string)},
 }
 
-@(private) ROOM_COLS :: "id, slug, name, at, kind, owner"
+@(private) ROOM_COLS :: "id, slug, name, at, kind, owner, dropped"
 @(private) MSG_COLS :: "id, room, author, name, body, at, edited, gone, ver"
 @(private) SQL_ROOMS :: "SELECT " + ROOM_COLS + " FROM chat_rooms ORDER BY id"
 @(private) SQL_ROOMS_FOR :: "SELECT " + ROOM_COLS + " FROM chat_rooms WHERE kind IN (0, 2) OR id IN (SELECT room FROM chat_members WHERE who = ?) ORDER BY id"
@@ -54,13 +61,29 @@ MIGRATIONS := [?]store.Migration {
 @(private) SQL_COUNT_AFTER :: "SELECT count(*) FROM chat_messages WHERE room = ? AND id > ?"
 @(private) SQL_CHANGED :: "SELECT " + MSG_COLS + " FROM chat_messages WHERE room = ? AND ver > ? ORDER BY id"
 @(private) SQL_MESSAGE :: "SELECT " + MSG_COLS + " FROM chat_messages WHERE id = ?"
-@(private) SQL_BUMP :: "UPDATE chat_rooms SET ver = ver + 1 WHERE id = ? RETURNING ver"
+@(private) SQL_BUMP :: "UPDATE chat_rooms SET ver = ver + 1 WHERE id = ? RETURNING ver, kind"
+@(private) CHUNK :: 1000
+@(private) PAST_CAP :: "SELECT id, ver FROM chat_messages WHERE room = ? AND pinned = 0 ORDER BY id DESC LIMIT 1000 OFFSET ?"
+@(private) SQL_PAST_CAP :: "SELECT max(id), max(ver), count(*) FROM (" + PAST_CAP + ")"
+@(private) SQL_TRIM :: "DELETE FROM chat_messages WHERE id IN (SELECT id FROM (" + PAST_CAP + "))"
+@(private) PAST_AGE :: "SELECT m.room AS room, m.id AS id, m.ver AS ver FROM chat_messages m JOIN chat_rooms r ON r.id = m.room WHERE r.kind = ? AND m.pinned = 0 AND m.at < ? ORDER BY m.id LIMIT 1000"
+@(private) SQL_PAST_AGE :: "SELECT room, max(id), max(ver), count(*) FROM (" + PAST_AGE + ") GROUP BY room"
+@(private) SQL_AGE_OUT :: "DELETE FROM chat_messages WHERE id IN (SELECT id FROM (" + PAST_AGE + "))"
+@(private) SQL_DROPPED :: "UPDATE chat_rooms SET dropped = max(dropped, ?), dropped_ver = max(dropped_ver, ?) WHERE id = ?"
 @(private) SQL_POST :: "INSERT INTO chat_messages(room, author, name, body, at, ver) VALUES(?, ?, ?, ?, ?, ?)"
 @(private) SQL_EDIT :: "UPDATE chat_messages SET body = ?, edited = ?, ver = ? WHERE id = ?"
 @(private) SQL_DELETE :: "UPDATE chat_messages SET body = '', gone = 1, ver = ? WHERE id = ?"
 
-// Nothing to size: the in-memory ring of §14.1 arrives with retention.
-init :: proc(ring_bytes: int) {}
+// What each kind keeps, set at boot before the writer starts; the writer's own count of inserts
+// per room since boot, which `trim_every` reads (the writer is one thread).
+@(private) keep: m.Retention
+@(private) inserts: map[i64]int
+
+// SQLite keeps no ring of its own: the page cache is it.
+init :: proc(ring_bytes: int, retention: m.Retention) { keep = retention }
+
+// How often a room capped at `cap` is trimmed: every tenth of its cap, between 1 and 50 inserts.
+trim_every :: proc(cap: int) -> int { return clamp(cap / 10, 1, 50) }
 
 rooms :: proc(out: ^[dynamic]m.Room) -> (err: m.Error) {
 	q := db.read(SQL_ROOMS)
@@ -269,7 +292,8 @@ post :: proc(op: ^m.Post) -> bool {
 	op.run = proc(o: ^store.Op) {
 		op := (^m.Post)(o)
 		ver: i64
-		if ver, o.err = bump(op.room); o.err != .None { return }
+		kind: m.Room_Kind
+		if ver, kind, o.err = bump(op.room); o.err != .None { return }
 		at := now()
 		st := db.writer_stmt(SQL_POST)
 		db.bind_id(st, 1, op.room)
@@ -283,8 +307,80 @@ post :: proc(op: ^m.Post) -> bool {
 		if o.err != .None { return }
 		a := store.op_allocator(o)
 		op.result = {id = db.last_insert_id(), room = op.room, author = op.author, name = strings.clone(op.name, a), body = strings.clone(op.body, a), at = at, ver = ver}
+		if inserts == nil { inserts = make(map[i64]int, runtime.heap_allocator()) }
+		inserts[op.room] += 1
+		if keep.cap[kind] > 0 && inserts[op.room] % trim_every(keep.cap[kind]) == 0 { o.err = trim(op.room, keep.cap[kind]) }
 	}
 	return db.write(op)
+}
+
+// On the writer: room's unpinned messages past its newest `cap`, a chunk at most, after its
+// `dropped` says so.
+@(private)
+trim :: proc(room_id: i64, cap: int) -> (err: m.Error) {
+	q := db.writer_stmt(SQL_PAST_CAP)
+	db.bind_id(q, 1, room_id)
+	db.bind_int(q, 2, cap)
+	has := db.next_row(q, &err) && db.column_int(q, 2) > 0
+	newest, newest_ver := db.column_id(q, 0), db.column_id(q, 1)
+	db.reset(q)
+	if !has { return }
+	dropped(room_id, newest, newest_ver) or_return
+	st := db.writer_stmt(SQL_TRIM)
+	defer db.reset(st)
+	db.bind_id(st, 1, room_id)
+	db.bind_int(st, 2, cap)
+	return db.step_done(st)
+}
+
+@(private)
+dropped :: proc(room_id, newest, newest_ver: i64) -> m.Error {
+	st := db.writer_stmt(SQL_DROPPED)
+	defer db.reset(st)
+	db.bind_id(st, 1, newest)
+	db.bind_id(st, 2, newest_ver)
+	db.bind_id(st, 3, room_id)
+	return db.step_done(st)
+}
+
+// What `sweep` works on: write_now runs on the job's own thread.
+@(private, thread_local) sweeping: struct {
+	kind:    m.Room_Kind,
+	cutoff:  i64,
+	removed: int,
+	err:     m.Error,
+}
+
+// Every room's messages past its kind's age, a chunk a transaction, until a chunk comes up short.
+sweep :: proc(at: i64) -> (removed: int, err: m.Error) {
+	for kind in m.Room_Kind {
+		if keep.age[kind] <= 0 { continue }
+		for {
+			sweeping = {kind = kind, cutoff = at - keep.age[kind]}
+			ok := db.write_now(proc() -> bool {
+				q := db.writer_stmt(SQL_PAST_AGE)
+				db.bind_int(q, 1, int(sweeping.kind))
+				db.bind_id(q, 2, sweeping.cutoff)
+				for db.next_row(q, &sweeping.err) {
+					sweeping.removed += db.column_int(q, 3)
+					if sweeping.err = dropped(db.column_id(q, 0), db.column_id(q, 1), db.column_id(q, 2)); sweeping.err != .None { break }
+				}
+				db.reset(q)
+				if sweeping.err != .None { return false }
+				if sweeping.removed == 0 { return true }
+				st := db.writer_stmt(SQL_AGE_OUT)
+				defer db.reset(st)
+				db.bind_int(st, 1, int(sweeping.kind))
+				db.bind_id(st, 2, sweeping.cutoff)
+				sweeping.err = db.step_done(st)
+				return sweeping.err == .None
+			})
+			if !ok { return removed, sweeping.err if sweeping.err != .None else .Failed }
+			removed += sweeping.removed
+			if sweeping.removed < CHUNK { break }
+		}
+	}
+	return removed, .None
 }
 
 // An edit or a delete of the author's own message inside `window`: .Not_Found for none or one
@@ -308,7 +404,7 @@ change :: proc(op: ^m.Change) -> bool {
 			return
 		}
 		ver: i64
-		if ver, o.err = bump(msg.room); o.err != .None { return }
+		if ver, _, o.err = bump(msg.room); o.err != .None { return }
 		edited := now()
 		st := db.writer_stmt(SQL_DELETE if op.delete else SQL_EDIT)
 		if op.delete {
@@ -430,14 +526,15 @@ seed :: proc() {
 
 // ---- helpers ------------------------------------------------------------------------------
 
-// On the writer: the room's next version.
+// On the writer: the room's next version, and its kind.
 @(private)
-bump :: proc(room_id: i64) -> (ver: i64, err: m.Error) {
+bump :: proc(room_id: i64) -> (ver: i64, kind: m.Room_Kind, err: m.Error) {
 	st := db.writer_stmt(SQL_BUMP)
 	defer db.reset(st)
 	db.bind_id(st, 1, room_id)
-	if !db.next_row(st, &err) { return 0, err if err != .None else .Not_Found }
-	return db.column_id(st, 0), .None
+	if !db.next_row(st, &err) { return 0, .Public, err if err != .None else .Not_Found }
+	kind, _ = store.enum_from_int(m.Room_Kind, db.column_int(st, 1))
+	return db.column_id(st, 0), kind, .None
 }
 
 @(private)
@@ -454,7 +551,7 @@ one_room :: proc(q: db.Stmt) -> m.Room {
 	kind, _ := store.enum_from_int(m.Room_Kind, db.column_int(q, 4)) // an unknown kind reads as public
 	return {
 		id = db.column_id(q, 0), slug = db.clone_col(q, 1), name = db.clone_col(q, 2), at = db.column_id(q, 3),
-		kind = kind, owner = u64(db.column_id(q, 5)),
+		kind = kind, owner = u64(db.column_id(q, 5)), dropped = db.column_id(q, 6),
 	}
 }
 

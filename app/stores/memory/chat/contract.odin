@@ -13,6 +13,7 @@ _ : m.Store_Members : members
 _ : m.Store_Is_Member : is_member
 _ : m.Store_Join : join
 _ : m.Store_Leave : leave
+_ : m.Store_Sweep : sweep
 _ : m.Store_Add_Invite : add_invite
 _ : m.Store_Invite : invite
 _ : m.Store_Invites : invites

@@ -55,7 +55,7 @@ mem_store_newest :: proc(r: ^Room_State, i: int) -> ^m.Message {
 a_room_keeps_its_newest :: proc(t: ^testing.T) {
 	defer reset()
 	defer free_all(context.temp_allocator)
-	init(0)
+	init(0, {})
 	seed()
 	lobby, err := room("lobby")
 	testing.expect_value(t, err, m.Error.None)
@@ -114,7 +114,7 @@ a_room_keeps_its_newest :: proc(t: ^testing.T) {
 	testing.expect_value(t, msg.body, "")
 
 	// Past the byte budget the oldest go first.
-	init(4 * 1024)
+	init(4 * 1024, {})
 	say(lobby.id, 9, "evict")
 	clear(&msgs)
 	_ = recent(lobby.id, 1000, &msgs)

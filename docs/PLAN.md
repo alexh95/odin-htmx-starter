@@ -3375,6 +3375,10 @@ user ids plus an `author_name` snapshot and no foreign key into `users` (D6, §1
   slug, and isn't left. Moderators read neither a private room nor a DM: moderation of those works from reports,
   which carry a copy of the reported message (slice 4). Rooms, DMs, memberships and invites are written at once
   (`write_now`), being rare.
+- **Retention** as the table above: the writer trims a room in the post's batch every tenth of its cap (1 to 50
+  inserts), the `chat.retention` job sweeps by age each minute, 1000 rows a transaction at most and pinned
+  (`chat_messages.pinned`) never; the memory store's ring takes the cap. The marker shows above the log when the page
+  has everything the room kept. A room's own settings (up to 5000 or 90 d) are still to come.
 
 ### 14.2 Notifications, Today and uploads
 

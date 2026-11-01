@@ -76,6 +76,11 @@ go; Alex's step is the last: the 2–3 invites (Q23), only after the audit.
       `CHAT_ANNOUNCE_CAP` and their `_MAX_AGE`; a room's own up to 5000 / 90 d), chunked deletes every 50 inserts per
       room, a 60 s age sweep as a job, pinned messages exempt, the in-memory ring (`CHAT_RING_BYTES`), the marker.
       *Check:* the retention spec (`CHAT_ROOM_CAP=5`, send 7 → 5 + the marker); a unit test of the chunking.
+      Progress (2026-11-01): the caps and ages per kind, SQLite's trim in the post's batch (every tenth of the cap,
+      1 to 50 inserts) and the 60 s `chat.retention` sweep, 1000 rows a transaction, `pinned` exempt
+      (`0003_retention.sql`), the memory ring at the cap, the marker; `retention.spec` on both stores, the storetest's
+      caps, sweep and a sweep across chunks, `trim_every`'s unit cases. Left: a room's own settings (up to 5000 / 90 d,
+      by its owner or an admin), which need the room settings page.
 - [ ] **4. Edits, deletes, moderation** (§14.1): own edits within 10 min and deletes; moderators delete to a
       tombstone, mute, kick, lock and slow mode, each with an hx-prompt reason, audited (in the change's transaction,
       as M4-04); the per-message menu `GET /chat/m/<id>/menu` by the viewer's perms. *Check:* e2e per action, the

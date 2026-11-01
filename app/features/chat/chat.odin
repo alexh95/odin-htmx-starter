@@ -76,6 +76,13 @@ TRANSPORTS := [Transport]struct {
 ENV := [?]env.Row {
 	{name = "CHAT_TRANSPORT", kind = .Enum, def = "ws", choices = "ws|sse|poll|multipart", doc = "a room's connection when the viewer chose none (§14.1)"},
 	{name = "CHAT_RING_BYTES", kind = .Size, def = "16MiB", doc = "bytes every room's last 100 messages hold in all; the oldest rooms' tails go first"},
+	// Retention (§14.1, Q19): whichever hits first; pinned messages exempt.
+	{name = "CHAT_ROOM_CAP", kind = .Int, def = "500", doc = "messages a public or private room keeps, the newest"},
+	{name = "CHAT_ROOM_MAX_AGE", kind = .Duration, def = "7d", doc = "and none older than this"},
+	{name = "CHAT_DM_CAP", kind = .Int, def = "1000", doc = "messages a DM keeps"},
+	{name = "CHAT_DM_MAX_AGE", kind = .Duration, def = "30d", doc = "and none older than this"},
+	{name = "CHAT_ANNOUNCE_CAP", kind = .Int, def = "100", doc = "messages announcements keep"},
+	{name = "CHAT_ANNOUNCE_MAX_AGE", kind = .Duration, def = "365d", doc = "and none older than this"},
 }
 
 @(private)
@@ -85,14 +92,32 @@ st: struct {
 	names:     map[u64]string,            // member → the name they last used here, for mentions
 	read:      map[i64]map[u64]i64,       // room → member → the newest id they have seen
 	here:      map[i64]map[u64]Presence,  // room → member → their presence
+	keep:      m.Retention,
 }
 
 // At boot: the env rows, the store's ring budget, the lobby.
 init :: proc() {
 	env.record("CHAT_", ENV[:])
 	st.transport = transport_named(env.str("CHAT_TRANSPORT")) or_else .Ws
-	chat_store.init(env.size("CHAT_RING_BYTES"))
+	secs :: proc(name: string) -> i64 { return i64(env.duration(name) / time.Second) }
+	for kind in m.Room_Kind {
+		switch kind {
+		case .Public, .Private:
+			st.keep.cap[kind], st.keep.age[kind] = env.int_("CHAT_ROOM_CAP"), secs("CHAT_ROOM_MAX_AGE")
+		case .Dm:
+			st.keep.cap[kind], st.keep.age[kind] = env.int_("CHAT_DM_CAP"), secs("CHAT_DM_MAX_AGE")
+		case .Announce:
+			st.keep.cap[kind], st.keep.age[kind] = env.int_("CHAT_ANNOUNCE_CAP"), secs("CHAT_ANNOUNCE_MAX_AGE")
+		}
+	}
+	chat_store.init(env.size("CHAT_RING_BYTES"), st.keep)
 }
+
+// What a room of `kind` keeps: its newest `cap` messages, none older than `days`.
+keeps :: proc(kind: m.Room_Kind) -> (cap: int, days: i64) { return st.keep.cap[kind], st.keep.age[kind] / 86_400 }
+
+// The 60 s job: every room's messages past its kind's age.
+sweep :: proc() -> (removed: int, err: m.Error) { return chat_store.sweep(now()) }
 
 // The lobby, into an empty store: after the store's open and migrations, which a SQLite profile
 // runs after init.

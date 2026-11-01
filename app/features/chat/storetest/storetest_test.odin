@@ -9,7 +9,9 @@ package chat_storetest
 // delete leaving a tombstone. Rooms come in kinds: a private room's owner is its first member,
 // rooms_for lists the public rooms, announcements and the viewer's own, a DM is found again rather
 // than made twice, and members join (once) and leave. An invite is open until it is revoked,
-// expires or is used up; using it joins once, and a member already in counts no use. What the ring keeps and lets go is the
+// expires or is used up; using it joins once, and a member already in counts no use. Retention
+// keeps a room's newest `cap` (the gap said by `dropped` and `after`'s reached), and the sweep lets
+// go of what is past its kind's age. What the ring keeps and lets go is the
 // memory store's own test; the SQLite store keeps every message, with ids that are rowids.
 
 import "base:runtime"
@@ -39,6 +41,7 @@ Family :: struct {
 	is_member:   m.Store_Is_Member,
 	join:        m.Store_Join,
 	leave:       m.Store_Leave,
+	sweep:       m.Store_Sweep,
 	add_invite:  m.Store_Add_Invite,
 	invite:      m.Store_Invite,
 	invites:     m.Store_Invites,
@@ -125,7 +128,7 @@ alter :: proc(t: ^testing.T, f: Family, id: i64, author: u64, body: string, dele
 
 @(private = "file")
 conforms :: proc(t: ^testing.T, f: Family) {
-	f.init(0)
+	f.init(0, {})
 	f.seed()
 	f.seed() // into an empty store only
 	lobby, err := f.room("lobby")
@@ -169,6 +172,55 @@ conforms :: proc(t: ^testing.T, f: Family) {
 	testing.expectf(t, e4 == .Not_Found, "%s: a deleted message isn't edited, %v", f.name, e4)
 	_, e5 := alter(t, f, 1 << 40, 8, "x", false)
 	testing.expectf(t, e5 == .Not_Found, "%s: no such message, %v", f.name, e5)
+	retention(t, f)
+}
+
+// A public room keeps its newest 5 (trimmed on every insert under so small a cap); announcements
+// nothing past a minute, once the sweep runs.
+@(private = "file")
+retention :: proc(t: ^testing.T, f: Family) {
+	keep: m.Retention
+	keep.cap[.Public], keep.age[.Announce] = 5, 60
+	f.init(0, keep)
+	small, err := f.create_room("small", "Small", .Public, 7, "ann")
+	testing.expectf(t, err == .None, "%s: a capped room, %v", f.name, err)
+	first := say(t, f, small.id, 7, "one")
+	for _ in 0 ..< 6 { say(t, f, small.id, 7, "more") }
+	msgs := make([dynamic]m.Message, context.temp_allocator)
+	testing.expect_value(t, f.recent(small.id, 50, &msgs), m.Error.None)
+	testing.expectf(t, len(msgs) == 5 && msgs[0].id > first.id, "%s: the newest 5 of 7 kept: %d", f.name, len(msgs))
+	again, _ := f.room("small")
+	testing.expectf(t, again.dropped > first.id && again.dropped < msgs[0].id, "%s: dropped says the gap, %v", f.name, again)
+	clear(&msgs)
+	reached, _ := f.after(small.id, first.id, &msgs)
+	testing.expectf(t, !reached, "%s: a cursor below the gap isn't served whole", f.name)
+
+	news, _ := f.create_room("bulletin", "Bulletin", .Announce, 7, "ann")
+	for _ in 0 ..< 3 { say(t, f, news.id, 7, "old news") }
+	at := time.time_to_unix(time.now())
+	removed, serr := f.sweep(at + 30)
+	testing.expectf(t, serr == .None && removed == 0, "%s: nothing past a minute yet, %d %v", f.name, removed, serr)
+	removed, serr = f.sweep(at + 120)
+	testing.expectf(t, serr == .None && removed == 3, "%s: the sweep let 3 go, %d %v", f.name, removed, serr)
+	clear(&msgs)
+	_ = f.recent(news.id, 50, &msgs)
+	gone, _ := f.room("bulletin")
+	testing.expectf(t, len(msgs) == 0 && gone.dropped > 0, "%s: the room after the sweep, %d %v", f.name, len(msgs), gone)
+	if f.name == "sqlite" { chunks(t, f) }
+	f.init(0, {})
+}
+
+// SQLite's deletes go 1000 rows a transaction: a sweep past a chunk takes two, and lets all go.
+@(private = "file")
+chunks :: proc(t: ^testing.T, f: Family) {
+	testing.expect_value(t, sql.trim_every(5), 1)
+	testing.expect_value(t, sql.trim_every(100), 10)
+	testing.expect_value(t, sql.trim_every(500), 50)
+	testing.expect_value(t, sql.trim_every(5000), 50)
+	big, _ := f.create_room("big", "Big", .Announce, 7, "ann")
+	for _ in 0 ..< 1500 { say(t, f, big.id, 7, "x") }
+	removed, err := f.sweep(time.time_to_unix(time.now()) + 120)
+	testing.expectf(t, err == .None && removed == 1500, "sqlite: a sweep across chunks, %d %v", removed, err)
 }
 
 @(private = "file")
@@ -266,11 +318,11 @@ both_families :: proc(t: ^testing.T) {
 	testing.expect_value(t, nbio.acquire_thread_event_loop(), nil)
 	defer nbio.release_thread_event_loop()
 
-	conforms(t, {"memory", mem.init, mem.seed, mem.room, mem.rooms_for, mem.create_room, mem.dm, mem.members, mem.is_member, mem.join, mem.leave, mem.add_invite, mem.invite, mem.invites, mem.revoke_invite, mem.use_invite, mem.recent, mem.after, mem.count_after, mem.changed, mem.message, mem.post, mem.change})
+	conforms(t, {"memory", mem.init, mem.seed, mem.room, mem.rooms_for, mem.create_room, mem.dm, mem.members, mem.is_member, mem.join, mem.leave, mem.sweep, mem.add_invite, mem.invite, mem.invites, mem.revoke_invite, mem.use_invite, mem.recent, mem.after, mem.count_after, mem.changed, mem.message, mem.post, mem.change})
 
 	testing.expect_value(t, db.open_db(":memory:", .Ephemeral, "storetest"), "")
 	defer db.close()
 	db.migrate("chat", sql.MIGRATIONS[:])
-	conforms(t, {"sqlite", sql.init, sql.seed, sql.room, sql.rooms_for, sql.create_room, sql.dm, sql.members, sql.is_member, sql.join, sql.leave, sql.add_invite, sql.invite, sql.invites, sql.revoke_invite, sql.use_invite, sql.recent, sql.after, sql.count_after, sql.changed, sql.message, sql.post, sql.change})
+	conforms(t, {"sqlite", sql.init, sql.seed, sql.room, sql.rooms_for, sql.create_room, sql.dm, sql.members, sql.is_member, sql.join, sql.leave, sql.sweep, sql.add_invite, sql.invite, sql.invites, sql.revoke_invite, sql.use_invite, sql.recent, sql.after, sql.count_after, sql.changed, sql.message, sql.post, sql.change})
 	free_all(context.temp_allocator)
 }

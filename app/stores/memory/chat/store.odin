@@ -3,7 +3,8 @@ package chat_store_memory
 // ---- chat in memory (PLAN §14.1, D16) ------------------------------------------------------
 //
 // In memory mode the ring is the history: the last KEEP messages per room, under one
-// global byte budget (CHAT_RING_BYTES) that takes the oldest rooms' tails first, and a
+// global byte budget (CHAT_RING_BYTES) that takes the oldest rooms' tails first, or fewer when its
+// kind's cap is under KEEP, none older than its kind's age (the sweep), and a
 // restart empties it all, which the room page says ("ephemeral"). Rows behind the
 // store's lock; a message's strings are on the heap from its post until the ring or the
 // budget lets it go, and a reader gets copies in its request arena.
@@ -56,12 +57,14 @@ s: struct {
 	base:      i64,
 	bytes:     int,
 	max_bytes: int,
+	keep:      m.Retention,
 }
 
-init :: proc(ring_bytes: int) {
+init :: proc(ring_bytes: int, keep: m.Retention) {
 	mem_store.lock(&s.lock)
 	defer mem_store.unlock(&s.lock)
 	s.max_bytes = ring_bytes
+	s.keep = keep
 	if s.base == 0 {
 		s.base = time.time_to_unix_nano(time.now()) / 1e6 * EPOCH_SPAN
 		s.msg_seq.last = s.base
@@ -267,6 +270,25 @@ change :: proc(op: ^m.Change) -> bool {
 	return true
 }
 
+// What is older than each room's kind's age goes, oldest first.
+sweep :: proc(at: i64) -> (removed: int, err: m.Error) {
+	mem_store.lock(&s.lock)
+	defer mem_store.unlock(&s.lock)
+	for r in s.rooms {
+		age := s.keep.age[r.room.kind]
+		if age <= 0 { continue }
+		for r.ring.n > 0 {
+			oldest := mem_store.ring_newest(&r.ring, r.ring.n - 1)^
+			if oldest.at >= at - age { break }
+			r.ring.head = (r.ring.head + 1) % len(r.ring.items)
+			r.ring.n -= 1
+			forget(r, oldest)
+			removed += 1
+		}
+	}
+	return removed, .None
+}
+
 // The lobby, into an empty store.
 seed :: proc() {
 	mem_store.lock(&s.lock)
@@ -369,7 +391,8 @@ add_room :: proc(slug, name: string, kind: m.Room_Kind, owner: u64) -> (^Room_St
 	if find(slug) != nil || len(s.rooms) >= MAX_ROOMS { return nil, .Constraint }
 	r := new(Room_State)
 	r.room = {id = mem_store.next_id(&s.room_seq), slug = strings.clone(slug), name = strings.clone(name), at = now(), kind = kind, owner = owner}
-	mem_store.ring_init(&r.ring, KEEP)
+	cap := s.keep.cap[kind]
+	mem_store.ring_init(&r.ring, min(KEEP, cap) if cap > 0 else KEEP)
 	r.ver = s.base
 	append(&s.rooms, r)
 	return r, .None
@@ -438,6 +461,7 @@ evict :: proc() {
 forget :: proc(r: ^Room_State, msg: m.Message) {
 	r.dropped = max(r.dropped, msg.id)
 	r.dropped_ver = max(r.dropped_ver, msg.ver)
+	r.room.dropped = r.dropped
 	r.bytes -= cost(msg)
 	s.bytes -= cost(msg)
 	delete(msg.name)

@@ -24,8 +24,16 @@ Room :: struct {
 	slug:  string, // [a-z0-9-], 1 to 40: every room URL is /chat/r/<slug> (X12)
 	name:  string, // a DM's: its two members' names when it was made
 	at:    i64,
-	kind:  Room_Kind,
-	owner: u64, // who made it; 0 for the seeded lobby
+	kind:    Room_Kind,
+	owner:   u64, // who made it; 0 for the seeded lobby
+	dropped: i64, // the newest message retention let go; 0: none yet (the marker, §14.1)
+}
+
+// What a room of each kind keeps (§14.1, Q19): its newest `cap` messages, none older than `age`
+// seconds; a pinned message is exempt from both.
+Retention :: struct {
+	cap: [Room_Kind]int,
+	age: [Room_Kind]i64,
 }
 
 // A member of a private room or a DM, with their name as it was when they joined (D6).
@@ -87,7 +95,9 @@ Change :: struct {
 	result:   Message,
 }
 
-Store_Init :: proc(ring_bytes: int)
+Store_Init :: proc(ring_bytes: int, keep: Retention)
+// Every room's messages older than its kind's age at `now`, let go in chunks: how many.
+Store_Sweep :: proc(now: i64) -> (removed: int, err: Error)
 Store_Rooms :: proc(out: ^[dynamic]Room) -> Error // every room, every kind
 Store_Rooms_For :: proc(who: u64, out: ^[dynamic]Room) -> Error // the public ones, announcements, and the private rooms and DMs `who` is in
 Store_Room :: proc(slug: string) -> (Room, Error)
