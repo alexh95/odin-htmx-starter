@@ -45,15 +45,17 @@ go; Alex's step is the last: the 2–3 invites (Q23), only after the audit.
       Done: `docs/spikes/M6.1.md`: the error's detail is a bare Event (no browser gives a reason), and chromium sends
       none for a socket that was open; Auto counts `htmx:ws:close` events with no connection between them.
       `e2e/tests/lab/ws-errors.spec.ts` keeps it measured (firefox in CI).
-- [ ] **2. Chat on SQLite** (§14.1, D30): `stores/sqlite/chat` with rooms (public, private, announcements; a DM as a
+- [x] **2. Chat on SQLite** (§14.1, D30): `stores/sqlite/chat` with rooms (public, private, announcements; a DM as a
       two-member room with an opaque slug), members and messages (rowids), through M2's writer task; publish after
       commit with the rowid; `@rowid` keyset replay. `full` mounts chat on its main host, perms `Chat_*` (D35).
       *Check:* chat's storetest over both families; the chat specs on `full`.
       Progress (2026-11-01): the SQLite store (rooms, messages, versions, edits and tombstones; rowids, so
       `PERSISTED`) and `chat/storetest` over both families; `full` mounts chat and notify on its main host, and the
       chat and notify specs and scenarios run there (an account per member); the ring's and the memory restart's
-      cases are `@chat-memory`. Left: rooms beyond public (private, announcements, DMs) and their members; SQLite's
-      own restart spec is slice 9's, its retention slice 3's.
+      cases are `@chat-memory`. Rooms beyond public (2026-11-01): private rooms (invite links, leaving),
+      announcements (a moderator's to make, their owner's to post) and DMs (from a message's menu), with members in
+      both stores; `rooms.spec` (chromium and webkit on streams and full, locally) and `rooms.js`. Left: SQLite's own
+      restart spec is slice 9's, its retention slice 3's; moderation (mute, kick, lock, slow mode) slice 4's.
       **Was open (2026-11-01): the mount in `full` failed in CI only, and was reverted (`51505e3`, of `d697760`).** Runs
       41257098422 (`7efa854`) and 41257794341 (`3738749`), jobs "E2E (full, chromium)" and "E2E (full, firefox)":
       in Firefox the members' pages log "NetworkError when attempting to fetch resource" (`chat.spec`'s "reaches the

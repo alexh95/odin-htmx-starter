@@ -5,10 +5,11 @@ package chat_store_sqlite
 // Rooms and messages kept across restarts: ids are rowids, so a page resumes a room's topic from
 // `@<rowid>` after a restart too (PERSISTED, D13). Reads on the loop's reader; a post or a change
 // goes through the writer task, which bumps the room's version and reads the row back in the same
-// batch, so the caller answers with exactly what was stored. Rooms are made at once (write_now):
-// the caller answers with the room. Retention (slice 3) moves `dropped` and `dropped_ver`, which
-// say a cursor below them can't be served whole.
+// batch, so the caller answers with exactly what was stored. Rooms, DMs and memberships are made
+// at once (write_now, rare and small): the caller answers with the room. Retention (slice 3) moves
+// `dropped` and `dropped_ver`, which say a cursor below them can't be served whole.
 
+import "core:fmt"
 import "core:strings"
 import "core:time"
 
@@ -24,14 +25,21 @@ MAX_ROOMS :: 1000
 
 MIGRATIONS := [?]store.Migration {
 	{1, "0001_chat.sql", #load("migrations/0001_chat.sql", string)},
+	{2, "0002_rooms.sql", #load("migrations/0002_rooms.sql", string)},
 }
 
-@(private) ROOM_COLS :: "id, slug, name, at"
+@(private) ROOM_COLS :: "id, slug, name, at, kind, owner"
 @(private) MSG_COLS :: "id, room, author, name, body, at, edited, gone, ver"
 @(private) SQL_ROOMS :: "SELECT " + ROOM_COLS + " FROM chat_rooms ORDER BY id"
+@(private) SQL_ROOMS_FOR :: "SELECT " + ROOM_COLS + " FROM chat_rooms WHERE kind IN (0, 2) OR id IN (SELECT room FROM chat_members WHERE who = ?) ORDER BY id"
 @(private) SQL_ROOM :: "SELECT " + ROOM_COLS + " FROM chat_rooms WHERE slug = ?"
 @(private) SQL_ROOM_COUNT :: "SELECT count(*) FROM chat_rooms"
-@(private) SQL_ADD_ROOM :: "INSERT INTO chat_rooms(slug, name, at) VALUES(?, ?, ?)"
+@(private) SQL_ADD_ROOM :: "INSERT INTO chat_rooms(slug, name, at, kind, owner, dm) VALUES(?, ?, ?, ?, ?, ?)"
+@(private) SQL_DM :: "SELECT " + ROOM_COLS + " FROM chat_rooms WHERE dm = ?"
+@(private) SQL_MEMBERS :: "SELECT room, who, name, at FROM chat_members WHERE room = ? ORDER BY at, who"
+@(private) SQL_IS_MEMBER :: "SELECT 1 FROM chat_members WHERE room = ? AND who = ?"
+@(private) SQL_JOIN :: "INSERT INTO chat_members(room, who, name, at) VALUES(?, ?, ?, ?) ON CONFLICT DO NOTHING"
+@(private) SQL_LEAVE :: "DELETE FROM chat_members WHERE room = ? AND who = ?"
 @(private) SQL_ROOM_STATE :: "SELECT ver, dropped, dropped_ver FROM chat_rooms WHERE id = ?"
 @(private) SQL_RECENT :: "SELECT " + MSG_COLS + " FROM (SELECT " + MSG_COLS + " FROM chat_messages WHERE room = ? ORDER BY id DESC LIMIT ?) ORDER BY id"
 @(private) SQL_AFTER :: "SELECT " + MSG_COLS + " FROM chat_messages WHERE room = ? AND id > ? ORDER BY id"
@@ -53,6 +61,14 @@ rooms :: proc(out: ^[dynamic]m.Room) -> (err: m.Error) {
 	return
 }
 
+rooms_for :: proc(who: u64, out: ^[dynamic]m.Room) -> (err: m.Error) {
+	q := db.read(SQL_ROOMS_FOR)
+	defer db.reset(q)
+	db.bind_id(q, 1, i64(who))
+	for db.next_row(q, &err) { append(out, one_room(q)) }
+	return
+}
+
 room :: proc(slug: string) -> (r: m.Room, err: m.Error) {
 	q := db.read(SQL_ROOM)
 	defer db.reset(q)
@@ -61,35 +77,133 @@ room :: proc(slug: string) -> (r: m.Room, err: m.Error) {
 	return one_room(q), .None
 }
 
-@(private) making: struct {
+// write_now's run takes no arguments: what it works on is here. write_now runs it on the caller's
+// own thread, so a loop's is its own while another loop makes a room too.
+@(private, thread_local) making: struct {
 	slug, name: string,
+	kind:       m.Room_Kind,
+	owner:      u64,
+	dm:         string,
+	members:    [2]m.Member,
+	n_members:  int,
 	room:       m.Room,
 	err:        m.Error,
 }
 
 // .Constraint: the slug is taken, or the rooms are full.
-create_room :: proc(slug, name: string) -> (m.Room, m.Error) {
-	making = {slug = slug, name = name}
+create_room :: proc(slug, name: string, kind: m.Room_Kind, owner: u64, owner_name: string) -> (m.Room, m.Error) {
+	members := kind == .Private || kind == .Dm
+	making = {slug = slug, name = name, kind = kind, owner = owner, n_members = 1 if members else 0}
+	making.members[0] = {who = owner, name = owner_name}
+	if !db.write_now(make_room) { return {}, making.err if making.err != .None else .Failed }
+	return making.room, .None
+}
+
+// The DM of `a` and `b`, or a new one with both as members.
+dm :: proc(a: u64, a_name: string, b: u64, b_name: string, slug: string) -> (m.Room, m.Error) {
+	making = {slug = slug, name = fmt.tprintf("%s and %s", a_name, b_name), kind = .Dm, owner = a, n_members = 2}
+	making.dm = fmt.tprintf("%d:%d", min(a, b), max(a, b))
+	making.members = {{who = a, name = a_name}, {who = b, name = b_name}}
 	ok := db.write_now(proc() -> bool {
-		c := db.writer_stmt(SQL_ROOM_COUNT)
-		n := db.column_int(c, 0) if db.next_row(c, &making.err) else MAX_ROOMS
-		db.reset(c)
-		if n >= MAX_ROOMS {
-			making.err = .Constraint
-			return false
-		}
-		at := now()
-		st := db.writer_stmt(SQL_ADD_ROOM)
-		defer db.reset(st)
-		db.bind_text(st, 1, making.slug)
-		db.bind_text(st, 2, making.name)
-		db.bind_id(st, 3, at)
-		if making.err = db.step_done(st); making.err != .None { return false }
-		making.room = {id = db.last_insert_id(), slug = strings.clone(making.slug, context.temp_allocator), name = strings.clone(making.name, context.temp_allocator), at = at}
-		return true
+		q := db.writer_stmt(SQL_DM)
+		db.bind_text(q, 1, making.dm)
+		found := db.next_row(q, &making.err)
+		if found { making.room = one_room(q) }
+		db.reset(q)
+		if found { return true }
+		if making.err != .None { return false }
+		return make_room()
 	})
 	if !ok { return {}, making.err if making.err != .None else .Failed }
 	return making.room, .None
+}
+
+// On the writer, inside write_now: `making`'s room and its members.
+@(private)
+make_room :: proc() -> bool {
+	c := db.writer_stmt(SQL_ROOM_COUNT)
+	n := db.column_int(c, 0) if db.next_row(c, &making.err) else MAX_ROOMS
+	db.reset(c)
+	if n >= MAX_ROOMS {
+		making.err = .Constraint
+		return false
+	}
+	at := now()
+	st := db.writer_stmt(SQL_ADD_ROOM)
+	db.bind_text(st, 1, making.slug)
+	db.bind_text(st, 2, making.name)
+	db.bind_id(st, 3, at)
+	db.bind_int(st, 4, int(making.kind))
+	db.bind_id(st, 5, i64(making.owner))
+	if making.dm != "" { db.bind_text(st, 6, making.dm) } else { db.bind_null(st, 6) }
+	making.err = db.step_done(st)
+	db.reset(st)
+	if making.err != .None { return false }
+	id := db.last_insert_id()
+	for mem in making.members[:making.n_members] {
+		if making.err = add_member(id, mem.who, mem.name, at); making.err != .None { return false }
+	}
+	making.room = {
+		id = id, slug = strings.clone(making.slug, context.temp_allocator), name = strings.clone(making.name, context.temp_allocator),
+		at = at, kind = making.kind, owner = making.owner,
+	}
+	return true
+}
+
+@(private)
+add_member :: proc(room_id: i64, who: u64, name: string, at: i64) -> m.Error {
+	st := db.writer_stmt(SQL_JOIN)
+	defer db.reset(st)
+	db.bind_id(st, 1, room_id)
+	db.bind_id(st, 2, i64(who))
+	db.bind_text(st, 3, name)
+	db.bind_id(st, 4, at)
+	return db.step_done(st)
+}
+
+members :: proc(room_id: i64, out: ^[dynamic]m.Member) -> (err: m.Error) {
+	q := db.read(SQL_MEMBERS)
+	defer db.reset(q)
+	db.bind_id(q, 1, room_id)
+	for db.next_row(q, &err) {
+		append(out, m.Member{room = db.column_id(q, 0), who = u64(db.column_id(q, 1)), name = db.clone_col(q, 2), at = db.column_id(q, 3)})
+	}
+	return
+}
+
+is_member :: proc(room_id: i64, who: u64) -> bool {
+	q := db.read(SQL_IS_MEMBER)
+	defer db.reset(q)
+	db.bind_id(q, 1, room_id)
+	db.bind_id(q, 2, i64(who))
+	err: m.Error
+	return db.next_row(q, &err)
+}
+
+// .None when they are in it already.
+join :: proc(room_id: i64, who: u64, name: string) -> m.Error {
+	making = {}
+	making.members[0] = {room = room_id, who = who, name = name}
+	ok := db.write_now(proc() -> bool {
+		j := making.members[0]
+		making.err = add_member(j.room, j.who, j.name, now())
+		return making.err == .None
+	})
+	return .None if ok else making.err if making.err != .None else .Failed
+}
+
+leave :: proc(room_id: i64, who: u64) -> m.Error {
+	making = {}
+	making.members[0] = {room = room_id, who = who}
+	ok := db.write_now(proc() -> bool {
+		st := db.writer_stmt(SQL_LEAVE)
+		defer db.reset(st)
+		db.bind_id(st, 1, making.members[0].room)
+		db.bind_id(st, 2, i64(making.members[0].who))
+		making.err = db.step_done(st)
+		return making.err == .None
+	})
+	return .None if ok else making.err if making.err != .None else .Failed
 }
 
 // Oldest first.
@@ -213,7 +327,7 @@ change :: proc(op: ^m.Change) -> bool {
 // The lobby, into an empty store.
 seed :: proc() {
 	list := make([dynamic]m.Room, context.temp_allocator)
-	if rooms(&list) == .None && len(list) == 0 { _, _ = create_room("lobby", "Lobby") }
+	if rooms(&list) == .None && len(list) == 0 { _, _ = create_room("lobby", "Lobby", .Public, 0, "") }
 }
 
 // ---- helpers ------------------------------------------------------------------------------
@@ -239,7 +353,11 @@ state :: proc(room_id: i64) -> (ver, dropped, dropped_ver: i64, err: m.Error) {
 
 @(private)
 one_room :: proc(q: db.Stmt) -> m.Room {
-	return {id = db.column_id(q, 0), slug = db.clone_col(q, 1), name = db.clone_col(q, 2), at = db.column_id(q, 3)}
+	kind, _ := store.enum_from_int(m.Room_Kind, db.column_int(q, 4)) // an unknown kind reads as public
+	return {
+		id = db.column_id(q, 0), slug = db.clone_col(q, 1), name = db.clone_col(q, 2), at = db.column_id(q, 3),
+		kind = kind, owner = u64(db.column_id(q, 5)),
+	}
 }
 
 // Its strings in `a`: the request's arena on a loop, the op's own memory on the writer.

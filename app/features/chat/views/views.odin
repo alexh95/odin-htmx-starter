@@ -27,6 +27,31 @@ Room_Row :: struct {
 	unread: int, // -1: never read
 }
 
+// What a room page shows its viewer beyond the log: a private room's and a DM's members, and
+// what they may do there.
+Room_View :: struct {
+	members:    []m.Member, // a private room's or a DM's; empty for the rest
+	may_post:   bool,
+	may_invite: bool,
+	may_leave:  bool,
+}
+
+// A room's name as its lists and its page say it: `#name`, or a DM's two names.
+@(private)
+room_title :: proc(b: ^strings.Builder, r: m.Room) {
+	if r.kind != .Dm { w(b, `<span class="chat-hash">#</span>`) }
+	esc(b, r.name)
+	switch r.kind {
+	case .Public:
+	case .Private:
+		w(b, ` <span class="badge chat-kind">private</span>`)
+	case .Announce:
+		w(b, ` <span class="badge chat-kind">announcements</span>`)
+	case .Dm:
+		w(b, ` <span class="badge chat-kind">direct</span>`)
+	}
+}
+
 // What a transport adds to a room page (chat_web's switch asks the chosen one): the
 // attributes of the pane that holds the log, of the composer's form, and of the form
 // that holds the page's version (#ver-<room>), which a socket sends as it opens.
@@ -38,15 +63,15 @@ Wiring :: struct {
 
 // ---- the rooms ---------------------------------------------------------------------------
 
-index_page :: proc(rows: []Room_Row, t: chat.Transport, may_create: bool) -> string {
+index_page :: proc(rows: []Room_Row, t: chat.Transport, may_create, may_announce: bool) -> string {
 	b := strings.builder_make(context.temp_allocator)
-	html.page_head(&b, "Comms", "Chat", "Rooms on the LAN. They are kept in memory, so a restart empties them.")
+	html.page_head(&b, "Comms", "Chat", "Rooms on the LAN." if chat.PERSISTED else "Rooms on the LAN. They are kept in memory, so a restart empties them.")
 	w(&b, `<section class="block chat-index"><ul class="chat-rooms">`)
 	for r in rows {
 		w(&b, `<li><a class="chat-room-link" href="/chat/r/`)
 		esc(&b, r.room.slug)
-		w(&b, `"><span class="chat-hash">#</span>`)
-		esc(&b, r.room.name)
+		w(&b, `">`)
+		room_title(&b, r.room)
 		w(&b, `</a> <span class="badge chat-unread unread-`)
 		esc(&b, r.room.slug)
 		w(&b, `">`)
@@ -55,7 +80,9 @@ index_page :: proc(rows: []Room_Row, t: chat.Transport, may_create: bool) -> str
 	}
 	w(&b, `</ul>`)
 	if may_create {
-		w(&b, `<form class="chat-new" hx-post="/chat/rooms" hx-status:422="target:#room-error swap:innerHTML"><label for="room-name">New room</label><div class="chat-new-row"><input id="room-name" name="name" maxlength="40" required placeholder="Name"><button class="btn btn-primary" type="submit">Create</button></div><p class="field-msg form-error" id="room-error"></p></form>`)
+		w(&b, `<form class="chat-new" hx-post="/chat/rooms" hx-status:422="target:#room-error swap:innerHTML"><label for="room-name">New room</label><div class="chat-new-row"><input id="room-name" name="name" maxlength="40" required placeholder="Name"><select id="room-kind" name="kind" aria-label="Who reads it"><option value="public">Public</option><option value="private">Private: by invite</option>`)
+		if may_announce { w(&b, `<option value="announce">Announcements</option>`) }
+		w(&b, `</select><button class="btn btn-primary" type="submit">Create</button></div><p class="field-msg form-error" id="room-error"></p></form>`)
 	}
 	connection(&b, t)
 	w(&b, `</section>`)
@@ -100,12 +127,12 @@ post_composer :: proc(r: m.Room) -> string {
 	return strings.to_string(b)
 }
 
-room_page :: proc(r: m.Room, msgs: []m.Message, ver: i64, here: []chat.Presence_Change, me: u64, t: chat.Transport, wiring: Wiring) -> string {
+room_page :: proc(r: m.Room, msgs: []m.Message, ver: i64, here: []chat.Presence_Change, me: u64, t: chat.Transport, wiring: Wiring, rv: Room_View) -> string {
 	b := strings.builder_make(context.temp_allocator)
 	w(&b, `<section class="chat-room" data-room="`)
 	esc(&b, r.slug)
-	w(&b, `"><header class="chat-head"><h1><span class="chat-hash">#</span>`)
-	esc(&b, r.name)
+	w(&b, `"><header class="chat-head"><h1>`)
+	room_title(&b, r)
 	w(&b, `</h1>`)
 	if !chat.PERSISTED { w(&b, `<span class="badge" title="Kept in memory: a restart empties it">ephemeral</span>`) }
 	w(&b, `<span class="chat-via muted">`)
@@ -124,18 +151,79 @@ room_page :: proc(r: m.Room, msgs: []m.Message, ver: i64, here: []chat.Presence_
 	version(&b, r.id, ver)
 	w(&b, `</form>`)
 
-	fmt.sbprintf(&b, `<form class="chat-composer" id="say-%d"%s`, r.id, wiring.composer)
-	html.behave(&b, .Composer)
-	fmt.sbprintf(&b, `><textarea id="body-%d" name="body" rows="1" maxlength="%d" required aria-label="Message" placeholder="Message #`, r.id, chat.MAX_BODY)
-	esc(&b, r.slug)
-	w(&b, `" hx-post="/chat/r/`)
-	esc(&b, r.slug)
-	fmt.sbprintf(&b, `/typing" hx-trigger="input changed throttle:2s" hx-swap="none"></textarea><button class="btn btn-primary" type="submit">Send</button><p class="field-msg form-error" id="err-%d"></p></form></div>`, r.id)
+	if rv.may_post {
+		fmt.sbprintf(&b, `<form class="chat-composer" id="say-%d"%s`, r.id, wiring.composer)
+		html.behave(&b, .Composer)
+		fmt.sbprintf(&b, `><textarea id="body-%d" name="body" rows="1" maxlength="%d" required aria-label="Message" placeholder="Message #`, r.id, chat.MAX_BODY)
+		esc(&b, r.slug)
+		w(&b, `" hx-post="/chat/r/`)
+		esc(&b, r.slug)
+		fmt.sbprintf(&b, `/typing" hx-trigger="input changed throttle:2s" hx-swap="none"></textarea><button class="btn btn-primary" type="submit">Send</button><p class="field-msg form-error" id="err-%d"></p></form></div>`, r.id)
+	} else {
+		w(&b, `<p class="chat-readonly muted">Only its owner and the moderators post here.</p></div>`)
+	}
 
 	fmt.sbprintf(&b, `<aside class="chat-side"><h2>Here</h2><div id="who-%d" class="chat-who">`, r.id)
 	for p in here { who(&b, p) }
+	w(&b, `</div>`)
+	if r.kind == .Private || r.kind == .Dm { members(&b, r, rv) }
 	// What hx-pending shows while a post is on its way; the typed text arrives as data-body.
-	w(&b, `</div></aside></div><template id="chat-pending"><article class="chat-msg pending"><p class="chat-body muted">Sending…</p></article></template></section>`)
+	w(&b, `</aside></div><template id="chat-pending"><article class="chat-msg pending"><p class="chat-body muted">Sending…</p></article></template></section>`)
+	return strings.to_string(b)
+}
+
+// A private room's or a DM's members, with the invite link and Leave where the viewer has them.
+@(private)
+members :: proc(b: ^strings.Builder, r: m.Room, rv: Room_View) {
+	fmt.sbprintf(b, `<h2>Members</h2><ul class="chat-members" id="members-%d">`, r.id)
+	for mem in rv.members {
+		fmt.sbprintf(b, `<li data-member="%d">`, mem.who)
+		esc(b, mem.name)
+		if mem.who == r.owner && r.kind == .Private { w(b, ` <small class="muted">owner</small>`) }
+		w(b, `</li>`)
+	}
+	w(b, `</ul>`)
+	if rv.may_invite {
+		w(b, `<button class="btn btn-outline" type="button" hx-post="/chat/r/`)
+		esc(b, r.slug)
+		fmt.sbprintf(b, `/invite" hx-target="#invite-%d">Invite link</button><div class="chat-invite" id="invite-%d"></div>`, r.id, r.id)
+	}
+	if rv.may_leave {
+		w(b, `<form class="chat-leave" hx-post="/chat/r/`)
+		esc(b, r.slug)
+		w(b, `/leave"><button class="btn btn-ghost" type="submit">Leave the room</button></form>`)
+	}
+}
+
+// The invite link a private room's owner hands out (POST /chat/r/<slug>/invite).
+invite :: proc(token: string) -> string {
+	b := strings.builder_make(context.temp_allocator)
+	w(&b, `<p class="muted">Anyone on the LAN with this link can join for 7 days, or until the server restarts:</p><a class="chat-invite-link" href="/chat/join/`)
+	w(&b, token) // the server's own text: digits, '.', and base64url
+	w(&b, `">/chat/join/`)
+	w(&b, token)
+	w(&b, `</a>`)
+	return strings.to_string(b)
+}
+
+// GET /chat/join/<token>: the room it names, and a plain form to join it, so the link works with
+// no script at all.
+join_page :: proc(r: m.Room, token: string, already: bool) -> string {
+	b := strings.builder_make(context.temp_allocator)
+	html.page_head(&b, "Comms", "Join a room", "You were invited to a private room.")
+	w(&b, `<section class="block"><article class="card chat-join"><h2>`)
+	room_title(&b, r)
+	w(&b, `</h2>`)
+	if already {
+		w(&b, `<p>You are in this room already.</p><a class="btn btn-primary" href="/chat/r/`)
+		esc(&b, r.slug)
+		w(&b, `">Open it</a>`)
+	} else {
+		w(&b, `<form method="post" action="/chat/join/`)
+		w(&b, token)
+		w(&b, `"><button class="btn btn-primary" type="submit">Join the room</button></form>`)
+	}
+	w(&b, `</article></section>`)
 	return strings.to_string(b)
 }
 
@@ -226,11 +314,17 @@ one :: proc(room: i64, slug: string, msg: m.Message) -> string {
 //
 // Asked for when wanted (GET /chat/m/<id>/menu), so it is rendered for its viewer.
 
-menu :: proc(msg: m.Message, slug: string, may_change: bool) -> string {
+// `may_dm`: the viewer may start a DM with the message's author (another member, Chat_Dm).
+menu :: proc(msg: m.Message, slug: string, may_change, may_dm: bool) -> string {
 	b := strings.builder_make(context.temp_allocator)
 	w(&b, `<div class="chat-actions"><a href="/chat/r/`)
 	esc(&b, slug)
 	fmt.sbprintf(&b, `#m-%d">Link</a>`, msg.id)
+	if may_dm {
+		fmt.sbprintf(&b, `<button class="btn btn-ghost" type="button" hx-post="/chat/dm/%d">Message `, msg.author)
+		esc(&b, msg.name)
+		w(&b, `</button>`)
+	}
 	if may_change {
 		fmt.sbprintf(&b, `<button class="btn btn-ghost" type="button" hx-get="/chat/m/%d/edit" hx-target="#mm-%d">Edit</button>`, msg.id, msg.id)
 		fmt.sbprintf(&b, `<button class="btn btn-ghost" type="button" hx-post="/chat/m/%d/delete" hx-target="#mm-%d">Delete</button>`, msg.id, msg.id)

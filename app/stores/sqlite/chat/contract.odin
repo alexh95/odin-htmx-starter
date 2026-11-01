@@ -5,8 +5,14 @@ import m "../../../features/chat/models"
 // A drifted signature fails here, in this package, built or not (LC §3).
 _ : m.Store_Init : init
 _ : m.Store_Rooms : rooms
+_ : m.Store_Rooms_For : rooms_for
 _ : m.Store_Room : room
 _ : m.Store_Create_Room : create_room
+_ : m.Store_Dm : dm
+_ : m.Store_Members : members
+_ : m.Store_Is_Member : is_member
+_ : m.Store_Join : join
+_ : m.Store_Leave : leave
 _ : m.Store_Recent : recent
 _ : m.Store_After : after
 _ : m.Store_Count_After : count_after

@@ -47,6 +47,11 @@ ROUTES := [?]web.Route {
 	{.Get, "/chat/r/([%w%-]+)/ws", chat_transport_ws.socket, .Chat_Read, {.Stream, .Fragment}, 0},
 	{.Get, "/chat/r/([%w%-]+)/since", chat_transport_poll.since, .Chat_Read, {.Fragment}, 0},
 	{.Get, "/chat/r/([%w%-]+)/parts", chat_transport_multipart.parts, .Chat_Read, {.Stream, .Fragment}, 0},
+	{.Post, "/chat/r/([%w%-]+)/invite", invite, .Chat_Read, {.Fragment}, 0},
+	{.Post, "/chat/r/([%w%-]+)/leave", leave_room, .Chat_Read, {.Fragment}, 0},
+	{.Post, "/chat/dm/(%d+)", start_dm, .Chat_Dm, {.Fragment}, 0},
+	{.Get, "/chat/join/([%w%-_%.]+)", join_page, .Chat_Read, {.Private}, 0},
+	{.Post, "/chat/join/([%w%-_%.]+)", join_room, .Chat_Read, {.Fragment}, 0},
 	{.Get, "/chat/m/(%d+)/menu", menu, .Chat_Read, {.Fragment}, 0},
 	{.Get, "/chat/m/(%d+)/edit", edit_form, .Chat_Post, {.Fragment}, 0},
 	{.Post, "/chat/m/(%d+)/edit", edit, .Chat_Post, {.Fragment}, POST_CAP},
@@ -58,9 +63,9 @@ ROUTES := [?]web.Route {
 // every room page's #live, keyed per member (.Latest); presence learns who is there
 // from those streams opening and closing (`watch`).
 TOPICS := [?]hub.Topic {
-	{family = "chat.room", policy = .Queue, persisted = chat.PERSISTED, perm = .Chat_Read, allow = room_exists, replay = replay_room},
-	{family = "chat.presence", policy = .Latest, perm = .Chat_Read, allow = room_exists, watch = watch_room},
-	{family = "chat.typing", policy = .Latest, ring = 64, perm = .Chat_Read, allow = room_exists},
+	{family = "chat.room", policy = .Queue, persisted = chat.PERSISTED, perm = .Chat_Read, allow = room_readable, replay = replay_room},
+	{family = "chat.presence", policy = .Latest, perm = .Chat_Read, allow = room_readable, watch = watch_room},
+	{family = "chat.typing", policy = .Latest, ring = 64, perm = .Chat_Read, allow = room_readable},
 }
 
 JOBS := [?]workers.Job {
@@ -74,6 +79,9 @@ JOBS := [?]workers.Job {
 
 @(private)
 SLOW_DOWN :: "Slow down: at most 5 messages in 10 seconds."
+
+@(private)
+READ_ONLY :: "Only its owner and the moderators post here."
 
 COOKIE :: "chat_transport"
 
@@ -104,23 +112,23 @@ index :: proc(req: ^web.Request, res: ^web.Response) {
 		return
 	}
 	all := make([dynamic]m.Room, context.temp_allocator)
-	if err := chat.rooms(&all); err != .None {
+	if err := chat.rooms_for(v, &all); err != .None {
 		web.respond_store_error(req, res, err)
 		return
 	}
 	rows := make([]chat_views.Room_Row, len(all), context.temp_allocator)
 	for r, i in all { rows[i] = {r, chat.unread(r.id, v.id)} }
-	web.render_page(req, res, "Chat", "/chat", "The rooms on the LAN.", chat_views.index_page(rows, transport(req), authz.can(v, .Chat_Create_Room)))
+	web.render_page(req, res, "Chat", "/chat", "The rooms on the LAN.", chat_views.index_page(rows, transport(req), chat.may_create(.Public, v), chat.may_create(.Announce, v)))
 }
 
 @(private)
 room_page :: proc(req: ^web.Request, res: ^web.Response) {
-	r, err := chat.room(req.url_params[0])
+	v := web.viewer(req)
+	r, err := chat.room_for(req.url_params[0], v)
 	if err != .None {
 		web.respond_store_error(req, res, err)
 		return
 	}
-	v := web.viewer(req)
 	chat.seen(v.id, v.name)
 	t := transport(req)
 	web.impl(res, "chat.transport", chat.TRANSPORTS[t].name)
@@ -147,8 +155,18 @@ room_page :: proc(req: ^web.Request, res: ^web.Response) {
 	case .Multipart:
 		wiring = chat_transport_multipart.wiring(r)
 	}
-	web.render_page(req, res, fmt.tprintf("#%s", r.name), "/chat", "A chat room on the LAN.",
-		chat_views.room_page(r, msgs[:], ver, here[:], v.id, t, wiring), live = live[:])
+	rv := chat_views.Room_View{may_post = chat.may_post(r, v), may_invite = chat.may_invite(r, v), may_leave = chat.may_leave(r, v)}
+	if r.kind == .Private || r.kind == .Dm {
+		list := make([dynamic]m.Member, context.temp_allocator)
+		if merr := chat.members(r, &list); merr != .None {
+			web.respond_store_error(req, res, merr)
+			return
+		}
+		rv.members = list[:]
+	}
+	title := r.name if r.kind == .Dm else fmt.tprintf("#%s", r.name)
+	web.render_page(req, res, title, "/chat", "A chat room on the LAN.",
+		chat_views.room_page(r, msgs[:], ver, here[:], v.id, t, wiring, rv), live = live[:])
 }
 
 // The Connection setting: a cookie for a year, then back to the rooms.
@@ -164,14 +182,35 @@ set_transport :: proc(req: ^web.Request, res: ^web.Response) {
 	web.respond_status(res, .See_Other)
 }
 
+// A room's kind as the form names it; an unknown one is refused.
+@(private)
+KINDS := [?]struct {
+	name: string,
+	kind: m.Room_Kind,
+} {{"public", .Public}, {"private", .Private}, {"announce", .Announce}}
+
 @(private)
 create_room :: proc(req: ^web.Request, res: ^web.Response) {
-	name, slug, problem := chat.check_room(web.form(req)["name"])
+	f := web.form(req)
+	name, slug, problem := chat.check_room(f["name"])
 	if problem != "" {
 		web.respond_html(res, html.field_msg(false, problem), .Unprocessable_Content)
 		return
 	}
-	r, err := chat.create_room(slug, name)
+	kind, known := m.Room_Kind.Public, f["kind"] == ""
+	for k in KINDS {
+		if k.name == f["kind"] { kind, known = k.kind, true }
+	}
+	if !known {
+		web.respond_html(res, html.field_msg(false, "Pick who reads the room."), .Unprocessable_Content)
+		return
+	}
+	v := web.viewer(req)
+	if !chat.may_create(kind, v) {
+		web.respond_html(res, html.field_msg(false, "Announcements are the moderators' to make."), .Forbidden)
+		return
+	}
+	r, err := chat.create_room(slug, name, kind, v)
 	switch err {
 	case .None:
 	case .Constraint:
@@ -195,16 +234,21 @@ Posting :: struct {
 	http:       bool, // a form's POST, answered with the message; a socket's is answered by the hub
 	slug:       string,
 	room_name:  string,
+	room_kind:  m.Room_Kind,
 }
 
 @(private)
 post_message :: proc(req: ^web.Request, res: ^web.Response) {
-	r, err := chat.room(req.url_params[0])
+	v := web.viewer(req)
+	r, err := chat.room_for(req.url_params[0], v)
 	if err != .None {
 		web.respond_store_error(req, res, err)
 		return
 	}
-	v := web.viewer(req)
+	if !chat.may_post(r, v) {
+		web.respond_html(res, html.field_msg(false, READ_ONLY), .Forbidden)
+		return
+	}
 	body, problem := chat.check_body(web.form(req)["body"])
 	if problem != "" {
 		web.respond_html(res, html.field_msg(false, problem), .Unprocessable_Content)
@@ -229,7 +273,7 @@ post_message :: proc(req: ^web.Request, res: ^web.Response) {
 // A socket's frame takes the form's path; what it refuses goes back down the socket.
 @(private)
 socket_post :: proc(s: ^chat_transport_ws.Socket, raw: string) {
-	if !authz.can(s.who, .Chat_Post) { return }
+	if !authz.can(s.who, .Chat_Post) || !chat.may_post(s.room, s.who) { return }
 	body, problem := chat.check_body(raw)
 	if problem != "" {
 		chat_transport_ws.send(s, fmt.tprintf(`<p hx-swap-oob="innerHTML:#err-%d">%s</p>`, s.room.id, escaped(problem)))
@@ -253,7 +297,7 @@ posting :: proc(v: authz.Viewer, r: m.Room, body: string) -> ^Posting {
 	a := store.op_allocator(op)
 	op.room, op.author = r.id, v.id
 	op.name, op.body = strings.clone(v.name, a), strings.clone(body, a)
-	op.slug, op.room_name = strings.clone(r.slug, a), strings.clone(r.name, a)
+	op.slug, op.room_name, op.room_kind = strings.clone(r.slug, a), strings.clone(r.name, a), r.kind
 	op.done = posted
 	return op
 }
@@ -266,7 +310,7 @@ posted :: proc(o: ^store.Op) {
 	// 500, not a connection left deferred and unwatched (M2-12).
 	res: ^web.Response
 	if op.http { res = web.resume(&op.deferred) }
-	if op.err == .None { announce(op.slug, op.room_name, op.result) }
+	if op.err == .None { announce(op.slug, op.room_name, op.room_kind, op.result) }
 	if res == nil { return } // a socket's post, or the client left: the message is posted all the same
 	if op.err != .None {
 		web.respond_store_error(web.request(&op.deferred), res, op.err)
@@ -277,23 +321,27 @@ posted :: proc(o: ^store.Op) {
 }
 
 // A new message to the room, the Inbox of whoever it mentions, and the unread counts
-// of everyone who has read the room (theirs on every page, through notify.user).
+// of everyone who has read the room (theirs on every page, through notify.user). Only to
+// those who may read it: a private room's mention of someone outside it says nothing to them.
 @(private)
-announce :: proc(slug, room_name: string, msg: m.Message) {
+announce :: proc(slug, room_name: string, kind: m.Room_Kind, msg: m.Message) {
 	hub.publish(chat.room_topic(msg.room), chat_views.one(msg.room, slug, msg), msg.id)
+	r := m.Room{id = msg.room, kind = kind}
 
 	who := make([dynamic]u64, 0, 8, context.temp_allocator)
 	chat.mentioned(msg.body, msg.author, &who)
 	if len(who) > 0 {
 		ref := fmt.tprintf("/chat/r/%s#m-%d", slug, msg.id)
 		line := chat_views.mention_line(msg.name, room_name, msg.body)
-		for id in who { notify_web.send(id, "chat.mention", ref, line) }
+		for id in who {
+			if chat.reads(r, id) { notify_web.send(id, "chat.mention", ref, line) }
+		}
 	}
 
 	clear(&who)
 	chat.readers(msg.room, &who)
 	for id in who {
-		if id == msg.author { continue }
+		if id == msg.author || !chat.reads(r, id) { continue }
 		hub.publish(notify_web.topic(id), chat_views.unread(slug, chat.unread(msg.room, id)))
 	}
 }
@@ -306,7 +354,9 @@ announce :: proc(slug, room_name: string, msg: m.Message) {
 menu :: proc(req: ^web.Request, res: ^web.Response) {
 	msg, r, ok := message_of(req, res)
 	if !ok { return }
-	web.respond_html(res, chat_views.menu(msg, r.slug, chat.may_change(msg, web.viewer(req).id)))
+	v := web.viewer(req)
+	may_dm := authz.can(v, .Chat_Dm) && msg.author != 0 && msg.author != v.id
+	web.respond_html(res, chat_views.menu(msg, r.slug, chat.may_change(msg, v.id), may_dm))
 }
 
 @(private)
@@ -397,6 +447,7 @@ message_of :: proc(req: ^web.Request, res: ^web.Response) -> (msg: m.Message, r:
 	}
 	err: m.Error
 	if msg, err = chat.message(id); err == .None { r, err = chat.room_by_id(msg.room) }
+	if err == .None && !chat.may_read(r, web.viewer(req)) { err = .Not_Found } // as the room is
 	if err != .None {
 		web.respond_store_error(req, res, err)
 		return
@@ -409,12 +460,16 @@ message_of :: proc(req: ^web.Request, res: ^web.Response) -> (msg: m.Message, r:
 // "<name> is typing", at most once in 2 s per member; the rest are dropped quietly.
 @(private)
 typing :: proc(req: ^web.Request, res: ^web.Response) {
-	r, err := chat.room(req.url_params[0])
+	v := web.viewer(req)
+	r, err := chat.room_for(req.url_params[0], v)
 	if err != .None {
 		web.respond_store_error(req, res, err)
 		return
 	}
-	v := web.viewer(req)
+	if !chat.may_post(r, v) {
+		web.respond_status(res, .Forbidden)
+		return
+	}
 	if ok, _ := web.limit_hit(&typists, v.id); ok {
 		buf: [24]byte
 		hub.publish(chat.typing_topic(r.id), chat_views.typing(r.id, v.id, v.name), 0, strconv.write_uint(buf[:], v.id, 10))
@@ -426,7 +481,7 @@ typing :: proc(req: ^web.Request, res: ^web.Response) {
 // room, on every page of theirs, to what is left.
 @(private)
 read :: proc(req: ^web.Request, res: ^web.Response) {
-	r, err := chat.room(req.url_params[0])
+	r, err := chat.room_for(req.url_params[0], web.viewer(req))
 	if err != .None {
 		web.respond_store_error(req, res, err)
 		return
@@ -443,16 +498,99 @@ read :: proc(req: ^web.Request, res: ^web.Response) {
 	web.respond_status(res, .No_Content)
 }
 
+// ---- private rooms and DMs: invites, leaving, starting one --------------------------------------
+
+// A private room's invite link, for its owner or a moderator to hand out.
+@(private)
+invite :: proc(req: ^web.Request, res: ^web.Response) {
+	v := web.viewer(req)
+	r, err := chat.room_for(req.url_params[0], v)
+	if err != .None {
+		web.respond_store_error(req, res, err)
+		return
+	}
+	if !chat.may_invite(r, v) {
+		web.respond_html(res, html.field_msg(false, "Only the room's owner hands out its invite."), .Forbidden)
+		return
+	}
+	web.respond_html(res, chat_views.invite(chat.invite_token(r)))
+}
+
+@(private)
+join_page :: proc(req: ^web.Request, res: ^web.Response) {
+	token := req.url_params[0]
+	r, err := chat.invited_to(token)
+	if err != .None {
+		web.not_found(req, res) // a forged, expired or old process's token: no room to name
+		return
+	}
+	v := web.viewer(req)
+	web.render_page(req, res, "Join a room", "/chat", "An invite to a private room.", chat_views.join_page(r, token, chat.may_read(r, v)))
+}
+
+@(private)
+join_room :: proc(req: ^web.Request, res: ^web.Response) {
+	r, err := chat.invited_to(req.url_params[0])
+	if err != .None {
+		web.not_found(req, res)
+		return
+	}
+	if jerr := chat.join_room(r, web.viewer(req)); jerr != .None {
+		web.respond_store_error(req, res, jerr)
+		return
+	}
+	web.set_header(res, "location", fmt.tprintf("/chat/r/%s", r.slug))
+	web.respond_status(res, .See_Other) // a plain form's POST: the browser follows it
+}
+
+// Leaving a private room: back to the rooms, and a new invite to come back.
+@(private)
+leave_room :: proc(req: ^web.Request, res: ^web.Response) {
+	v := web.viewer(req)
+	r, err := chat.room_for(req.url_params[0], v)
+	if err != .None {
+		web.respond_store_error(req, res, err)
+		return
+	}
+	if !chat.may_leave(r, v) {
+		web.respond_status(res, .Forbidden)
+		return
+	}
+	if lerr := chat.leave_room(r, v); lerr != .None {
+		web.respond_store_error(req, res, lerr)
+		return
+	}
+	web.set_header(res, "hx-redirect", "/chat")
+	web.respond_status(res, .No_Content)
+}
+
+// A DM with a message's author (the menu's "Message <name>"): theirs, made when there is none.
+@(private)
+start_dm :: proc(req: ^web.Request, res: ^web.Response) {
+	other, ok := web.parse_id(req.url_params[0])
+	if !ok {
+		web.not_found(req, res)
+		return
+	}
+	r, err := chat.dm(web.viewer(req), u64(other))
+	if err != .None {
+		web.respond_store_error(req, res, err)
+		return
+	}
+	web.set_header(res, "hx-redirect", fmt.tprintf("/chat/r/%s", r.slug))
+	web.respond_status(res, .No_Content)
+}
+
 // ---- the hub's hooks ---------------------------------------------------------------------------
 
-// A topic's key names a room that exists: any other id would keep a presence map and a
-// hub ring for good (M2-05).
+// A topic's key names a room the viewer may read: any other id would keep a presence map and
+// a hub ring for good (M2-05), and a private room's or a DM's is its members' alone.
 @(private)
-room_exists :: proc(key: string, _: authz.Viewer) -> bool {
+room_readable :: proc(key: string, v: authz.Viewer) -> bool {
 	id, ok := web.parse_id(key)
 	if !ok { return false }
-	_, err := chat.room_by_id(id)
-	return err == .None
+	r, err := chat.room_by_id(id)
+	return err == .None && chat.may_read(r, v)
 }
 
 // A page's #live opened or closed on chat.presence:<room>.

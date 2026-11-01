@@ -6,8 +6,10 @@ package chat_storetest
 // an empty store, a taken slug is refused, a post answers its stored message with the room's
 // next version, recent is oldest first, count_after and after count and serve past a cursor,
 // changed serves past a version, and only the author edits or deletes, inside the window, a
-// delete leaving a tombstone. What the ring keeps and lets go is the memory store's own test; the
-// SQLite store keeps every message, with ids that are rowids.
+// delete leaving a tombstone. Rooms come in kinds: a private room's owner is its first member,
+// rooms_for lists the public rooms, announcements and the viewer's own, a DM is found again rather
+// than made twice, and members join (once) and leave. What the ring keeps and lets go is the
+// memory store's own test; the SQLite store keeps every message, with ids that are rowids.
 
 import "base:runtime"
 import "core:nbio"
@@ -29,7 +31,13 @@ Family :: struct {
 	init:        m.Store_Init,
 	seed:        m.Store_Seed,
 	room:        m.Store_Room,
+	rooms_for:   m.Store_Rooms_For,
 	create_room: m.Store_Create_Room,
+	dm:          m.Store_Dm,
+	members:     m.Store_Members,
+	is_member:   m.Store_Is_Member,
+	join:        m.Store_Join,
+	leave:       m.Store_Leave,
 	recent:      m.Store_Recent,
 	after:       m.Store_After,
 	count_after: m.Store_Count_After,
@@ -116,10 +124,11 @@ conforms :: proc(t: ^testing.T, f: Family) {
 	f.seed() // into an empty store only
 	lobby, err := f.room("lobby")
 	testing.expectf(t, err == .None && lobby.name == "Lobby", "%s: the lobby, %v", f.name, err)
-	_, err = f.create_room("lobby", "Again")
+	_, err = f.create_room("lobby", "Again", .Public, 0, "")
 	testing.expectf(t, err == .Constraint, "%s: a taken slug, %v", f.name, err)
-	side, serr := f.create_room("side", "Side")
-	testing.expectf(t, serr == .None && side.slug == "side", "%s: a new room, %v", f.name, serr)
+	side, serr := f.create_room("side", "Side", .Public, 7, "ann")
+	testing.expectf(t, serr == .None && side.slug == "side" && side.kind == .Public && side.owner == 7, "%s: a new room, %v", f.name, serr)
+	rooms_of_kinds(t, f)
 
 	first := say(t, f, lobby.id, 7, "first")
 	testing.expectf(t, last_err == .None && first.body == "first" && first.name == "ann" && first.id > 0 && first.room == lobby.id, "%s: post = %v", f.name, first)
@@ -156,6 +165,49 @@ conforms :: proc(t: ^testing.T, f: Family) {
 	testing.expectf(t, e5 == .Not_Found, "%s: no such message, %v", f.name, e5)
 }
 
+@(private = "file")
+rooms_of_kinds :: proc(t: ^testing.T, f: Family) {
+	// A private room: its owner is in it, nobody else is, and it is only theirs to list.
+	den, err := f.create_room("den", "Den", .Private, 7, "ann")
+	testing.expectf(t, err == .None && den.kind == .Private && den.owner == 7, "%s: a private room, %v", f.name, err)
+	news, nerr := f.create_room("news", "News", .Announce, 7, "ann")
+	testing.expectf(t, nerr == .None && news.kind == .Announce, "%s: announcements, %v", f.name, nerr)
+	again, _ := f.room("den")
+	testing.expectf(t, again.kind == .Private && again.owner == 7, "%s: the kind and owner read back, %v", f.name, again)
+	testing.expectf(t, f.is_member(den.id, 7) && !f.is_member(den.id, 8), "%s: the owner is its first member", f.name)
+	testing.expectf(t, !f.is_member(news.id, 7), "%s: announcements keep no members", f.name)
+	slugs :: proc(f: Family, who: u64) -> string {
+		list := make([dynamic]m.Room, context.temp_allocator)
+		_ = f.rooms_for(who, &list)
+		b := strings.builder_make(context.temp_allocator)
+		for r in list {
+			strings.write_string(&b, r.slug)
+			strings.write_byte(&b, ' ')
+		}
+		return strings.to_string(b)
+	}
+	testing.expectf(t, slugs(f, 7) == "lobby side den news ", "%s: the owner's rooms: %q", f.name, slugs(f, 7))
+	testing.expectf(t, slugs(f, 8) == "lobby side news ", "%s: another's rooms: %q", f.name, slugs(f, 8))
+
+	// Members join once and leave; their name is kept as it was.
+	testing.expect_value(t, f.join(den.id, 8, "bob"), m.Error.None)
+	testing.expect_value(t, f.join(den.id, 8, "bob"), m.Error.None)
+	who := make([dynamic]m.Member, context.temp_allocator)
+	testing.expect_value(t, f.members(den.id, &who), m.Error.None)
+	testing.expectf(t, len(who) == 2 && who[0].who == 7 && who[1].who == 8 && who[1].name == "bob", "%s: members %v", f.name, who[:])
+	testing.expectf(t, slugs(f, 8) == "lobby side den news ", "%s: a member's rooms: %q", f.name, slugs(f, 8))
+	testing.expect_value(t, f.leave(den.id, 8), m.Error.None)
+	testing.expectf(t, !f.is_member(den.id, 8), "%s: left", f.name)
+
+	// A DM: two members, found again whichever of them asks, never made twice.
+	d1, derr := f.dm(7, "ann", 9, "cat", "dm-0011223344556677")
+	testing.expectf(t, derr == .None && d1.kind == .Dm && d1.name == "ann and cat", "%s: a DM, %v %v", f.name, d1, derr)
+	d2, _ := f.dm(9, "cat", 7, "ann", "dm-8899aabbccddeeff")
+	testing.expectf(t, d2.id == d1.id && d2.slug == "dm-0011223344556677", "%s: the same DM from the other side, %v", f.name, d2)
+	testing.expectf(t, f.is_member(d1.id, 7) && f.is_member(d1.id, 9) && !f.is_member(d1.id, 8), "%s: a DM's two members", f.name)
+	testing.expectf(t, slugs(f, 8) == "lobby side news ", "%s: a DM is not a third's: %q", f.name, slugs(f, 8))
+}
+
 // One test, in order: the stores are process-wide.
 @(test)
 both_families :: proc(t: ^testing.T) {
@@ -165,11 +217,11 @@ both_families :: proc(t: ^testing.T) {
 	testing.expect_value(t, nbio.acquire_thread_event_loop(), nil)
 	defer nbio.release_thread_event_loop()
 
-	conforms(t, {"memory", mem.init, mem.seed, mem.room, mem.create_room, mem.recent, mem.after, mem.count_after, mem.changed, mem.message, mem.post, mem.change})
+	conforms(t, {"memory", mem.init, mem.seed, mem.room, mem.rooms_for, mem.create_room, mem.dm, mem.members, mem.is_member, mem.join, mem.leave, mem.recent, mem.after, mem.count_after, mem.changed, mem.message, mem.post, mem.change})
 
 	testing.expect_value(t, db.open_db(":memory:", .Ephemeral, "storetest"), "")
 	defer db.close()
 	db.migrate("chat", sql.MIGRATIONS[:])
-	conforms(t, {"sqlite", sql.init, sql.seed, sql.room, sql.create_room, sql.recent, sql.after, sql.count_after, sql.changed, sql.message, sql.post, sql.change})
+	conforms(t, {"sqlite", sql.init, sql.seed, sql.room, sql.rooms_for, sql.create_room, sql.dm, sql.members, sql.is_member, sql.join, sql.leave, sql.recent, sql.after, sql.count_after, sql.changed, sql.message, sql.post, sql.change})
 	free_all(context.temp_allocator)
 }

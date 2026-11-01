@@ -60,7 +60,7 @@ a_room_keeps_its_newest :: proc(t: ^testing.T) {
 	lobby, err := room("lobby")
 	testing.expect_value(t, err, m.Error.None)
 	testing.expect_value(t, lobby.name, "Lobby")
-	_, err = create_room("lobby", "Again")
+	_, err = create_room("lobby", "Again", .Public, 0, "")
 	testing.expect_value(t, err, m.Error.Constraint)
 
 	got: m.Message

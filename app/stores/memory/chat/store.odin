@@ -8,6 +8,7 @@ package chat_store_memory
 // store's lock; a message's strings are on the heap from its post until the ring or the
 // budget lets it go, and a reader gets copies in its request arena.
 
+import "core:fmt"
 import "core:mem"
 import "core:strings"
 import "core:time"
@@ -28,8 +29,9 @@ PERSISTED :: false
 // while a poll's old tag or a multipart's old part id reads as older than anything here.
 EPOCH_SPAN :: 1_000_000
 
-KEEP :: 100      // per room, the ring (§14.1)
-MAX_ROOMS :: 100 // public rooms in a memory build
+KEEP :: 100       // per room, the ring (§14.1)
+MAX_ROOMS :: 100  // rooms of every kind in a memory build
+MAX_MEMBERS :: 64 // of a private room in a memory build
 
 @(private)
 Room_State :: struct {
@@ -39,6 +41,8 @@ Room_State :: struct {
 	bytes:   int,
 	dropped: i64, // the newest message let go: a cursor below it can't be served whole (M2-31)
 	dropped_ver: i64, // and the newest version among those let go: a poll's tag below it can't be (M2-35)
+	members: [dynamic]m.Member, // a private room's or a DM's; names on the heap
+	dm:      [2]u64, // a DM's pair, the lower id first
 }
 
 @(private)
@@ -69,6 +73,15 @@ rooms :: proc(out: ^[dynamic]m.Room) -> m.Error {
 	return .None
 }
 
+rooms_for :: proc(who: u64, out: ^[dynamic]m.Room) -> m.Error {
+	mem_store.lock(&s.lock)
+	defer mem_store.unlock(&s.lock)
+	for r in s.rooms {
+		if r.room.kind == .Public || r.room.kind == .Announce || member_at(r, who) >= 0 { append(out, copy_room(r.room)) }
+	}
+	return .None
+}
+
 room :: proc(slug: string) -> (m.Room, m.Error) {
 	mem_store.lock(&s.lock)
 	defer mem_store.unlock(&s.lock)
@@ -76,16 +89,71 @@ room :: proc(slug: string) -> (m.Room, m.Error) {
 	return {}, .Not_Found
 }
 
-create_room :: proc(slug, name: string) -> (m.Room, m.Error) {
+create_room :: proc(slug, name: string, kind: m.Room_Kind, owner: u64, owner_name: string) -> (room: m.Room, err: m.Error) {
 	mem_store.lock(&s.lock)
 	defer mem_store.unlock(&s.lock)
-	if find(slug) != nil || len(s.rooms) >= MAX_ROOMS { return {}, .Constraint }
-	r := new(Room_State)
-	r.room = {id = mem_store.next_id(&s.room_seq), slug = strings.clone(slug), name = strings.clone(name), at = now()}
-	mem_store.ring_init(&r.ring, KEEP)
-	r.ver = s.base
-	append(&s.rooms, r)
+	r := add_room(slug, name, kind, owner) or_return
+	if kind == .Private || kind == .Dm { add_member(r, owner, owner_name) }
 	return copy_room(r.room), .None
+}
+
+// The DM of `a` and `b`, or a new one with both as members.
+dm :: proc(a: u64, a_name: string, b: u64, b_name: string, slug: string) -> (room: m.Room, err: m.Error) {
+	mem_store.lock(&s.lock)
+	defer mem_store.unlock(&s.lock)
+	pair := [2]u64{min(a, b), max(a, b)}
+	for r in s.rooms {
+		if r.room.kind == .Dm && r.dm == pair { return copy_room(r.room), .None }
+	}
+	r := add_room(slug, fmt.tprintf("%s and %s", a_name, b_name), .Dm, a) or_return
+	r.dm = pair
+	add_member(r, a, a_name)
+	add_member(r, b, b_name)
+	return copy_room(r.room), .None
+}
+
+members :: proc(room_id: i64, out: ^[dynamic]m.Member) -> m.Error {
+	mem_store.lock(&s.lock)
+	defer mem_store.unlock(&s.lock)
+	r := by_id(room_id)
+	if r == nil { return .Not_Found }
+	for mem in r.members {
+		c := mem
+		c.name = strings.clone(mem.name, context.temp_allocator)
+		append(out, c)
+	}
+	return .None
+}
+
+is_member :: proc(room_id: i64, who: u64) -> bool {
+	mem_store.lock(&s.lock)
+	defer mem_store.unlock(&s.lock)
+	r := by_id(room_id)
+	return r != nil && member_at(r, who) >= 0
+}
+
+// .None when they are in it already; .Constraint when the room is full.
+join :: proc(room_id: i64, who: u64, name: string) -> m.Error {
+	mem_store.lock(&s.lock)
+	defer mem_store.unlock(&s.lock)
+	r := by_id(room_id)
+	if r == nil { return .Not_Found }
+	if member_at(r, who) >= 0 { return .None }
+	if len(r.members) >= MAX_MEMBERS { return .Constraint }
+	add_member(r, who, name)
+	return .None
+}
+
+leave :: proc(room_id: i64, who: u64) -> m.Error {
+	mem_store.lock(&s.lock)
+	defer mem_store.unlock(&s.lock)
+	r := by_id(room_id)
+	if r == nil { return .Not_Found }
+	if i := member_at(r, who); i >= 0 {
+		delete(r.members[i].name)
+		ordered_remove(&r.members, i)
+	}
+	return .None
 }
 
 recent :: proc(room_id: i64, limit: int, out: ^[dynamic]m.Message) -> m.Error {
@@ -202,10 +270,35 @@ seed :: proc() {
 	mem_store.lock(&s.lock)
 	empty := len(s.rooms) == 0
 	mem_store.unlock(&s.lock)
-	if empty { _, _ = create_room("lobby", "Lobby") }
+	if empty { _, _ = create_room("lobby", "Lobby", .Public, 0, "") }
 }
 
 // ---- inside the lock ----------------------------------------------------------------------
+
+@(private)
+add_room :: proc(slug, name: string, kind: m.Room_Kind, owner: u64) -> (^Room_State, m.Error) {
+	if find(slug) != nil || len(s.rooms) >= MAX_ROOMS { return nil, .Constraint }
+	r := new(Room_State)
+	r.room = {id = mem_store.next_id(&s.room_seq), slug = strings.clone(slug), name = strings.clone(name), at = now(), kind = kind, owner = owner}
+	mem_store.ring_init(&r.ring, KEEP)
+	r.ver = s.base
+	append(&s.rooms, r)
+	return r, .None
+}
+
+@(private)
+add_member :: proc(r: ^Room_State, who: u64, name: string) {
+	append(&r.members, m.Member{room = r.room.id, who = who, name = strings.clone(name), at = now()})
+}
+
+// Its index in the room's members, or -1.
+@(private)
+member_at :: proc(r: ^Room_State, who: u64) -> int {
+	for mem, i in r.members {
+		if mem.who == who { return i }
+	}
+	return -1
+}
 
 @(private)
 find :: proc(slug: string) -> ^Room_State {

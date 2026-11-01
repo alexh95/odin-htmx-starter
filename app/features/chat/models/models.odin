@@ -9,9 +9,29 @@ package chat_models
 
 import "../../../platform/store"
 
+// Who reads and who posts (D30): a public room and announcements are every member's to read,
+// a private room and a DM only their members'; announcements are posted by their owner (and
+// moderators). A DM is a two-member room with an opaque slug.
+Room_Kind :: enum u8 {
+	Public,
+	Private,
+	Announce,
+	Dm,
+}
+
 Room :: struct {
-	id:   i64,
-	slug: string, // [a-z0-9-], 1 to 40: every room URL is /chat/r/<slug> (X12)
+	id:    i64,
+	slug:  string, // [a-z0-9-], 1 to 40: every room URL is /chat/r/<slug> (X12)
+	name:  string, // a DM's: its two members' names when it was made
+	at:    i64,
+	kind:  Room_Kind,
+	owner: u64, // who made it; 0 for the seeded lobby
+}
+
+// A member of a private room or a DM, with their name as it was when they joined (D6).
+Member :: struct {
+	room: i64,
+	who:  u64,
 	name: string,
 	at:   i64,
 }
@@ -53,9 +73,17 @@ Change :: struct {
 }
 
 Store_Init :: proc(ring_bytes: int)
-Store_Rooms :: proc(out: ^[dynamic]Room) -> Error
+Store_Rooms :: proc(out: ^[dynamic]Room) -> Error // every room, every kind
+Store_Rooms_For :: proc(who: u64, out: ^[dynamic]Room) -> Error // the public ones, announcements, and the private rooms and DMs `who` is in
 Store_Room :: proc(slug: string) -> (Room, Error)
-Store_Create_Room :: proc(slug, name: string) -> (Room, Error) // .Constraint: the slug is taken, or the rooms are full
+// .Constraint: the slug is taken, or the rooms are full. The owner of a private room or a DM is its first member.
+Store_Create_Room :: proc(slug, name: string, kind: Room_Kind, owner: u64, owner_name: string) -> (Room, Error)
+// The DM of `a` and `b`, made (with `slug` and both as members) when they have none.
+Store_Dm :: proc(a: u64, a_name: string, b: u64, b_name: string, slug: string) -> (Room, Error)
+Store_Members :: proc(room: i64, out: ^[dynamic]Member) -> Error // in the order they joined
+Store_Is_Member :: proc(room: i64, who: u64) -> bool
+Store_Join :: proc(room: i64, who: u64, name: string) -> Error // .None when they are in it already
+Store_Leave :: proc(room: i64, who: u64) -> Error
 Store_Recent :: proc(room: i64, limit: int, out: ^[dynamic]Message) -> Error // oldest first
 // id > after, oldest first; reached: nothing after `after` was let go, so `out` has no gap
 Store_After :: proc(room: i64, after: i64, out: ^[dynamic]Message) -> (reached: bool, err: Error)

@@ -6,7 +6,8 @@ presence, read cursors, the names mentions match), `models` (rooms, messages, th
 contract), `views` (the rooms, a room, a message, its menu and edit form, presence, typing, unread counts),
 `transport_ws`, `transport_sse`, `transport_poll`, `transport_multipart` (each a room's wiring, its endpoint and its
 extensions) and `web` (the routes, the topics, the switch, one post path for forms and sockets). Its store at M2:
-memory (`app/stores/memory/chat/`); SQLite, DMs, moderation, uploads and search join at M6.
+memory (`app/stores/memory/chat/`); at M6 SQLite (`app/stores/sqlite/chat/`), rooms of every kind, then
+moderation, uploads and search.
 
 **One fragment for every transport.** A message is rendered once, `<article id="m-<id>">`, and travels as
 `<hx-partial hx-target="#log-<room>" hx-swap="upsert sort">`: upsert replaces what the log already has (an edit, a
@@ -41,9 +42,21 @@ a page renders or receives posts a read receipt when it scrolls into view (`hx-t
 a new message moves every other reader's unread count on `.unread-<slug>`, through their `notify.user` topic, and a
 mention (`@name`, the name a member last used here) lands in their Inbox through `notify_web.send`.
 
+**Rooms of four kinds** (D30, M6). A public room and announcements are every member's to read; announcements are
+posted by their owner and the moderators only (the rest see no composer, and a post is 403), and only a moderator
+makes one. A private room and a DM are their members' alone: to anyone else every route of theirs, their topics and
+their messages' menus answer as a room that doesn't exist (404), and the rooms list leaves them out; a mention there
+reaches only members. A private room's owner (or a moderator) hands out its invite link (`POST /chat/r/<slug>/invite`),
+`/chat/join/<token>`, a signed `<room>.<expiry>` (platform/signed) that lasts 7 days or until a restart (its key is
+made at boot); the link's page joins by a plain form, and a member leaves with `POST /chat/r/<slug>/leave`. A DM
+starts from a message's menu, "Message <name>" (`POST /chat/dm/<id>`, `Chat_Dm`): the two members' room with an
+opaque slug (`dm-` and 16 hex digits), found again from either side, never made twice. The domain holds the rule
+once (`room_for`, `may_read`, `may_post`, `reads`), and every handler, transport and topic asks it.
+
 **Limits** (§17.5): posts 5 per 10 s per member (`web.Limit`, a 429 with `Retry-After` into the toasts; a socket gets
 the toast down the socket), typing 1 per 2 s (the rest dropped), socket frames 20 a second (then 1008), bodies 2,000
-runes, 100 rooms in a memory build, at most 4,096 members' names per process, and 256 read cursors a room.
+runes, 100 rooms in a memory build (1,000 on SQLite), 64 members a private room in a memory build, at most 4,096
+members' names per process, and 256 read cursors a room.
 
 It owns `/chat`, its own prefix.
 

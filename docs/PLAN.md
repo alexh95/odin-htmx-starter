@@ -3364,6 +3364,15 @@ user ids plus an `author_name` snapshot and no foreign key into `users` (D6, §1
 - **Specs** resume across a server restart on every transport; `setOffline` cuts only new requests and Chromium's
   socket in Playwright, so its spec holds the rest only to "nothing doubles".
 
+**As built (M6 slice 2)**, in `full` on SQLite, and in `streams` on the memory store:
+- **Rooms of four kinds**: a room has a kind and an owner. A private room and a DM keep their members
+  (`chat_members`, a name snapshot each), and to anyone else are a 404 on every route, topic and menu; announcements
+  are posted by their owner and the moderators, and made by a moderator. The rule lives once in the domain
+  (`room_for`, `may_read`, `may_post`).
+- **Invites** to a private room are signed links, `/chat/join/<token>` (`<room>.<expiry>`, 7 days, a key made at boot
+  so a restart ends them); **a DM** starts from a message's menu (`POST /chat/dm/<id>`), the pair's one room with an
+  opaque slug. Rooms, DMs and memberships are written at once (`write_now`), being rare.
+
 ### 14.2 Notifications, Today and uploads
 
 **`notify`** (the Inbox bell, `/notify`; the memory store at M2, the SQLite store at M6; D36). Producers call

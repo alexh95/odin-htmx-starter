@@ -7,14 +7,19 @@ package chat
 // the names mentions are matched against. Plain values and errors, never HTTP.
 
 import "base:runtime"
+import "core:crypto"
+import "core:encoding/hex"
 import "core:fmt"
+import "core:strconv"
 import "core:strings"
 import "core:time"
 import "core:unicode"
 import "core:unicode/utf8"
 
+import "../../platform/authz"
 import "../../platform/env"
 import "../../platform/guard"
+import "../../platform/signed"
 import "../../platform/sys"
 import m "models"
 import chat_store "store:chat"
@@ -42,6 +47,10 @@ AWAY_FOR :: 5 * time.Minute
 // every reader of its room, so readers are capped far lower (M2-08).
 MAX_MEMBERS :: 4096
 MAX_READERS :: 256
+
+// An invite to a private room is a signed link (platform/signed) that lasts this long. Its key is
+// made at boot, so a restart ends every invite: an owner makes a new one.
+INVITE_FOR :: 7 * 24 * time.Hour
 
 Transport :: enum u8 {
 	Ws,
@@ -72,6 +81,7 @@ st: struct {
 	names:     map[u64]string,            // member → the name they last used here, for mentions
 	read:      map[i64]map[u64]i64,       // room → member → the newest id they have seen
 	here:      map[i64]map[u64]Presence,  // room → member → their presence
+	invite_key: [32]byte,
 }
 
 // At boot: the env rows, the store's ring budget, the lobby.
@@ -79,6 +89,7 @@ init :: proc() {
 	env.record("CHAT_", ENV[:])
 	st.transport = transport_named(env.str("CHAT_TRANSPORT")) or_else .Ws
 	chat_store.init(env.size("CHAT_RING_BYTES"))
+	crypto.rand_bytes(st.invite_key[:])
 }
 
 // The lobby, into an empty store: after the store's open and migrations, which a SQLite profile
@@ -105,8 +116,94 @@ typing_topic :: proc(room: i64) -> string { return fmt.tprintf("chat.typing:%d",
 
 // ---- rooms -------------------------------------------------------------------------------
 
-rooms :: proc(out: ^[dynamic]m.Room) -> m.Error { return chat_store.rooms(out) }
-room :: proc(slug: string) -> (m.Room, m.Error) { return chat_store.room(slug) }
+// The rooms `v` may read: public ones, announcements, and the private rooms and DMs they are in.
+rooms_for :: proc(v: authz.Viewer, out: ^[dynamic]m.Room) -> m.Error { return chat_store.rooms_for(v.id, out) }
+
+// A room by slug, when `v` may read it. A private room or a DM someone isn't in is .Not_Found to
+// them, as a room that doesn't exist: its slug says nothing.
+room_for :: proc(slug: string, v: authz.Viewer) -> (m.Room, m.Error) {
+	r, err := chat_store.room(slug)
+	if err != .None { return {}, err }
+	if !may_read(r, v) { return {}, .Not_Found }
+	return r, .None
+}
+
+// ---- who reads, who posts (D30, D35) -----------------------------------------------------------
+
+may_read :: proc(r: m.Room, v: authz.Viewer) -> bool { return reads(r, v.id) }
+
+// Whether member `who` may read `r`: whose mentions and unread counts a message moves.
+reads :: proc(r: m.Room, who: u64) -> bool {
+	switch r.kind {
+	case .Public, .Announce:
+		return true
+	case .Private, .Dm:
+		return who != 0 && chat_store.is_member(r.id, who)
+	}
+	return false
+}
+
+// Announcements are their owner's and the moderators' to post; a private room and a DM their
+// members'. The route's perm (Chat_Post) comes first.
+may_post :: proc(r: m.Room, v: authz.Viewer) -> bool {
+	switch r.kind {
+	case .Public:
+		return true
+	case .Announce:
+		return v.id != 0 && (v.id == r.owner || authz.can(v, .Chat_Moderate))
+	case .Private, .Dm:
+		return reads(r, v.id)
+	}
+	return false
+}
+
+// A private room's owner, or a moderator, hands out its invite link.
+may_invite :: proc(r: m.Room, v: authz.Viewer) -> bool {
+	return r.kind == .Private && v.id != 0 && (v.id == r.owner || authz.can(v, .Chat_Moderate))
+}
+
+// Only a private room is left: a DM is its two members', and the rest have no members.
+may_leave :: proc(r: m.Room, v: authz.Viewer) -> bool { return r.kind == .Private && reads(r, v.id) }
+
+members :: proc(r: m.Room, out: ^[dynamic]m.Member) -> m.Error { return chat_store.members(r.id, out) }
+join_room :: proc(r: m.Room, v: authz.Viewer) -> m.Error { return chat_store.join(r.id, v.id, v.name) }
+leave_room :: proc(r: m.Room, v: authz.Viewer) -> m.Error { return chat_store.leave(r.id, v.id) }
+
+// The DM of `v` and `other`, made when they have none. `other` must be someone chat knows (their
+// name from a page or a post here): .Not_Found otherwise, and for `v` themself.
+dm :: proc(v: authz.Viewer, other: u64) -> (m.Room, m.Error) {
+	if other == 0 || other == v.id { return {}, .Not_Found }
+	guard.lock(&st.mu)
+	known, ok := st.names[other]
+	name := strings.clone(known, context.temp_allocator) if ok else ""
+	guard.unlock(&st.mu)
+	if !ok { return {}, .Not_Found }
+	raw: [8]byte
+	crypto.rand_bytes(raw[:])
+	slug := fmt.tprintf("dm-%s", hex.encode(raw[:], context.temp_allocator))
+	return chat_store.dm(v.id, v.name, other, name, slug)
+}
+
+// ---- invites to a private room -----------------------------------------------------------------
+
+// `<room id>.<expiry, unix seconds>`, signed: the path of /chat/join/<token>.
+invite_token :: proc(r: m.Room) -> string {
+	body := fmt.tprintf("%d.%d", r.id, now() + i64(INVITE_FOR / time.Second))
+	return signed.sign(body, st.invite_key[:])
+}
+
+// The room an unexpired token of this process names, or .Not_Found.
+invited_to :: proc(token: string) -> (m.Room, m.Error) {
+	body, ok := signed.open(token, st.invite_key[:])
+	if !ok { return {}, .Not_Found }
+	id_text, _, until_text := strings.partition(body, ".")
+	id, iok := strconv.parse_i64(id_text, 10)
+	until, uok := strconv.parse_i64(until_text, 10)
+	if !iok || !uok || now() > until { return {}, .Not_Found }
+	r, err := room_by_id(id)
+	if err != .None || r.kind != .Private { return {}, .Not_Found }
+	return r, .None
+}
 
 // A room's name, trimmed, and the slug it gets ([a-z0-9-], from the name), or why
 // it was refused.
@@ -132,7 +229,23 @@ check_room :: proc(name: string) -> (trimmed, slug, problem: string) {
 	return trimmed, slug, ""
 }
 
-create_room :: proc(slug, name: string) -> (m.Room, m.Error) { return chat_store.create_room(slug, name) }
+// A room of `kind` made by `v`: they own it, and a private room starts with them in it.
+create_room :: proc(slug, name: string, kind: m.Room_Kind, v: authz.Viewer) -> (m.Room, m.Error) {
+	return chat_store.create_room(slug, name, kind, v.id, v.name)
+}
+
+// Who may make a room of `kind`: announcements are the moderators'.
+may_create :: proc(kind: m.Room_Kind, v: authz.Viewer) -> bool {
+	switch kind {
+	case .Public, .Private:
+		return authz.can(v, .Chat_Create_Room)
+	case .Announce:
+		return authz.can(v, .Chat_Moderate)
+	case .Dm:
+		return false // made by `dm`, never by name
+	}
+	return false
+}
 
 // A message's room, for its menu's link.
 room_by_id :: proc(id: i64) -> (m.Room, m.Error) {
