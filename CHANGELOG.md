@@ -10,6 +10,9 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 
 ### Added
 
+- **chat on SQLite** (M6 slice 2, its store): `stores/sqlite/chat` keeps rooms and messages across restarts, ids
+  the rowids (`PERSISTED`), a post or a change bumping the room's version in the writer's batch;
+  `features/chat/storetest` holds both families to one contract. Mounting it in `full` comes next.
 - **notify on SQLite** (M6 slice 7, its store): `stores/sqlite/notify` keeps a member's newest 200 across restarts,
   trimmed in the add's own batch; `features/notify/storetest` holds both families to one contract.
 - **M6's first spike, hx-ws's errors** (`docs/spikes/M6.1.md`): a refused or dropped socket's `htmx:ws:error` carries a
