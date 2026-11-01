@@ -347,11 +347,14 @@ execute :: proc(i: int, r: ^Run, now: i64) {
 	ok := guard.call(proc(data: rawptr) { (proc())(data)() }, rawptr(job.run))
 	tl_run = nil
 	// A job that runs every minute or more often (the lab's beat) logs its runs
-	// at debug; its counts are in the job's state either way.
-	if l, lok := obs.begin((.Debug if job.every <= time.Minute else .Info) if ok else .Error, "jobs", "run"); lok {
+	// at debug; its counts are in the job's state either way. One that said it
+	// failed (`fail`) is a warning, so a nightly that stopped shows in the log.
+	failed := r != nil && r.failed
+	level: obs.Level = .Error if !ok else .Warning if failed else .Debug if job.every <= time.Minute else .Info
+	if l, lok := obs.begin(level, "jobs", "run"); lok {
 		obs.str(&l, "job", job.id)
 		obs.num(&l, "ms", (sys.mono_ns() - now) / 1e6)
-		if !ok { obs.str(&l, "result", "crashed") }
+		if !ok { obs.str(&l, "result", "crashed") } else if failed { obs.str(&l, "result", "failed") }
 		obs.end(&l)
 	}
 	guard.lock(&sched.mu)

@@ -207,7 +207,7 @@ if ($Target -ne 'local') {
 # ---- 3. snapshot --------------------------------------------------------------------------
 
 # The snapshot goes where the nightly backups go, BACKUP_DIR's /backups (the image's, or FULL_BACKUPS'
-# bind): status's backup age counts it, an operator looks in one place, and it is off the database's
+# bind): an operator looks in one place, status shows its age beside the nightly's, and it is off the database's
 # disk. Each kind keeps its own: promote the newest 5 `pre-*.db`, the nightly job its `backup-*.db`.
 # The checks and the pruner run beside the database: busybox pinned by digest (1.37.0), as the app's
 # user, with no network (M3-08, M4-12). The backup runs in the old container's binary, whose image has

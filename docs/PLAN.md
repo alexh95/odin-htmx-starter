@@ -3729,7 +3729,8 @@ multipart slow panels. SQLite numbers come from `sqlite3_db_status`, because `ME
 
 **`status`** (`/status`; basic at M2, full at M5; D36): one `multipart/parallel` response. Each part is a feature's
 health as pushed to `platform/obs` (§10.4), or a `STATUS_PROBES` external: llama `/health`, the Pi agent's last seen,
-games healthz, disk free, backup age, the witnesses. Each probe has a 2 s timeout and its part swaps in as it answers;
+games healthz, disk free, the nightly backup's age (a run by hand or a pre-deploy snapshot said beside it, never
+counted), the witnesses. Each probe has a 2 s timeout and its part swaps in as it answers;
 M5 asserts the parallel order. Details sit behind `Admin_Ops`; a ptag poll every 30 s is the variant. In the lab, the
 same feature is the witness board (M3).
 **As built (M3):** `STATUS_PROBES` (`name=host:port,…`) is probed by a thread of the feature's own every 10 s, each

@@ -249,14 +249,21 @@ disk :: proc() -> Probe {
 	return Probe{"disk", state, fmt.tprintf("%s free of %s", size(free), size(total)), false}
 }
 
-// The newest backup's age, where the store keeps backups (a file database).
+// The newest nightly's age, where the store keeps backups (a file database). A run by hand or
+// promote's pre-deploy snapshot is said beside it, never counted: either would hide a nightly
+// that stopped for a day.
 backups :: proc() -> (p: Probe, ok: bool) {
-	ms, kept := obs.last_backup()
+	nightly, other, kept := obs.last_backup()
 	if !kept { return }
-	if ms == 0 { return Probe{"backups", "degraded", "none yet", false}, true }
-	age := time.Duration(sys.now_unix_ns() - ms * 1e6)
-	state := "ok" if age < BACKUP_STALE else "degraded"
-	return Probe{"backups", state, fmt.tprintf("the newest is %s old", uptime(age)), false}, true
+	return backups_probe(nightly, other, sys.now_unix_ns() / 1e6), true
+}
+
+backups_probe :: proc(nightly_ms, other_ms, now_ms: i64) -> Probe {
+	age :: proc(ms, now_ms: i64) -> string { return uptime(time.Duration(now_ms - ms) * time.Millisecond) }
+	state := "ok" if nightly_ms > 0 && time.Duration(now_ms - nightly_ms) * time.Millisecond < BACKUP_STALE else "degraded"
+	msg := fmt.tprintf("the newest nightly is %s old", age(nightly_ms, now_ms)) if nightly_ms > 0 else "no nightly yet"
+	if other_ms > 0 { msg = fmt.tprintf("%s; by hand or before a deploy, %s ago", msg, age(other_ms, now_ms)) }
+	return Probe{"backups", state, msg, false}
 }
 
 @(private)

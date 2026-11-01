@@ -81,7 +81,8 @@ Rehearse it once before you need it: `e2e/tests/platform/backup.spec.ts` does ex
 of its own by default, or the host directory `FULL_BACKUPS` names in the stack's `.env` (one line;
 the backup disk's directory, chowned to `10001:10001` once), from where a nightly pull takes them off
 the machine. `deploy/promote.ps1`'s pre-deploy snapshots land there too, as `pre-<tag>.db`, so there is one
-place to look and status's backup age counts them. Each kind keeps its own: the job prunes only `backup-*.db`
+place to look. `/status`'s backups line judges by the newest nightly alone (degraded past 26 h, or with none yet)
+and says the newest by hand or before a deploy beside it, so neither hides a nightly that stopped. Each kind keeps its own: the job prunes only `backup-*.db`
 (and `manual-*.db`, its runs by hand, apart), promote only `pre-*.db`, the newest 5. A `/backups` the running
 container can't write stops the promote before anything changes.
 

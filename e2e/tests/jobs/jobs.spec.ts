@@ -75,9 +75,10 @@ test.describe('jobs', T, () => {
       const backup = admin.page.locator('#jobs-runs tr.run').filter({ hasText: 'store.backup' }).first();
       await expect(backup.locator('.run-state')).toHaveText('done', { timeout: 10_000 });
       await expect(backup.locator('.run-progress')).toContainText('3 of 3');
+      // A run by hand is said beside the nightly, never counted: with no nightly yet, still degraded.
       await admin.page.goto('/status');
-      await expect(admin.page.locator('#st-backups .status-state')).toHaveText('ok');
-      await expect(admin.page.locator('#st-backups')).toContainText(/the newest is \d+ s old/);
+      await expect(admin.page.locator('#st-backups .status-state')).toHaveText('degraded');
+      await expect(admin.page.locator('#st-backups')).toContainText(/no nightly yet; by hand or before a deploy, \d+ s ago/);
       await admin.page.waitForTimeout(1500); // the sync's next second has the ended rows in the file
       await admin.context.close();
       await stopServer(s);

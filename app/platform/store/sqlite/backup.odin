@@ -9,8 +9,9 @@ package store_sqlite
 // a backup; then the newest BACKUP_KEEP of its kind stay. It wakes every 10 minutes and runs at
 // BACKUP_HOUR_UTC once a day (`due`), on the long-run thread. A cancel stops the copy mid-way
 // (SQLite's progress handler) and the part written goes. promote.ps1's pre-deploy snapshots
-// (`pre-<tag>.db`) land in the same BACKUP_DIR: status shows the newest of all three's age, but
-// each kind is pruned only by its owner (promote keeps 5 `pre-`; `backup_names` never lists one).
+// (`pre-<tag>.db`) land in the same BACKUP_DIR, each kind pruned only by its owner (promote keeps
+// 5 `pre-`; `backup_names` never lists one). Status judges by the newest nightly alone and shows
+// the others' age beside it, so neither a run by hand nor a deploy hides a nightly that stopped.
 
 import "base:runtime"
 import "core:c"
@@ -56,8 +57,10 @@ backup_init :: proc() {
 	bk.hour, bk.keep = env.int_("BACKUP_HOUR_UTC"), max(env.int_("BACKUP_KEEP"), 1)
 	bk.dir = env.str("BACKUP_DIR")
 	bk.dir = join(filepath.dir(db.db_path), "backups", context.allocator) if bk.dir == "" else strings.clone(bk.dir)
-	newest, _ := newest_backup("")
-	obs.backup_report(newest)
+	nightly, _ := newest_backup("backup-")
+	by_hand, _ := newest_backup("manual-")
+	before_deploy, _ := newest_backup("pre-")
+	obs.backup_report(nightly, max(by_hand, before_deploy))
 }
 
 // Nightly: at its hour, and not yet today.
@@ -120,7 +123,8 @@ backup_job :: proc() {
 	workers.progress(2, 3)
 	prune_backups(prefix)
 	workers.progress(3, 3)
-	obs.backup_report(sys.now_unix_ns() / 1e6)
+	now_ms := sys.now_unix_ns() / 1e6
+	obs.backup_report(now_ms if prefix == "backup-" else -1, now_ms if prefix == "manual-" else -1)
 }
 
 // VACUUM INTO on a connection of its own; a cancel interrupts it (the handler runs every 1000

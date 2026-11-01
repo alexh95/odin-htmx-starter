@@ -378,7 +378,8 @@ store_v3 :: proc(t: ^testing.T) {
 }
 
 // promote.ps1's pre-<tag>.db snapshots share BACKUP_DIR with the nightly ones: the nightly prune and
-// due never count them, status's age does, and each kind keeps its own number.
+// due never count them, nor does status's health (the newest nightly alone), and each kind keeps its
+// own number.
 @(private = "file")
 backup_kinds_apart :: proc(t: ^testing.T) {
 	dir := fmt.tprintf("%s/backup-kinds-%d", tmp_dir, os.get_pid())

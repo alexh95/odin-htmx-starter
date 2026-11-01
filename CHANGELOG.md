@@ -25,13 +25,17 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
   proxy leg's engine). Chat's transports had only met chromium and WebKit, so Firefox's same-URL fetch hold first
   showed through `full`. About 1.5 minutes of suite.
 - **Promote's pre-deploy snapshot goes to `/backups`** (`BACKUP_DIR`, beside the nightly backups; on apollo the HDD),
-  not `/data/backups`: status's backup age counts it, there is one place to look, and it is off the database's disk.
+  not `/data/backups`: there is one place to look, and it is off the database's disk.
   Each kind keeps its own: promote prunes only `pre-*.db` (5), the nightly job only `backup-*.db`. A `/backups` the
   running container can't write stops the promote with a message before anything changes. `promote-test.ps1
   -Snapshot` holds the path, both prunes and the refusal; a unit test holds the job's side.
 
 ### Fixed
 
+- **A nightly backup that stopped shows**: `/status`'s backups line judges by the newest nightly alone (degraded past
+  26 h, or with none yet) and says the newest run by hand or pre-deploy snapshot beside it, never counting either:
+  counted, a promote or a click hid a broken nightly for a day. A job run that ended through `workers.fail` logs
+  `ev=run … result=failed` at warn (it was info, unmarked); a crash stays `result=crashed` at error.
 - **A second tab's multipart stream connects in Firefox**: Firefox holds a fetch of a URL until an earlier fetch of
   the same URL has its whole response, whatever that response's `Cache-Control`, so a member's second tab on a
   multipart chat room (or an admin's second `/admin/ops` in multipart mode) never got a part while the first stayed

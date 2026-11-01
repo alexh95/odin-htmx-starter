@@ -41,22 +41,27 @@ store_memory :: proc() -> (m: Store_Memory, ok: bool) {
 
 // ---- the newest backup ----------------------------------------------------------------
 //
-// platform/store/sqlite says when its newest backup was written (at open, from the files it
-// finds, and after each one), and status shows its age, without either importing the other.
+// platform/store/sqlite says when its newest backups were written (at open, from the files it
+// finds, and after each one), and status shows their age, without either importing the other.
+// The nightly is apart from the rest (a run by hand, promote's pre-deploy snapshot): only its
+// age is the store's health, so neither can hide a nightly that stopped.
 
 @(private)
 backups: struct {
-	ms: i64, // atomic: unix ms; 0: none yet
-	on: bool, // atomic: a store here keeps backups (a file database)
+	nightly: i64, // atomic: unix ms; 0: none yet
+	other:   i64, // atomic: the newest by hand or before a deploy; 0: none
+	on:      bool, // atomic: a store here keeps backups (a file database)
 }
 
-backup_report :: proc "contextless" (unix_ms: i64) {
-	sync.atomic_store_explicit(&backups.ms, unix_ms, .Relaxed)
+// A value under 0 leaves that kind as it was.
+backup_report :: proc "contextless" (nightly_ms, other_ms: i64) {
+	if nightly_ms >= 0 { sync.atomic_store_explicit(&backups.nightly, nightly_ms, .Relaxed) }
+	if other_ms >= 0 { sync.atomic_store_explicit(&backups.other, other_ms, .Relaxed) }
 	sync.atomic_store_explicit(&backups.on, true, .Relaxed)
 }
 
-// ok false: nothing here keeps backups. ms 0: none yet.
-last_backup :: proc() -> (unix_ms: i64, ok: bool) {
-	if !sync.atomic_load_explicit(&backups.on, .Relaxed) { return 0, false }
-	return sync.atomic_load_explicit(&backups.ms, .Relaxed), true
+// ok false: nothing here keeps backups. 0: none of that kind yet.
+last_backup :: proc() -> (nightly_ms, other_ms: i64, ok: bool) {
+	if !sync.atomic_load_explicit(&backups.on, .Relaxed) { return 0, 0, false }
+	return sync.atomic_load_explicit(&backups.nightly, .Relaxed), sync.atomic_load_explicit(&backups.other, .Relaxed), true
 }
