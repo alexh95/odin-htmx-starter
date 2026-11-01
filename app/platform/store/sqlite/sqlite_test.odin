@@ -14,12 +14,14 @@ import "../../guard"
 import "../../obs"
 import "../../sqlite"
 
-// The skeleton's three migrations, as the contacts store will hold them.
+// The skeleton's three migrations, as the contacts store holds them: copies, byte for byte, in
+// this package's testdata, so a generated project without contacts still builds this test (test
+// files compile into every build). A shipped migration is never edited, so the copies can't drift.
 @(private = "file")
 CONTACTS := [?]store.Migration {
-	{1, "0001_init.sql", #load("../../../stores/sqlite/contacts/migrations/0001_init.sql", string)},
-	{2, "0002_events.sql", #load("../../../stores/sqlite/contacts/migrations/0002_events.sql", string)},
-	{3, "0003_contact_notes.sql", #load("../../../stores/sqlite/contacts/migrations/0003_contact_notes.sql", string)},
+	{1, "0001_init.sql", #load("testdata/contacts-0001_init.sql", string)},
+	{2, "0002_events.sql", #load("testdata/contacts-0002_events.sql", string)},
+	{3, "0003_contact_notes.sql", #load("testdata/contacts-0003_contact_notes.sql", string)},
 }
 
 @(private = "file")
