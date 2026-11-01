@@ -1,5 +1,6 @@
--- Rooms beyond public (M6 slice 2): a kind, an owner, a DM's pair, and the members of the
--- rooms that have them (private rooms and DMs). Never edit it once a database has applied it.
+-- Rooms beyond public (M6 slice 2): a kind, an owner, a DM's pair, the members of the rooms
+-- that have them (private rooms and DMs), and a private room's invites. Never edit it once a
+-- database has applied it.
 ALTER TABLE chat_rooms ADD COLUMN kind INTEGER NOT NULL DEFAULT 0;  -- 0 public, 1 private, 2 announcements, 3 DM
 ALTER TABLE chat_rooms ADD COLUMN owner INTEGER NOT NULL DEFAULT 0; -- who made it; 0: the seeded lobby
 ALTER TABLE chat_rooms ADD COLUMN dm TEXT;                          -- a DM's '<lower id>:<higher id>', else NULL
@@ -12,3 +13,16 @@ CREATE TABLE chat_members (
   PRIMARY KEY (room, who)
 ) WITHOUT ROWID;
 CREATE INDEX chat_members_who ON chat_members(who, room);
+CREATE TABLE chat_invites (
+  id       INTEGER PRIMARY KEY AUTOINCREMENT,
+  room     INTEGER NOT NULL REFERENCES chat_rooms(id),
+  hash     TEXT NOT NULL,             -- hex SHA-256 of the token's secret: the secret itself is never kept
+  made_by  INTEGER NOT NULL,          -- who made it
+  by_name  TEXT NOT NULL,
+  at       INTEGER NOT NULL,          -- unix seconds
+  expires  INTEGER NOT NULL,
+  max_uses INTEGER NOT NULL DEFAULT 0, -- 0: any number until it expires
+  uses     INTEGER NOT NULL DEFAULT 0,
+  revoked  INTEGER NOT NULL DEFAULT 0  -- when; 0: not revoked
+);
+CREATE INDEX chat_invites_room ON chat_invites(room, id);

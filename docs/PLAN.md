@@ -3369,9 +3369,12 @@ user ids plus an `author_name` snapshot and no foreign key into `users` (D6, §1
   (`chat_members`, a name snapshot each), and to anyone else are a 404 on every route, topic and menu; announcements
   are posted by their owner and the moderators, and made by a moderator. The rule lives once in the domain
   (`room_for`, `may_read`, `may_post`).
-- **Invites** to a private room are signed links, `/chat/join/<token>` (`<room>.<expiry>`, 7 days, a key made at boot
-  so a restart ends them); **a DM** starts from a message's menu (`POST /chat/dm/<id>`), the pair's one room with an
-  opaque slug. Rooms, DMs and memberships are written at once (`write_now`), being rare.
+- **Invites** to a private room are rows (`chat_invites`): `/chat/join/<id>.<secret>`, the secret kept as its SHA-256
+  and compared in constant time, 7 days or a single use, listed and revoked by the owner, kept across restarts (a
+  deploy ends none). **A DM** starts from a message's menu (`POST /chat/dm/<id>`), the pair's one room with an opaque
+  slug, and isn't left. Moderators read neither a private room nor a DM: moderation of those works from reports,
+  which carry a copy of the reported message (slice 4). Rooms, DMs, memberships and invites are written at once
+  (`write_now`), being rare.
 
 ### 14.2 Notifications, Today and uploads
 

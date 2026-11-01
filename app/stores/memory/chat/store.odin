@@ -50,6 +50,8 @@ s: struct {
 	lock:      mem_store.Lock,
 	rooms:     [dynamic]^Room_State,
 	room_seq:  mem_store.Seq,
+	invite_seq: mem_store.Seq,
+	invites:   [dynamic]m.Invite, // strings on the heap; a revoked or spent one stays, as a row would
 	msg_seq:   mem_store.Seq,
 	base:      i64,
 	bytes:     int,
@@ -274,6 +276,93 @@ seed :: proc() {
 }
 
 // ---- inside the lock ----------------------------------------------------------------------
+
+// ---- invites -------------------------------------------------------------------------------
+
+MAX_INVITES :: 1000 // in a memory build: past it, the oldest closed one goes, else the oldest
+
+add_invite :: proc(inv: m.Invite) -> (id: i64, err: m.Error) {
+	mem_store.lock(&s.lock)
+	defer mem_store.unlock(&s.lock)
+	if by_id(inv.room) == nil { return 0, .Not_Found }
+	if len(s.invites) >= MAX_INVITES {
+		at, gone := now(), 0
+		for old, i in s.invites {
+			if !is_open(old, at) {
+				gone = i
+				break
+			}
+		}
+		delete(s.invites[gone].hash)
+		delete(s.invites[gone].by_name)
+		ordered_remove(&s.invites, gone)
+	}
+	row := inv
+	row.id, row.uses, row.revoked = mem_store.next_id(&s.invite_seq), 0, 0
+	row.hash, row.by_name = strings.clone(inv.hash), strings.clone(inv.by_name)
+	append(&s.invites, row)
+	return row.id, .None
+}
+
+invite :: proc(id: i64) -> (m.Invite, m.Error) {
+	mem_store.lock(&s.lock)
+	defer mem_store.unlock(&s.lock)
+	if i := invite_at(id); i >= 0 { return copy_invite(s.invites[i]), .None }
+	return {}, .Not_Found
+}
+
+invites :: proc(room_id: i64, at: i64, out: ^[dynamic]m.Invite) -> m.Error {
+	mem_store.lock(&s.lock)
+	defer mem_store.unlock(&s.lock)
+	#reverse for inv in s.invites {
+		if inv.room == room_id && is_open(inv, at) { append(out, copy_invite(inv)) }
+	}
+	return .None
+}
+
+revoke_invite :: proc(id, room_id, at: i64) -> m.Error {
+	mem_store.lock(&s.lock)
+	defer mem_store.unlock(&s.lock)
+	i := invite_at(id)
+	if i < 0 || s.invites[i].room != room_id || s.invites[i].revoked != 0 { return .Not_Found }
+	s.invites[i].revoked = at
+	return .None
+}
+
+use_invite :: proc(id, at: i64, who: u64, name: string) -> m.Error {
+	mem_store.lock(&s.lock)
+	defer mem_store.unlock(&s.lock)
+	i := invite_at(id)
+	if i < 0 || !is_open(s.invites[i], at) { return .Not_Found }
+	r := by_id(s.invites[i].room)
+	if r == nil { return .Not_Found }
+	if member_at(r, who) >= 0 { return .None }
+	if len(r.members) >= MAX_MEMBERS { return .Constraint }
+	add_member(r, who, name)
+	s.invites[i].uses += 1
+	return .None
+}
+
+@(private)
+is_open :: proc(inv: m.Invite, at: i64) -> bool {
+	return inv.revoked == 0 && inv.expires > at && (inv.max_uses == 0 || inv.uses < inv.max_uses)
+}
+
+@(private)
+invite_at :: proc(id: i64) -> int {
+	for inv, i in s.invites {
+		if inv.id == id { return i }
+	}
+	return -1
+}
+
+@(private)
+copy_invite :: proc(inv: m.Invite) -> m.Invite {
+	out := inv
+	out.hash = strings.clone(inv.hash, context.temp_allocator)
+	out.by_name = strings.clone(inv.by_name, context.temp_allocator)
+	return out
+}
 
 @(private)
 add_room :: proc(slug, name: string, kind: m.Room_Kind, owner: u64) -> (^Room_State, m.Error) {

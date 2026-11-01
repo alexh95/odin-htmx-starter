@@ -47,7 +47,8 @@ ROUTES := [?]web.Route {
 	{.Get, "/chat/r/([%w%-]+)/ws", chat_transport_ws.socket, .Chat_Read, {.Stream, .Fragment}, 0},
 	{.Get, "/chat/r/([%w%-]+)/since", chat_transport_poll.since, .Chat_Read, {.Fragment}, 0},
 	{.Get, "/chat/r/([%w%-]+)/parts", chat_transport_multipart.parts, .Chat_Read, {.Stream, .Fragment}, 0},
-	{.Post, "/chat/r/([%w%-]+)/invite", invite, .Chat_Read, {.Fragment}, 0},
+	{.Post, "/chat/r/([%w%-]+)/invite", invite, .Chat_Read, {.Fragment}, 64},
+	{.Post, "/chat/r/([%w%-]+)/invites/(%d+)/revoke", revoke_invite, .Chat_Read, {.Fragment}, 0},
 	{.Post, "/chat/r/([%w%-]+)/leave", leave_room, .Chat_Read, {.Fragment}, 0},
 	{.Post, "/chat/dm/(%d+)", start_dm, .Chat_Dm, {.Fragment}, 0},
 	{.Get, "/chat/join/([%w%-_%.]+)", join_page, .Chat_Read, {.Private}, 0},
@@ -163,6 +164,14 @@ room_page :: proc(req: ^web.Request, res: ^web.Response) {
 			return
 		}
 		rv.members = list[:]
+	}
+	if rv.may_invite {
+		open := make([dynamic]m.Invite, context.temp_allocator)
+		if ierr := chat.invites(r, &open); ierr != .None {
+			web.respond_store_error(req, res, ierr)
+			return
+		}
+		rv.invites = open[:]
 	}
 	title := r.name if r.kind == .Dm else fmt.tprintf("#%s", r.name)
 	web.render_page(req, res, title, "/chat", "A chat room on the LAN.",
@@ -500,28 +509,77 @@ read :: proc(req: ^web.Request, res: ^web.Response) {
 
 // ---- private rooms and DMs: invites, leaving, starting one --------------------------------------
 
-// A private room's invite link, for its owner or a moderator to hand out.
+// A new invite link to a private room (`once`: a single use), and its open invites, for its owner
+// or a moderator among its members.
 @(private)
 invite :: proc(req: ^web.Request, res: ^web.Response) {
-	v := web.viewer(req)
-	r, err := chat.room_for(req.url_params[0], v)
+	r, v, ok := inviting(req, res)
+	if !ok { return }
+	inv, token, err := chat.new_invite(r, v, web.form(req)["once"] == "1")
 	if err != .None {
 		web.respond_store_error(req, res, err)
 		return
 	}
-	if !chat.may_invite(r, v) {
-		web.respond_html(res, html.field_msg(false, "Only the room's owner hands out its invite."), .Forbidden)
-		return
-	}
-	web.respond_html(res, chat_views.invite(chat.invite_token(r)))
+	open_invites(req, res, r, token, inv, 0)
 }
 
 @(private)
+revoke_invite :: proc(req: ^web.Request, res: ^web.Response) {
+	r, _, ok := inviting(req, res)
+	if !ok { return }
+	id, idok := web.parse_id(req.url_params[1])
+	if !idok {
+		web.not_found(req, res)
+		return
+	}
+	if err := chat.revoke_invite(r, id); err != .None {
+		web.respond_store_error(req, res, err)
+		return
+	}
+	open_invites(req, res, r, "", {}, id)
+}
+
+@(private)
+inviting :: proc(req: ^web.Request, res: ^web.Response) -> (r: m.Room, v: authz.Viewer, ok: bool) {
+	v = web.viewer(req)
+	err: m.Error
+	if r, err = chat.room_for(req.url_params[0], v); err != .None {
+		web.respond_store_error(req, res, err)
+		return
+	}
+	if !chat.may_invite(r, v) {
+		web.respond_html(res, html.field_msg(false, "Only the room's owner hands out its invites."), .Forbidden)
+		return
+	}
+	return r, v, true
+}
+
+// The open invites after a write: the handler's reads share one snapshot, taken before it, so the
+// one just made is added and the one just revoked left out here.
+@(private)
+open_invites :: proc(req: ^web.Request, res: ^web.Response, r: m.Room, token: string, added: m.Invite, revoked: i64) {
+	read := make([dynamic]m.Invite, context.temp_allocator)
+	if err := chat.invites(r, &read); err != .None {
+		web.respond_store_error(req, res, err)
+		return
+	}
+	list := make([dynamic]m.Invite, 0, len(read) + 1, context.temp_allocator)
+	if added.id != 0 { append(&list, added) }
+	for inv in read {
+		if inv.id != revoked && inv.id != added.id { append(&list, inv) }
+	}
+	web.respond_html(res, chat_views.invites(r, list[:], token))
+}
+
+// The link's page. Its token is in the path: the access log names the route's pattern only, and
+// the page sends no Referer on, so the token goes nowhere from here.
+@(private)
 join_page :: proc(req: ^web.Request, res: ^web.Response) {
 	token := req.url_params[0]
-	r, err := chat.invited_to(token)
+	r, _, err := chat.invited_to(token)
+	web.set_header(res, "referrer-policy", "no-referrer")
 	if err != .None {
-		web.not_found(req, res) // a forged, expired or old process's token: no room to name
+		web.not_found(req, res) // forged, revoked, expired or spent: no room to name
 		return
 	}
 	v := web.viewer(req)
@@ -530,12 +588,17 @@ join_page :: proc(req: ^web.Request, res: ^web.Response) {
 
 @(private)
 join_room :: proc(req: ^web.Request, res: ^web.Response) {
-	r, err := chat.invited_to(req.url_params[0])
+	r, inv, err := chat.invited_to(req.url_params[0])
+	web.set_header(res, "referrer-policy", "no-referrer")
 	if err != .None {
 		web.not_found(req, res)
 		return
 	}
-	if jerr := chat.join_room(r, web.viewer(req)); jerr != .None {
+	if jerr := chat.accept_invite(inv, web.viewer(req)); jerr != .None {
+		if jerr == .Not_Found { // spent or revoked between the two reads
+			web.not_found(req, res)
+			return
+		}
 		web.respond_store_error(req, res, jerr)
 		return
 	}

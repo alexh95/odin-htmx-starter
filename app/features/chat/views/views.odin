@@ -31,6 +31,7 @@ Room_Row :: struct {
 // what they may do there.
 Room_View :: struct {
 	members:    []m.Member, // a private room's or a DM's; empty for the rest
+	invites:    []m.Invite, // a private room's open invites, for whoever may hand them out
 	may_post:   bool,
 	may_invite: bool,
 	may_leave:  bool,
@@ -184,9 +185,15 @@ members :: proc(b: ^strings.Builder, r: m.Room, rv: Room_View) {
 	}
 	w(b, `</ul>`)
 	if rv.may_invite {
-		w(b, `<button class="btn btn-outline" type="button" hx-post="/chat/r/`)
-		esc(b, r.slug)
-		fmt.sbprintf(b, `/invite" hx-target="#invite-%d">Invite link</button><div class="chat-invite" id="invite-%d"></div>`, r.id, r.id)
+		for once in ([]bool{false, true}) {
+			w(b, `<form class="chat-invite-new" hx-post="/chat/r/`)
+			esc(b, r.slug)
+			fmt.sbprintf(b, `/invite" hx-target="#invites-%d"><input type="hidden" name="once" value="%s"><button class="btn btn-outline" type="submit">%s</button></form>`,
+				r.id, "1" if once else "0", "One-use link" if once else "Invite link")
+		}
+		fmt.sbprintf(b, `<div class="chat-invites" id="invites-%d">`, r.id)
+		invites_list(b, r, rv.invites, "")
+		w(b, `</div>`)
 	}
 	if rv.may_leave {
 		w(b, `<form class="chat-leave" hx-post="/chat/r/`)
@@ -195,15 +202,43 @@ members :: proc(b: ^strings.Builder, r: m.Room, rv: Room_View) {
 	}
 }
 
-// The invite link a private room's owner hands out (POST /chat/r/<slug>/invite).
-invite :: proc(token: string) -> string {
+// A private room's open invites, and a new one's link (`token`), shown this once: the store keeps
+// only its hash. The answer to making one (POST /chat/r/<slug>/invite) and to revoking one.
+invites :: proc(r: m.Room, list: []m.Invite, token: string) -> string {
 	b := strings.builder_make(context.temp_allocator)
-	w(&b, `<p class="muted">Anyone on the LAN with this link can join for 7 days, or until the server restarts:</p><a class="chat-invite-link" href="/chat/join/`)
-	w(&b, token) // the server's own text: digits, '.', and base64url
-	w(&b, `">/chat/join/`)
-	w(&b, token)
-	w(&b, `</a>`)
+	invites_list(&b, r, list, token)
 	return strings.to_string(b)
+}
+
+@(private)
+invites_list :: proc(b: ^strings.Builder, r: m.Room, list: []m.Invite, token: string) {
+	if token != "" {
+		w(b, `<p class="muted">Anyone on the LAN with this link can join until it expires or is revoked. It is shown once:</p><a class="chat-invite-link" href="/chat/join/`)
+		w(b, token) // the server's own text: digits, '.', and base64url
+		w(b, `">/chat/join/`)
+		w(b, token)
+		w(b, `</a>`)
+	}
+	if len(list) == 0 { return }
+	w(b, `<ul class="chat-invite-list">`)
+	for inv in list {
+		fmt.sbprintf(b, `<li id="inv-%d">`, inv.id)
+		esc(b, inv.by_name)
+		w(b, `'s link, `)
+		if inv.max_uses > 0 {
+			fmt.sbprintf(b, `used %d of %d`, inv.uses, inv.max_uses)
+		} else {
+			fmt.sbprintf(b, `used %d`, inv.uses)
+		}
+		w(b, `, until <time datetime="`)
+		w(b, iso(inv.expires))
+		w(b, `">`)
+		w(b, iso(inv.expires)[:10])
+		w(b, `</time> <button class="btn btn-ghost" type="button" hx-post="/chat/r/`)
+		esc(b, r.slug)
+		fmt.sbprintf(b, `/invites/%d/revoke" hx-target="#invites-%d">Revoke</button></li>`, inv.id, r.id)
+	}
+	w(b, `</ul>`)
 }
 
 // GET /chat/join/<token>: the room it names, and a plain form to join it, so the link works with

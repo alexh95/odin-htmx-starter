@@ -1,11 +1,16 @@
 import { test, expect } from '../../fixtures';
+import { mkdtempSync, rmSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { signIn } from '../../helpers/accounts';
-import { leave, member, uid, type Member } from '../../helpers/members';
+import { leave, member, uid } from '../../helpers/members';
+import { mainOrigin, startServer, stopServer, type Server } from '../../helpers/server';
 
 // Rooms beyond public (PLAN §14.1, D30): a private room is its members' alone (anyone else gets
-// the 404 a missing room gets, and doesn't see it listed) and grows by its owner's invite link; a
-// DM is two members' room, started from a message's menu; announcements are posted by their owner.
+// the 404 a missing room gets, and doesn't see it listed) and grows by its owner's invite links,
+// which are rows (listed, revoked, one use or many, kept across a restart); a DM is two members'
+// room, started from a message's menu; announcements are posted by their owner.
 // On SSE throughout: the transport is chat.spec's subject.
 const T = { tag: ['@chat'] };
 
@@ -32,6 +37,14 @@ async function say(page: Page, text: string) {
 
 const message = (page: Page, text: string) => page.locator('.chat-log > article.chat-msg').filter({ hasText: text });
 
+// The owner's new invite link (`once`: a single use), from the room's page.
+async function inviteLink(page: Page, once = false): Promise<string> {
+  await page.getByRole('button', { name: once ? 'One-use link' : 'Invite link' }).click();
+  const link = page.locator('.chat-invite-link');
+  await expect(link).toBeVisible();
+  return (await link.getAttribute('href'))!;
+}
+
 test.describe('chat rooms', T, () => {
   test('a private room: hidden from others, joined by its invite link, and left', async ({ browser, baseURL }) => {
     const ann = await member(browser, baseURL!), bob = await member(browser, baseURL!);
@@ -47,14 +60,14 @@ test.describe('chat rooms', T, () => {
       expect((await bob.page.request.post(path, { form: { body: 'let me in' } })).status()).toBe(404);
     }
 
-    // The owner's invite link lets him in.
+    // The owner's invite link lets him in, and sends no Referer on from its page.
     await open(ann.page, slug);
-    await ann.page.getByRole('button', { name: 'Invite link' }).click();
-    const link = ann.page.locator('.chat-invite-link');
-    await expect(link).toBeVisible();
-    const href = (await link.getAttribute('href'))!;
+    const href = await inviteLink(ann.page);
+    await expect(ann.page.locator('.chat-invite-list li')).toHaveCount(1);
     expect((await bob.page.request.post(`${href}x`)).status()).toBe(404); // a forged token
-    await bob.page.goto(href);
+    expect((await bob.page.request.post(href.replace(/\.\w/, '.A'))).status()).toBe(404); // another secret
+    const page = await bob.page.goto(href);
+    expect(page!.headers()['referrer-policy']).toBe('no-referrer');
     await bob.page.getByRole('button', { name: 'Join the room' }).click();
     await bob.page.waitForURL(`**/chat/r/${slug}`);
     await expect(bob.page.locator('.chat-members li')).toHaveText([`${ann.name} owner`, bob.name]);
@@ -71,6 +84,54 @@ test.describe('chat rooms', T, () => {
     expect(ann.errors).toEqual([]);
     expect(bob.errors).toEqual([]);
     await leave(ann, bob);
+  });
+
+  test('invites: a one-use link joins once, and a revoked link joins nobody', async ({ browser, baseURL }) => {
+    const ann = await member(browser, baseURL!), bob = await member(browser, baseURL!), cat = await member(browser, baseURL!);
+    const slug = await newRoom(ann.page, 'private');
+    const once = await inviteLink(ann.page, true);
+    expect((await bob.page.request.post(once, { maxRedirects: 0 })).status()).toBe(303);
+    expect((await cat.page.request.post(once, { maxRedirects: 0 })).status()).toBe(404); // spent
+    expect((await cat.page.goto(once))!.status()).toBe(404);
+
+    await ann.page.goto(`/chat/r/${slug}`);
+    const many = await inviteLink(ann.page);
+    const open = ann.page.locator('.chat-invite-list li');
+    await expect(open).toHaveCount(1); // the spent one-use link is no longer open
+    await expect(open).toContainText(`${ann.name}'s link, used 0`);
+    await open.getByRole('button', { name: 'Revoke' }).click();
+    await expect(open).toHaveCount(0);
+    expect((await cat.page.request.post(many, { maxRedirects: 0 })).status()).toBe(404);
+    await cat.page.goto('/chat');
+    await expect(cat.page.locator(`a[href="/chat/r/${slug}"]`)).toHaveCount(0);
+    // Only the owner's: a member's revoke and new invite are refused.
+    expect((await bob.page.request.post(`/chat/r/${slug}/invite`)).status()).toBe(403);
+    await leave(ann, bob, cat);
+  });
+
+  // An invite is a row: a restart, as a deploy is, leaves it working.
+  test('a live invite outlives a restart', { tag: '@chat-sqlite' }, async ({ browser }) => {
+    const config = test.info().config;
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'odin-chat-'));
+    const env = { DB_PATH: path.join(dir, 'data.db') };
+    let s: Server | undefined;
+    try {
+      s = await startServer(config, env);
+      const ann = await member(browser, mainOrigin(s.port));
+      const slug = await newRoom(ann.page, 'private');
+      const href = await inviteLink(ann.page);
+      await stopServer(s);
+      s = await startServer(config, env); // a fresh port: the old one's teardown can race (persistence.spec)
+      const bob = await member(browser, mainOrigin(s.port));
+      await bob.page.goto(href);
+      await bob.page.getByRole('button', { name: 'Join the room' }).click();
+      await bob.page.waitForURL(`**/chat/r/${slug}`);
+      await expect(bob.page.locator('.chat-members li')).toHaveText([`${ann.name} owner`, bob.name]);
+      await leave(ann, bob);
+    } finally {
+      if (s) await stopServer(s);
+      try { rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
+    }
   });
 
   test("a DM, from a message's menu: the two members' alone", async ({ browser, baseURL }) => {

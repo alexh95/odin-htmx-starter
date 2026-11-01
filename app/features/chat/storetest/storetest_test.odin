@@ -8,7 +8,8 @@ package chat_storetest
 // changed serves past a version, and only the author edits or deletes, inside the window, a
 // delete leaving a tombstone. Rooms come in kinds: a private room's owner is its first member,
 // rooms_for lists the public rooms, announcements and the viewer's own, a DM is found again rather
-// than made twice, and members join (once) and leave. What the ring keeps and lets go is the
+// than made twice, and members join (once) and leave. An invite is open until it is revoked,
+// expires or is used up; using it joins once, and a member already in counts no use. What the ring keeps and lets go is the
 // memory store's own test; the SQLite store keeps every message, with ids that are rowids.
 
 import "base:runtime"
@@ -38,6 +39,11 @@ Family :: struct {
 	is_member:   m.Store_Is_Member,
 	join:        m.Store_Join,
 	leave:       m.Store_Leave,
+	add_invite:  m.Store_Add_Invite,
+	invite:      m.Store_Invite,
+	invites:     m.Store_Invites,
+	revoke:      m.Store_Revoke_Invite,
+	use_invite:  m.Store_Use_Invite,
 	recent:      m.Store_Recent,
 	after:       m.Store_After,
 	count_after: m.Store_Count_After,
@@ -206,6 +212,49 @@ rooms_of_kinds :: proc(t: ^testing.T, f: Family) {
 	testing.expectf(t, d2.id == d1.id && d2.slug == "dm-0011223344556677", "%s: the same DM from the other side, %v", f.name, d2)
 	testing.expectf(t, f.is_member(d1.id, 7) && f.is_member(d1.id, 9) && !f.is_member(d1.id, 8), "%s: a DM's two members", f.name)
 	testing.expectf(t, slugs(f, 8) == "lobby side news ", "%s: a DM is not a third's: %q", f.name, slugs(f, 8))
+	invites_open_and_close(t, f, den)
+}
+
+@(private = "file")
+invites_open_and_close :: proc(t: ^testing.T, f: Family, den: m.Room) {
+	NOW :: i64(1_800_000_000)
+	open_ids :: proc(f: Family, room: i64, at: i64) -> [dynamic]i64 {
+		list := make([dynamic]m.Invite, context.temp_allocator)
+		_ = f.invites(room, at, &list)
+		ids := make([dynamic]i64, context.temp_allocator)
+		for inv in list { append(&ids, inv.id) }
+		return ids
+	}
+	many, err := f.add_invite({room = den.id, hash = "aa", by = 7, by_name = "ann", at = NOW, expires = NOW + 3600})
+	testing.expectf(t, err == .None && many > 0, "%s: an invite, %v", f.name, err)
+	once, _ := f.add_invite({room = den.id, hash = "bb", by = 7, by_name = "ann", at = NOW, expires = NOW + 3600, max_uses = 1})
+	soon, _ := f.add_invite({room = den.id, hash = "cc", by = 7, by_name = "ann", at = NOW, expires = NOW + 10})
+	row, _ := f.invite(many)
+	testing.expectf(t, row.hash == "aa" && row.by == 7 && row.by_name == "ann" && row.expires == NOW + 3600, "%s: the row reads back, %v", f.name, row)
+	ids := open_ids(f, den.id, NOW)
+	testing.expectf(t, len(ids) == 3 && ids[0] == soon && ids[2] == many, "%s: open, newest first: %v", f.name, ids[:])
+	testing.expectf(t, len(open_ids(f, den.id, NOW + 10)) == 2, "%s: expired is not open", f.name)
+	testing.expect_value(t, f.use_invite(soon, NOW + 10, 10, "dan"), m.Error.Not_Found)
+
+	// A one-use invite: it joins its first, and then nobody; a member already in uses nothing.
+	testing.expect_value(t, f.use_invite(once, NOW, 7, "ann"), m.Error.None)
+	row, _ = f.invite(once)
+	testing.expectf(t, row.uses == 0, "%s: the owner, already in, used nothing", f.name)
+	testing.expect_value(t, f.use_invite(once, NOW, 10, "dan"), m.Error.None)
+	testing.expectf(t, f.is_member(den.id, 10), "%s: joined by the invite", f.name)
+	testing.expect_value(t, f.use_invite(once, NOW, 11, "eve"), m.Error.Not_Found)
+	testing.expectf(t, !f.is_member(den.id, 11), "%s: a spent invite joins nobody", f.name)
+
+	// Revoked: closed to everyone, and only its own room's to revoke.
+	testing.expect_value(t, f.revoke(many, den.id + 999, NOW), m.Error.Not_Found)
+	testing.expect_value(t, f.revoke(many, den.id, NOW), m.Error.None)
+	testing.expect_value(t, f.revoke(many, den.id, NOW), m.Error.Not_Found)
+	testing.expect_value(t, f.use_invite(many, NOW, 11, "eve"), m.Error.Not_Found)
+	row, _ = f.invite(many)
+	testing.expectf(t, row.revoked == NOW, "%s: revoked when, %v", f.name, row)
+	testing.expectf(t, len(open_ids(f, den.id, NOW)) == 1, "%s: open after: %v", f.name, open_ids(f, den.id, NOW)[:])
+	_, gone := f.invite(1 << 40)
+	testing.expect_value(t, gone, m.Error.Not_Found)
 }
 
 // One test, in order: the stores are process-wide.
@@ -217,11 +266,11 @@ both_families :: proc(t: ^testing.T) {
 	testing.expect_value(t, nbio.acquire_thread_event_loop(), nil)
 	defer nbio.release_thread_event_loop()
 
-	conforms(t, {"memory", mem.init, mem.seed, mem.room, mem.rooms_for, mem.create_room, mem.dm, mem.members, mem.is_member, mem.join, mem.leave, mem.recent, mem.after, mem.count_after, mem.changed, mem.message, mem.post, mem.change})
+	conforms(t, {"memory", mem.init, mem.seed, mem.room, mem.rooms_for, mem.create_room, mem.dm, mem.members, mem.is_member, mem.join, mem.leave, mem.add_invite, mem.invite, mem.invites, mem.revoke_invite, mem.use_invite, mem.recent, mem.after, mem.count_after, mem.changed, mem.message, mem.post, mem.change})
 
 	testing.expect_value(t, db.open_db(":memory:", .Ephemeral, "storetest"), "")
 	defer db.close()
 	db.migrate("chat", sql.MIGRATIONS[:])
-	conforms(t, {"sqlite", sql.init, sql.seed, sql.room, sql.rooms_for, sql.create_room, sql.dm, sql.members, sql.is_member, sql.join, sql.leave, sql.recent, sql.after, sql.count_after, sql.changed, sql.message, sql.post, sql.change})
+	conforms(t, {"sqlite", sql.init, sql.seed, sql.room, sql.rooms_for, sql.create_room, sql.dm, sql.members, sql.is_member, sql.join, sql.leave, sql.add_invite, sql.invite, sql.invites, sql.revoke_invite, sql.use_invite, sql.recent, sql.after, sql.count_after, sql.changed, sql.message, sql.post, sql.change})
 	free_all(context.temp_allocator)
 }

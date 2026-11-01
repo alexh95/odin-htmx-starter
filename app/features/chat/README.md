@@ -46,9 +46,14 @@ mention (`@name`, the name a member last used here) lands in their Inbox through
 posted by their owner and the moderators only (the rest see no composer, and a post is 403), and only a moderator
 makes one. A private room and a DM are their members' alone: to anyone else every route of theirs, their topics and
 their messages' menus answer as a room that doesn't exist (404), and the rooms list leaves them out; a mention there
-reaches only members. A private room's owner (or a moderator) hands out its invite link (`POST /chat/r/<slug>/invite`),
-`/chat/join/<token>`, a signed `<room>.<expiry>` (platform/signed) that lasts 7 days or until a restart (its key is
-made at boot); the link's page joins by a plain form, and a member leaves with `POST /chat/r/<slug>/leave`. A DM
+reaches only members, and moderators read neither (moderation works from reports, slice 4). A private room's owner
+(or a moderator among its members) hands out invite links (`POST /chat/r/<slug>/invite`, `once=1` for a single
+use), lists the open ones on the room's page and revokes them (`POST /chat/r/<slug>/invites/<id>/revoke`). An invite
+is a row (`chat_invites`): its link is `/chat/join/<id>.<secret>`, the store keeps the secret's SHA-256 only and the
+domain compares it in constant time, and it lasts 7 days, through restarts, unless revoked or spent; a forged,
+revoked, expired or spent one answers 404 alike. The link's page joins by a plain form and sends no Referer on, and
+the access log names the route's pattern only, so the token stays in the link. A member leaves with
+`POST /chat/r/<slug>/leave`; a DM isn't left (blocking is slice 4's). A DM
 starts from a message's menu, "Message <name>" (`POST /chat/dm/<id>`, `Chat_Dm`): the two members' room with an
 opaque slug (`dm-` and 16 hex digits), found again from either side, never made twice. The domain holds the rule
 once (`room_for`, `may_read`, `may_post`, `reads`), and every handler, transport and topic asks it.

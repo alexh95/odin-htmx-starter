@@ -8,6 +8,8 @@ package chat
 
 import "base:runtime"
 import "core:crypto"
+import "core:crypto/hash"
+import "core:encoding/base64"
 import "core:encoding/hex"
 import "core:fmt"
 import "core:strconv"
@@ -19,7 +21,6 @@ import "core:unicode/utf8"
 import "../../platform/authz"
 import "../../platform/env"
 import "../../platform/guard"
-import "../../platform/signed"
 import "../../platform/sys"
 import m "models"
 import chat_store "store:chat"
@@ -48,9 +49,12 @@ AWAY_FOR :: 5 * time.Minute
 MAX_MEMBERS :: 4096
 MAX_READERS :: 256
 
-// An invite to a private room is a signed link (platform/signed) that lasts this long. Its key is
-// made at boot, so a restart ends every invite: an owner makes a new one.
+// An invite to a private room is a row in the store, and its link `/chat/join/<id>.<secret>`
+// (the secret's hash is all the store keeps): it outlives a restart, and lasts this long, or
+// until its owner revokes it or its one use is spent.
 INVITE_FOR :: 7 * 24 * time.Hour
+INVITE_SECRET :: 24 // bytes
+INVITE_SECRET_TEXT :: 32 // its base64url characters
 
 Transport :: enum u8 {
 	Ws,
@@ -81,7 +85,6 @@ st: struct {
 	names:     map[u64]string,            // member → the name they last used here, for mentions
 	read:      map[i64]map[u64]i64,       // room → member → the newest id they have seen
 	here:      map[i64]map[u64]Presence,  // room → member → their presence
-	invite_key: [32]byte,
 }
 
 // At boot: the env rows, the store's ring budget, the lobby.
@@ -89,7 +92,6 @@ init :: proc() {
 	env.record("CHAT_", ENV[:])
 	st.transport = transport_named(env.str("CHAT_TRANSPORT")) or_else .Ws
 	chat_store.init(env.size("CHAT_RING_BYTES"))
-	crypto.rand_bytes(st.invite_key[:])
 }
 
 // The lobby, into an empty store: after the store's open and migrations, which a SQLite profile
@@ -157,7 +159,8 @@ may_post :: proc(r: m.Room, v: authz.Viewer) -> bool {
 	return false
 }
 
-// A private room's owner, or a moderator, hands out its invite link.
+// A private room's owner, or a moderator among its members (no one else reads it to get there),
+// hands out its invite links, lists the open ones and revokes them.
 may_invite :: proc(r: m.Room, v: authz.Viewer) -> bool {
 	return r.kind == .Private && v.id != 0 && (v.id == r.owner || authz.can(v, .Chat_Moderate))
 }
@@ -166,7 +169,6 @@ may_invite :: proc(r: m.Room, v: authz.Viewer) -> bool {
 may_leave :: proc(r: m.Room, v: authz.Viewer) -> bool { return r.kind == .Private && reads(r, v.id) }
 
 members :: proc(r: m.Room, out: ^[dynamic]m.Member) -> m.Error { return chat_store.members(r.id, out) }
-join_room :: proc(r: m.Room, v: authz.Viewer) -> m.Error { return chat_store.join(r.id, v.id, v.name) }
 leave_room :: proc(r: m.Room, v: authz.Viewer) -> m.Error { return chat_store.leave(r.id, v.id) }
 
 // The DM of `v` and `other`, made when they have none. `other` must be someone chat knows (their
@@ -186,23 +188,51 @@ dm :: proc(v: authz.Viewer, other: u64) -> (m.Room, m.Error) {
 
 // ---- invites to a private room -----------------------------------------------------------------
 
-// `<room id>.<expiry, unix seconds>`, signed: the path of /chat/join/<token>.
-invite_token :: proc(r: m.Room) -> string {
-	body := fmt.tprintf("%d.%d", r.id, now() + i64(INVITE_FOR / time.Second))
-	return signed.sign(body, st.invite_key[:])
+// A new invite to `r` from `v`: its token, `<id>.<secret>`, which is shown once and never kept.
+// `once`: a single use.
+new_invite :: proc(r: m.Room, v: authz.Viewer, once: bool) -> (inv: m.Invite, token: string, err: m.Error) {
+	raw: [INVITE_SECRET]byte
+	crypto.rand_bytes(raw[:])
+	secret := base64.encode(raw[:], base64.ENC_URL_TABLE, context.temp_allocator, {.No_Padding})
+	at := now()
+	inv = {
+		room = r.id, hash = secret_hash(secret), by = v.id, by_name = v.name, at = at,
+		expires = at + i64(INVITE_FOR / time.Second), max_uses = 1 if once else 0,
+	}
+	inv.id = chat_store.add_invite(inv) or_return
+	return inv, fmt.tprintf("%d.%s", inv.id, secret), .None
 }
 
-// The room an unexpired token of this process names, or .Not_Found.
-invited_to :: proc(token: string) -> (m.Room, m.Error) {
-	body, ok := signed.open(token, st.invite_key[:])
-	if !ok { return {}, .Not_Found }
-	id_text, _, until_text := strings.partition(body, ".")
-	id, iok := strconv.parse_i64(id_text, 10)
-	until, uok := strconv.parse_i64(until_text, 10)
-	if !iok || !uok || now() > until { return {}, .Not_Found }
-	r, err := room_by_id(id)
-	if err != .None || r.kind != .Private { return {}, .Not_Found }
-	return r, .None
+// A room's open invites, newest first.
+invites :: proc(r: m.Room, out: ^[dynamic]m.Invite) -> m.Error { return chat_store.invites(r.id, now(), out) }
+
+revoke_invite :: proc(r: m.Room, id: i64) -> m.Error { return chat_store.revoke_invite(id, r.id, now()) }
+
+// The private room an open invite's token names. A forged token, a revoked, expired or spent
+// invite all answer .Not_Found alike; the secret is compared by its hash, in constant time.
+invited_to :: proc(token: string) -> (m.Room, m.Invite, m.Error) {
+	id_text, _, secret := strings.partition(token, ".")
+	id, ok := strconv.parse_u64(id_text, 10)
+	if !ok || id == 0 || id > u64(max(i64)) || len(secret) != INVITE_SECRET_TEXT { return {}, {}, .Not_Found }
+	inv, err := chat_store.invite(i64(id))
+	if err != .None { return {}, {}, err }
+	want, sent := inv.hash, secret_hash(secret)
+	if len(want) != len(sent) || crypto.compare_constant_time(transmute([]byte)want, transmute([]byte)sent) != 1 { return {}, {}, .Not_Found }
+	t := now()
+	if inv.revoked != 0 || inv.expires <= t || (inv.max_uses > 0 && inv.uses >= inv.max_uses) { return {}, {}, .Not_Found }
+	r, rerr := room_by_id(inv.room)
+	if rerr != .None || r.kind != .Private { return {}, {}, .Not_Found }
+	return r, inv, .None
+}
+
+// `v` joins by invite `inv`, which the store checks is still open as it counts the use.
+accept_invite :: proc(inv: m.Invite, v: authz.Viewer) -> m.Error { return chat_store.use_invite(inv.id, now(), v.id, v.name) }
+
+@(private)
+secret_hash :: proc(secret: string) -> string {
+	sum: [32]byte
+	hash.hash_string_to_buffer(.SHA256, secret, sum[:])
+	return string(hex.encode(sum[:], context.temp_allocator))
 }
 
 // A room's name, trimmed, and the slug it gets ([a-z0-9-], from the name), or why

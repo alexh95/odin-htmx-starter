@@ -48,6 +48,21 @@ Message :: struct {
 	ver:    i64, // the room's version at its last change
 }
 
+// An invite to a private room: its link is `/chat/join/<id>.<secret>`, and the store keeps the
+// secret's hash only. Open while not revoked, not expired and not used up.
+Invite :: struct {
+	id:       i64,
+	room:     i64,
+	hash:     string, // hex SHA-256 of the secret
+	by:       u64,
+	by_name:  string,
+	at:       i64,
+	expires:  i64,
+	max_uses: int, // 0: any number until it expires
+	uses:     int,
+	revoked:  i64, // when; 0: not revoked
+}
+
 Error :: store.Error
 
 // A post: `done` runs once it is stored, with the message.
@@ -84,6 +99,13 @@ Store_Members :: proc(room: i64, out: ^[dynamic]Member) -> Error // in the order
 Store_Is_Member :: proc(room: i64, who: u64) -> bool
 Store_Join :: proc(room: i64, who: u64, name: string) -> Error // .None when they are in it already
 Store_Leave :: proc(room: i64, who: u64) -> Error
+Store_Add_Invite :: proc(inv: Invite) -> (id: i64, err: Error) // inv.id and its counts are ignored
+Store_Invite :: proc(id: i64) -> (Invite, Error)
+Store_Invites :: proc(room: i64, now: i64, out: ^[dynamic]Invite) -> Error // a room's open invites at `now`, newest first
+Store_Revoke_Invite :: proc(id, room, at: i64) -> Error // .Not_Found unless an open invite of `room`
+// In one write: when invite `id` is still open at `now`, `who` joins its room, and a use is
+// counted unless they were in it already. .Not_Found when it isn't open.
+Store_Use_Invite :: proc(id, now: i64, who: u64, name: string) -> Error
 Store_Recent :: proc(room: i64, limit: int, out: ^[dynamic]Message) -> Error // oldest first
 // id > after, oldest first; reached: nothing after `after` was let go, so `out` has no gap
 Store_After :: proc(room: i64, after: i64, out: ^[dynamic]Message) -> (reached: bool, err: Error)

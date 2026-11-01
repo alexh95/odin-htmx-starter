@@ -7,10 +7,10 @@ import { options as build, summarize } from '../../lib/options.js';
 // tags: @chat
 //
 // Rooms beyond public (PLAN §14.1): each VU owns a private room, made on its first iteration,
-// and each iteration hands out its invite link, opens the link's page, leaves the room and
-// joins it again by the link (the owner too needs it once out), then opens its DM with the
-// peer setup() signed in (found again, never made twice). An invite signs a token; the rest
-// are a membership write each (write_now) and a DM lookup. A VU joins by its last link first:
+// and each iteration hands out an invite link, opens the link's page, leaves the room, joins it
+// again by the link (the owner too needs it once out) and revokes the link, then opens its DM
+// with the peer setup() signed in (found again, never made twice). Each is a row read or a
+// write (write_now): an invite, a membership, a revoke, a DM lookup. A VU joins by its last link first:
 // the warmup stops without grace, and k6 hands its VUs on to the measured window, so a VU cut
 // off between leaving and joining again was out of its own room for good.
 export const options = build();
@@ -44,6 +44,10 @@ export default function (data) {
     check(out, { 'left 204': (r) => r.status === 204 && r.headers['Hx-Redirect'] === '/chat' });
     const back = http.post(`${BASE}${href}`, null, { headers: FORM, redirects: 0, tags: { name: 'POST /chat/join/:token' }, responseCallback: ok(303) });
     check(back, { 'joined 303': (r) => r.status === 303 && r.headers['Location'] === `/chat/r/${slug}` });
+    const id = (href.match(/\/chat\/join\/(\d+)\./) || [])[1];
+    const revoke = http.post(`${BASE}/chat/r/${slug}/invites/${id}/revoke`, null, { headers: FORM, tags: { name: 'POST /chat/r/:slug/invites/:id/revoke' } });
+    check(revoke, { 'revoked': (r) => r.status === 200 && !r.body.includes(`id="inv-${id}"`) });
+    href = undefined; // revoked: the next iteration makes its own
   }
   if (data.peer) {
     const dm = http.post(`${BASE}/chat/dm/${data.peer}`, null, { headers: FORM, tags: { name: 'POST /chat/dm/:id' } });

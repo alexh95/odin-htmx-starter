@@ -40,6 +40,14 @@ MIGRATIONS := [?]store.Migration {
 @(private) SQL_IS_MEMBER :: "SELECT 1 FROM chat_members WHERE room = ? AND who = ?"
 @(private) SQL_JOIN :: "INSERT INTO chat_members(room, who, name, at) VALUES(?, ?, ?, ?) ON CONFLICT DO NOTHING"
 @(private) SQL_LEAVE :: "DELETE FROM chat_members WHERE room = ? AND who = ?"
+@(private) INVITE_COLS :: "id, room, hash, made_by, by_name, at, expires, max_uses, uses, revoked"
+@(private) OPEN :: "revoked = 0 AND expires > ? AND (max_uses = 0 OR uses < max_uses)"
+@(private) SQL_ADD_INVITE :: "INSERT INTO chat_invites(room, hash, made_by, by_name, at, expires, max_uses) VALUES(?, ?, ?, ?, ?, ?, ?)"
+@(private) SQL_INVITE :: "SELECT " + INVITE_COLS + " FROM chat_invites WHERE id = ?"
+@(private) SQL_INVITES :: "SELECT " + INVITE_COLS + " FROM chat_invites WHERE room = ? AND " + OPEN + " ORDER BY id DESC"
+@(private) SQL_REVOKE :: "UPDATE chat_invites SET revoked = ? WHERE id = ? AND room = ? AND revoked = 0"
+@(private) SQL_OPEN_ROOM :: "SELECT room FROM chat_invites WHERE id = ? AND " + OPEN
+@(private) SQL_COUNT_USE :: "UPDATE chat_invites SET uses = uses + 1 WHERE id = ?"
 @(private) SQL_ROOM_STATE :: "SELECT ver, dropped, dropped_ver FROM chat_rooms WHERE id = ?"
 @(private) SQL_RECENT :: "SELECT " + MSG_COLS + " FROM (SELECT " + MSG_COLS + " FROM chat_messages WHERE room = ? ORDER BY id DESC LIMIT ?) ORDER BY id"
 @(private) SQL_AFTER :: "SELECT " + MSG_COLS + " FROM chat_messages WHERE room = ? AND id > ? ORDER BY id"
@@ -80,6 +88,8 @@ room :: proc(slug: string) -> (r: m.Room, err: m.Error) {
 // write_now's run takes no arguments: what it works on is here. write_now runs it on the caller's
 // own thread, so a loop's is its own while another loop makes a room too.
 @(private, thread_local) making: struct {
+	invite:     m.Invite,
+	now:        i64,
 	slug, name: string,
 	kind:       m.Room_Kind,
 	owner:      u64,
@@ -324,6 +334,94 @@ change :: proc(op: ^m.Change) -> bool {
 	return db.write(op)
 }
 
+// ---- invites -------------------------------------------------------------------------------
+
+add_invite :: proc(inv: m.Invite) -> (id: i64, err: m.Error) {
+	making = {invite = inv}
+	ok := db.write_now(proc() -> bool {
+		i := making.invite
+		st := db.writer_stmt(SQL_ADD_INVITE)
+		defer db.reset(st)
+		db.bind_id(st, 1, i.room)
+		db.bind_text(st, 2, i.hash)
+		db.bind_id(st, 3, i64(i.by))
+		db.bind_text(st, 4, i.by_name)
+		db.bind_id(st, 5, i.at)
+		db.bind_id(st, 6, i.expires)
+		db.bind_int(st, 7, i.max_uses)
+		if making.err = db.step_done(st); making.err != .None { return false }
+		making.invite.id = db.last_insert_id()
+		return true
+	})
+	if !ok { return 0, making.err if making.err != .None else .Failed }
+	return making.invite.id, .None
+}
+
+invite :: proc(id: i64) -> (inv: m.Invite, err: m.Error) {
+	q := db.read(SQL_INVITE)
+	defer db.reset(q)
+	db.bind_id(q, 1, id)
+	if !db.next_row(q, &err) { return {}, err if err != .None else .Not_Found }
+	return one_invite(q), .None
+}
+
+invites :: proc(room_id: i64, at: i64, out: ^[dynamic]m.Invite) -> (err: m.Error) {
+	q := db.read(SQL_INVITES)
+	defer db.reset(q)
+	db.bind_id(q, 1, room_id)
+	db.bind_id(q, 2, at)
+	for db.next_row(q, &err) { append(out, one_invite(q)) }
+	return
+}
+
+revoke_invite :: proc(id, room_id, at: i64) -> m.Error {
+	making = {now = at}
+	making.invite = {id = id, room = room_id}
+	ok := db.write_now(proc() -> bool {
+		st := db.writer_stmt(SQL_REVOKE)
+		defer db.reset(st)
+		db.bind_id(st, 1, making.now)
+		db.bind_id(st, 2, making.invite.id)
+		db.bind_id(st, 3, making.invite.room)
+		if making.err = db.step_done(st); making.err != .None { return false }
+		if db.changes() == 0 { making.err = .Not_Found }
+		return making.err == .None
+	})
+	return .None if ok else making.err if making.err != .None else .Failed
+}
+
+use_invite :: proc(id, at: i64, who: u64, name: string) -> m.Error {
+	making = {now = at}
+	making.invite = {id = id}
+	making.members[0] = {who = who, name = name}
+	ok := db.write_now(proc() -> bool {
+		q := db.writer_stmt(SQL_OPEN_ROOM)
+		db.bind_id(q, 1, making.invite.id)
+		db.bind_id(q, 2, making.now)
+		found := db.next_row(q, &making.err)
+		room := db.column_id(q, 0) if found else 0
+		db.reset(q)
+		if !found {
+			if making.err == .None { making.err = .Not_Found }
+			return false
+		}
+		j := making.members[0]
+		in_it := db.writer_stmt(SQL_IS_MEMBER)
+		db.bind_id(in_it, 1, room)
+		db.bind_id(in_it, 2, i64(j.who))
+		already := db.next_row(in_it, &making.err)
+		db.reset(in_it)
+		if already || making.err != .None { return making.err == .None }
+		if making.err = add_member(room, j.who, j.name, making.now); making.err != .None { return false }
+		st := db.writer_stmt(SQL_COUNT_USE)
+		defer db.reset(st)
+		db.bind_id(st, 1, making.invite.id)
+		making.err = db.step_done(st)
+		return making.err == .None
+	})
+	return .None if ok else making.err if making.err != .None else .Failed
+}
+
 // The lobby, into an empty store.
 seed :: proc() {
 	list := make([dynamic]m.Room, context.temp_allocator)
@@ -357,6 +455,15 @@ one_room :: proc(q: db.Stmt) -> m.Room {
 	return {
 		id = db.column_id(q, 0), slug = db.clone_col(q, 1), name = db.clone_col(q, 2), at = db.column_id(q, 3),
 		kind = kind, owner = u64(db.column_id(q, 5)),
+	}
+}
+
+@(private)
+one_invite :: proc(q: db.Stmt) -> m.Invite {
+	return {
+		id = db.column_id(q, 0), room = db.column_id(q, 1), hash = db.clone_col(q, 2), by = u64(db.column_id(q, 3)),
+		by_name = db.clone_col(q, 4), at = db.column_id(q, 5), expires = db.column_id(q, 6), max_uses = db.column_int(q, 7),
+		uses = db.column_int(q, 8), revoked = db.column_id(q, 9),
 	}
 }
 

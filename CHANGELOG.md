@@ -15,7 +15,8 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
   `features/chat/storetest` holds both families to one contract.
 - **Private rooms, announcements and DMs** (M6 slice 2): a room is public, private, announcements or a DM. A private
   room and a DM are their members' alone (anyone else gets a 404 everywhere, and doesn't see them listed); a private
-  room grows by its owner's invite link (`/chat/join/<token>`, signed, 7 days) and a member may leave it;
+  room grows by its owner's invite links, rows that outlive a restart (`/chat/join/<id>.<secret>`, the secret kept
+  hashed, 7 days or one use, listed and revoked on the room's page), and a member may leave it;
   announcements are made by a moderator and posted by their owner and the moderators; a DM starts from a message's
   menu ("Message <name>"). Both stores keep members (SQLite's `0002_rooms.sql`); `rooms.spec` and the `rooms` k6
   scenario cover the new routes.
