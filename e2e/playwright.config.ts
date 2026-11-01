@@ -7,12 +7,12 @@ const API_ONLY =
   /[\\/](backup|canonical|cross-site|dashboard|demo|events|hosts|ids|limits|headers|ops|persistence|protocol|rbac|routing|seo|writes)\.spec\.ts$/;
 
 // skeleton, lab and full run in the three engines (Firefox in CI only: it can't start
-// on the dev PC), streams in chromium and webkit, every other profile in chromium
+// on the dev PC), streams too (M6: chat had never met Firefox), every other profile in chromium
 // (PLAN §19.1.2); the api project always. E2E_PROFILE picks the profile, as in
 // global-setup.ts.
 const PROFILE = process.env.E2E_PROFILE || 'skeleton';
 const ENGINES = ['skeleton', 'lab', 'full'].includes(PROFILE) ? ['chromium', 'firefox', 'webkit']
-  : PROFILE === 'streams' ? ['chromium', 'webkit'] : ['chromium'];
+  : PROFILE === 'streams' ? ['chromium', 'firefox', 'webkit'] : ['chromium'];
 const DEVICE: Record<string, string> = { chromium: 'Desktop Chrome', firefox: 'Desktop Firefox', webkit: 'Desktop Safari' };
 
 // Every response carries Cross-Origin-Opener-Policy: same-origin, so Firefox's first navigation
@@ -25,8 +25,10 @@ const DEVICE: Record<string, string> = { chromium: 'Desktop Chrome', firefox: 'D
 const FIREFOX = { launchOptions: { firefoxUserPrefs: { 'browser.tabs.remote.useCrossOriginOpenerPolicy': false } } };
 
 // E2E_PROXY (CI's e2e-proxy job, PLAN §20.1): the pages go through a proxy in front of one server
-// on a fixed port, so one worker, in chromium; the browser-less specs need no proxy and don't run.
+// on a fixed port, so one worker, in chromium (or E2E_PROXY_BROWSER's engine); the browser-less specs
+// need no proxy and don't run.
 const PROXY = process.env.E2E_PROXY || '';
+const PROXY_ENGINE = process.env.E2E_PROXY_BROWSER || 'chromium';
 
 // global-setup builds the binary once; each worker spawns its own server on its
 // own port (see fixtures.ts) with an isolated in-memory store — so the suite
@@ -46,7 +48,7 @@ export default defineConfig({
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },
-  projects: PROXY ? [{ name: 'chromium', testIgnore: API_ONLY, use: { ...devices[DEVICE.chromium] } }] : [
+  projects: PROXY ? [{ name: PROXY_ENGINE, testIgnore: API_ONLY, use: { ...devices[DEVICE[PROXY_ENGINE]], ...(PROXY_ENGINE === 'firefox' ? FIREFOX : {}) } }] : [
     ...ENGINES.map((name) => ({ name, testIgnore: API_ONLY, use: { ...devices[DEVICE[name]], ...(name === 'firefox' ? FIREFOX : {}) } })),
     { name: 'api', testMatch: API_ONLY },
   ],

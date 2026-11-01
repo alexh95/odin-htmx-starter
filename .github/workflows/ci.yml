@@ -213,8 +213,8 @@ jobs:
           kill "$pid"
 
   # Playwright, one engine per runner, in Playwright's image (browsers, their OS
-  # deps and node preinstalled). skeleton and lab run in the three engines, streams
-  # in chromium and webkit, minimal in chromium (PLAN §19.1.2); the browser-less specs (the `api` project) once per
+  # deps and node preinstalled). skeleton, lab, streams and full run in the three engines,
+  # minimal in chromium (PLAN §19.1.2); the browser-less specs (the `api` project) once per
   # profile. Keep the image tag with @playwright/test in e2e/package-lock.json
   # (check-pins.sh enforces it). Each server the suite starts leaves its route
   # counters, which the coverage job holds against the load run's.
@@ -242,6 +242,7 @@ jobs:
           - { profile: lab, browser: firefox }
           - { profile: lab, browser: webkit }
           - { profile: streams, browser: chromium, also: --project=api }
+          - { profile: streams, browser: firefox } # chat's transports met Firefox first through full (M6)
           - { profile: streams, browser: webkit }
           - { profile: full, browser: chromium, also: --project=api }
           - { profile: full, browser: firefox } # the slice gate's three engines (PLAN §22.1 (b))
@@ -297,7 +298,7 @@ jobs:
   # pages go through the proxy; proxy.spec checks streams arrive as written, raw.
   # A host runner, not Playwright's image: the proxies are containers beside it.
   e2e-proxy:
-    name: E2E through ${{ matrix.proxy }} (${{ matrix.profile }}, chromium)
+    name: E2E through ${{ matrix.proxy }} (${{ matrix.profile }}, ${{ matrix.browser || 'chromium' }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -307,6 +308,7 @@ jobs:
           - { proxy: caddy, profile: lab, url: 'http://odin-htmx-starter.alexh95.com:8120' }
           - { proxy: npm, profile: lab, url: 'http://odin-htmx-starter.alexh95.com' }
           - { proxy: caddy, profile: streams, url: 'http://starter-streams.alexh95.com:8120' }
+          - { proxy: caddy, profile: streams, browser: firefox, url: 'http://starter-streams.alexh95.com:8120' }
           - { proxy: npm, profile: streams, url: 'http://starter-streams.alexh95.com' }
           # Houston and its lab host, one container (§7.3): the suite takes each spec to its feature's host.
           # Its own specs and the platform's on both hosts, and proxy.spec on the lab host's name; the lab legs
@@ -332,8 +334,8 @@ jobs:
         run: |
           docker run -d --name npm --network host --entrypoint nginx -v "$PWD/tests/proxy/npm.conf:/etc/nginx/npm.conf:ro" \
             nginx@sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e59193904b198d9b830de -g 'daemon off;' -c /etc/nginx/npm.conf
-      - name: Install e2e deps and chromium
-        run: cd e2e && npm ci && npx playwright install --with-deps chromium
+      - name: Install e2e deps and the browser
+        run: cd e2e && npm ci && npx playwright install --with-deps ${{ matrix.browser || 'chromium' }}
       - name: Run e2e (${{ matrix.profile }}) through the proxy
         run: cd e2e && npx playwright test ${{ matrix.specs }}
         env:
@@ -341,6 +343,7 @@ jobs:
           E2E_PROFILE: ${{ matrix.profile }}
           E2E_PROXY: ${{ matrix.url }}
           E2E_PROXY_LAB: ${{ matrix.lab }}
+          E2E_PROXY_BROWSER: ${{ matrix.browser || 'chromium' }}
       - name: The proxies' logs
         if: failure()
         run: |

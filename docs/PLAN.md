@@ -4495,7 +4495,7 @@ scenarios carry the same tags on a `// tags:` line, and `load-tests/run.sh` choo
 |---|---|---|
 | `full` | chromium, firefox, webkit | every compiled feature's specs on the host that mounts it, the lab host's demo, `lab`, `scripting` and `compat` specs among them (from M4; ANSWERS F2, round 3) |
 | `skeleton` | chromium, firefox, webkit, plus the `api` project | the skeleton's 23 ported specs (D44 M1) |
-| `streams` | chromium, webkit | the stream substrate without SQLite |
+| `streams` | chromium and webkit locally; all three in CI, firefox included (M6: chat's first Firefox run came by accident through `full`) | the stream substrate without SQLite |
 | `minimal` | chromium | its features' specs |
 | `lab` | chromium and webkit locally; all three in CI, firefox included | the lab specs, `csp-enforced.spec` and `streams-hxcsp.spec` among them (D44's M2 exit; RESOLUTIONS X18) |
 | `full-vanilla` | chromium | core and twinned-behaviour specs on the main host (D22) |

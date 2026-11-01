@@ -59,6 +59,15 @@ go; Alex's step is the last: the 2–3 invites (Q23), only after the audit.
       mention), and in chromium the rate case's `waitForResponse` never sees its POST. They pass on Windows and on
       Linux with CI's four workers, the whole suite included. Find the cause (what fetch fails, on what), then mount
       again; the specs' and scenarios' accounts members (`member()`, `lib/member.js`) are in `d697760`.
+      Found (2026-11-01, in CI's image): chat had never run in Firefox in CI (streams is chromium and WebKit), and
+      fails there on streams too. (a) Fixed in `0ba074e`: Firefox holds a second fetch of a URL behind an earlier
+      one's open response, so a second tab's multipart pane got nothing; the pane (and ops') fetch with no-store.
+      (b) Fixed in `c587a07`: the chromium rate case typed the next burst before the composer's reset cleared it.
+      (c) Open: on `full` in Firefox, members' pages still log "NetworkError when attempting to fetch resource"
+      under the four workers; the one local trace shows a starved box (a register POST 1.4 s, the next never
+      answered), and WSL was at 80% iowait, so it needs a quiet re-run before it says anything. Chromium's presence
+      case failed once in CI and passed on retry (a join published between the page's render and its #live's
+      subscribe is a candidate). The mount itself is `51505e3` reversed, as a patch, ready.
 - [ ] **3. Retention** (§14.1, Q19, D16): the per-kind caps and ages (`CHAT_ROOM_CAP`, `CHAT_DM_CAP`,
       `CHAT_ANNOUNCE_CAP` and their `_MAX_AGE`; a room's own up to 5000 / 90 d), chunked deletes every 50 inserts per
       room, a 60 s age sweep as a job, pinned messages exempt, the in-memory ring (`CHAT_RING_BYTES`), the marker.

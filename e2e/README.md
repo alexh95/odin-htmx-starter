@@ -21,7 +21,7 @@ only in CI: it can't start on the dev PC) plus the `api` project; `lab` in the t
 its own feature's host (`fixtures.ts`), skipped where its features sit on different hosts. `full-vanilla` (`full`'s
 files on the vanilla client, CI only) runs the same chromium specs: the hyperscript-only ones skip themselves by
 `BUILD.client`, so what runs there is the core flows and the twinned behaviours (D22).
-`streams` in chromium and webkit; any other profile in chromium plus `api` (`E2E_PROFILE=minimal
+`streams` in chromium and webkit (and firefox, in CI only); any other profile in chromium plus `api` (`E2E_PROFILE=minimal
 npm test`). The servers run with the per-client stream caps lifted (`STREAM_CONNECTS`,
 `STREAMS_PER_CLIENT`): the suite is one client opening far more streams than a person would. The lab's
 drain-and-restart check needs a graceful stop, which a Windows child gets only from a

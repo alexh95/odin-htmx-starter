@@ -21,6 +21,9 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 
 ### Changed
 
+- **streams runs in Firefox in CI** (M6): an e2e leg, and one through the stack Caddy (`E2E_PROXY_BROWSER` picks the
+  proxy leg's engine). Chat's transports had only met chromium and WebKit, so Firefox's same-URL fetch hold first
+  showed through `full`. About 1.5 minutes of suite.
 - **Promote's pre-deploy snapshot goes to `/backups`** (`BACKUP_DIR`, beside the nightly backups; on apollo the HDD),
   not `/data/backups`: status's backup age counts it, there is one place to look, and it is off the database's disk.
   Each kind keeps its own: promote prunes only `pre-*.db` (5), the nightly job only `backup-*.db`. A `/backups` the
