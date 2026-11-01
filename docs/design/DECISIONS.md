@@ -2426,7 +2426,8 @@ run it only when Alex asks. Per run:
 1. stage the compose file, the Caddyfile, `.env` (the tag) and `deploy/docker/seccomp-io-uring.json`, next to
    `compose.yaml`, which references it as `./seccomp-io-uring.json` (D41, X21);
 2. `docker compose pull`;
-3. take the pre-deploy snapshot (`docker exec … --backup /data/backups/pre-<tag>.db`, keep 5);
+3. take the pre-deploy snapshot (`docker exec … --backup /data/backups/pre-<tag>.db`, keep 5; after v2.4.0's promote
+   `/backups/pre-<tag>.db`, beside the nightly backups in `BACKUP_DIR`, which M4-12 moved off the database's volume);
 4. `docker compose up -d --no-deps <service>`, one profile at a time; Caddy is not reloaded, and `lb_try_duration`
    turns the deploy gap into latency rather than 502s;
 5. smoke through the LAN and NPM URLs: `/readyz`, `x-version == tag`, an SSE first event, a WS echo;

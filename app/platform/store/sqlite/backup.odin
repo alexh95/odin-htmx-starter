@@ -9,7 +9,8 @@ package store_sqlite
 // a backup; then the newest BACKUP_KEEP of its kind stay. It wakes every 10 minutes and runs at
 // BACKUP_HOUR_UTC once a day (`due`), on the long-run thread. A cancel stops the copy mid-way
 // (SQLite's progress handler) and the part written goes. promote.ps1's pre-deploy snapshots
-// (`pre-<tag>.db`, keep 5) sit beside them; status shows the newest of all three's age.
+// (`pre-<tag>.db`) land in the same BACKUP_DIR: status shows the newest of all three's age, but
+// each kind is pruned only by its owner (promote keeps 5 `pre-`; `backup_names` never lists one).
 
 import "base:runtime"
 import "core:c"

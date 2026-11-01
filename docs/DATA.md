@@ -80,7 +80,10 @@ Rehearse it once before you need it: `e2e/tests/platform/backup.spec.ts` does ex
 `deploy/compose.yaml` that is `/backups`, a mount of its own outside the database's volume: a volume
 of its own by default, or the host directory `FULL_BACKUPS` names in the stack's `.env` (one line;
 the backup disk's directory, chowned to `10001:10001` once), from where a nightly pull takes them off
-the machine.
+the machine. `deploy/promote.ps1`'s pre-deploy snapshots land there too, as `pre-<tag>.db`, so there is one
+place to look and status's backup age counts them. Each kind keeps its own: the job prunes only `backup-*.db`
+(and `manual-*.db`, its runs by hand, apart), promote only `pre-*.db`, the newest 5. A `/backups` the running
+container can't write stops the promote before anything changes.
 
 **TOTP secrets at rest** (M4-12): with `ACCOUNTS_TOTP_KEY_FILE` set, each member's TOTP secret is
 stored sealed (XChaCha20-Poly1305, bound to the row), so a backup or a stolen database file gives no

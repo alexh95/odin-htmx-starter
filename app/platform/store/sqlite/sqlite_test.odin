@@ -374,4 +374,38 @@ store_v3 :: proc(t: ^testing.T) {
 	reads_and_writes(t)
 	reader_that_cant_open(t)
 	handler_transactions(t)
+	backup_kinds_apart(t)
+}
+
+// promote.ps1's pre-<tag>.db snapshots share BACKUP_DIR with the nightly ones: the nightly prune and
+// due never count them, status's age does, and each kind keeps its own number.
+@(private = "file")
+backup_kinds_apart :: proc(t: ^testing.T) {
+	dir := fmt.tprintf("%s/backup-kinds-%d", tmp_dir, os.get_pid())
+	testing.expect(t, os.make_directory_all(dir) == nil)
+	saved := bk
+	bk.dir, bk.keep = dir, 2
+	defer {
+		files, _ := os.read_all_directory_by_path(dir, context.temp_allocator)
+		for f in files { _ = os.remove(join(dir, f.name)) }
+		_ = os.remove(dir)
+		bk = saved
+	}
+	names := []string{"backup-20200101-030000.db", "backup-20200102-030000.db", "backup-20200103-030000.db",
+		"manual-20200101-120000.db", "pre-v1.0.0.db", "pre-v1.1.0.db", "pre-v1.2.0.db"}
+	for name, i in names {
+		path := join(dir, name)
+		testing.expect(t, os.write_entire_file(path, "x") == nil)
+		at := time.unix(1_600_000_000 + i64(i) * 60, 0) // in the list's order: a pre- is the newest
+		_ = os.change_times(path, at, at)
+	}
+	prune_backups("backup-")
+	left, _ := os.read_all_directory_by_path(dir, context.temp_allocator)
+	kept := make([dynamic]string, context.temp_allocator)
+	for f in left { append(&kept, f.name) }
+	testing.expectf(t, len(kept) == 6 && !os.exists(join(dir, names[0])), "the nightly prune left %v", kept[:])
+	_, newest_nightly := newest_backup("backup-")
+	testing.expect_value(t, newest_nightly, "backup-20200103-030000.db")
+	_, newest := newest_backup("")
+	testing.expect_value(t, newest, "pre-v1.2.0.db")
 }

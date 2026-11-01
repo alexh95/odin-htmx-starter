@@ -19,6 +19,14 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
   bare Event (no browser gives a reason) and chromium sends none for a socket that was open, so chat's "Auto" will
   count `htmx:ws:close` events with no connection between them; `ws-errors.spec` keeps it measured in every engine.
 
+### Changed
+
+- **Promote's pre-deploy snapshot goes to `/backups`** (`BACKUP_DIR`, beside the nightly backups; on apollo the HDD),
+  not `/data/backups`: status's backup age counts it, there is one place to look, and it is off the database's disk.
+  Each kind keeps its own: promote prunes only `pre-*.db` (5), the nightly job only `backup-*.db`. A `/backups` the
+  running container can't write stops the promote with a message before anything changes. `promote-test.ps1
+  -Snapshot` holds the path, both prunes and the refusal; a unit test holds the job's side.
+
 ### Fixed
 
 - **Promote's snapshot makes its directory first**: Houston's first snapshot (v2.4.0 on apollo) stopped at

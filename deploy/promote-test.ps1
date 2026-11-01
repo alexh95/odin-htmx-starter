@@ -8,9 +8,10 @@
   Each case writes the target's .env, runs promote, and checks whether it went on or refused; the .env
   the target had is put back at the end. Exit 1 on a case that went the wrong way.
 
-  -Snapshot adds the one case that really promotes: Houston from -TagA to -TagB on a /data with no
-  backups directory (v2.4.0's first snapshot on apollo stopped there), then back to -TagA past five
-  older snapshots, which the pruner must cut to five. It needs local/starter-full:<tag> for both,
+  -Snapshot adds the one case that really promotes Houston: -TagA to -TagB, the snapshot into /backups
+  beside eight nightly backups, none in /data; back to -TagA past five older snapshots, which the pruner
+  cuts to five while the nightlies stay (each kind keeps its own); then a /backups the old container
+  can't write, which must stop the promote with nothing changed. It needs local/starter-full:<tag> for both,
   built with VERSION=<tag> (the smoke checks x-version), and leaves no container or volume behind:
 
     docker build --build-arg PROFILE=full --build-arg VERSION=pt-a -t local/starter-full:pt-a .
@@ -55,9 +56,9 @@ vols=$(docker volume ls -q --filter label=com.docker.compose.project=odin-htmx-s
 [ -z "$vols" ] || docker volume rm $vols >/dev/null
 '@
 $BUSYBOX = 'busybox:1.37.0@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec'
-function InData([string] $sh) {
+function InData([string] $sh, [string] $user = '10001:10001') {
 	Wsl "id=`$(docker ps -q --filter label=com.docker.compose.project=odin-htmx-starter --filter label=com.docker.compose.service=starter-full)
-docker run --rm --volumes-from `"`$id`" --user 10001:10001 --network none --entrypoint /bin/sh $BUSYBOX -c '$sh'"
+docker run --rm --volumes-from `"`$id`" --user $user --network none --entrypoint /bin/sh $BUSYBOX -c '$sh'"
 }
 
 function SnapshotCase {
@@ -67,18 +68,28 @@ rm -f ~/promote-test/.env ~/promote-test/deployed.json
 	$p = { param($tag) & $promote -Target local -Tag $tag -Service starter-full -ImagePrefix local/starter *>&1 | Out-String }
 	$log = & $p $TagA
 	if ($LASTEXITCODE -ne 0) { return "the first deploy failed: $log" }
-	if ((InData 'test -e /data/backups && echo yes || echo no') -ne 'no') { return "/data/backups exists before the first snapshot" }
+	if ((InData 'ls /backups | wc -l') -ne '0') { return "/backups isn't empty before the first snapshot" }
+	# More nightlies than the job keeps (7): promote's pruner must leave every one.
+	InData 'for i in 1 2 3 4 5 6 7 8; do touch -d "2020-02-0$i" /backups/backup-2020020$i-030000.db; done' | Out-Null
 
 	$log = & $p $TagB
-	if ($LASTEXITCODE -ne 0) { return "$TagA -> $TagB with no /data/backups failed: $log" }
-	if ((InData "head -c 15 /data/backups/pre-$TagB.db") -ne 'SQLite format 3') { return "no SQLite snapshot pre-$TagB.db" }
+	if ($LASTEXITCODE -ne 0) { return "$TagA -> $TagB failed: $log" }
+	if ((InData "head -c 15 /backups/pre-$TagB.db") -ne 'SQLite format 3') { return "no SQLite snapshot /backups/pre-$TagB.db" }
+	if ((InData 'test -e /data/backups && echo yes || echo no') -ne 'no') { return "the snapshot made /data/backups" }
 
-	InData 'for i in 1 2 3 4 5; do touch -d "2020-01-0$i" /data/backups/pre-old$i.db; done' | Out-Null
+	InData 'for i in 1 2 3 4 5; do touch -d "2020-01-0$i" /backups/pre-old$i.db; done' | Out-Null
 	$log = & $p $TagA
 	if ($LASTEXITCODE -ne 0) { return "$TagB -> $TagA failed: $log" }
-	$left = @(InData 'cd /data/backups && ls -1t pre-*.db')
+	$left = @(InData 'cd /backups && ls -1t pre-*.db')
 	$want = @("pre-$TagA.db", "pre-$TagB.db", 'pre-old5.db', 'pre-old4.db', 'pre-old3.db')
 	if (Compare-Object $left $want -SyncWindow 0) { return "the pruner left $($left -join ', ')" }
+	if ((InData 'ls /backups/backup-*.db | wc -l') -ne '8') { return "promote's pruner touched the nightlies" }
+
+	# A /backups 10001 can't write: refused before the snapshot, Houston left on -TagA.
+	InData 'chown 0:0 /backups && chmod 755 /backups' '0:0' | Out-Null
+	try { $log = & $p $TagB; $refused = $LASTEXITCODE -ne 0 } catch { $log = $_.Exception.Message; $refused = $true }
+	if (-not $refused -or $log -notmatch "/backups isn't writable") { return "an unwritable /backups didn't stop the promote: $log" }
+	if ((Wsl "grep '^TAG_FULL=' ~/promote-test/.env") -ne "TAG_FULL=$TagA") { return "the refused promote changed TAG_FULL" }
 	return $null
 }
 
@@ -95,8 +106,8 @@ try {
 	}
 	if ($Snapshot) {
 		try { $why = SnapshotCase } catch { $why = $_.Exception.Message } finally { Wsl $TEARDOWN | Out-Null }
-		if ($why) { $bad++; Write-Host "FAIL the first snapshot and the prune: $why" }
-		else { Write-Host "PASS the first snapshot and the prune: $TagA -> $TagB -> $TagA" }
+		if ($why) { $bad++; Write-Host "FAIL the snapshot in /backups, each kind's prune, an unwritable /backups: $why" }
+		else { Write-Host "PASS the snapshot in /backups, each kind's prune, an unwritable /backups: $TagA -> $TagB -> $TagA" }
 	}
 } finally {
 	if ($saved -eq 'NONE') { wsl.exe -e bash -lc 'rm -f ~/promote-test/.env' | Out-Null }

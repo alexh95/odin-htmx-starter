@@ -5082,7 +5082,8 @@ permission rule for it, as for spark's; agents run it only when Alex asks. Targe
 1. stage the compose file, the Caddyfile, `.env` (the tag) and `seccomp-io-uring.json` next to `compose.yaml`
    (RESOLUTIONS X21);
 2. `docker compose pull`;
-3. take the pre-deploy snapshot (`docker exec … --backup /data/backups/pre-<tag>.db`, keep 5);
+3. take the pre-deploy snapshot (`docker exec … --backup /backups/pre-<tag>.db`, beside the nightly backups in
+   `BACKUP_DIR`, keep 5; up to v2.4.0's promote it went to `/data/backups`);
 4. `docker compose up -d --no-deps <service>`, one profile at a time, with no Caddy reload (`lb_try_duration` holds);
 5. smoke through the LAN and NPM URLs: `/readyz`, `x-version == tag`, an SSE first event, a WS echo;
 6. write `deployed.json`;

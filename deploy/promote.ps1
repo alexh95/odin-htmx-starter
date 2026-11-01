@@ -206,18 +206,22 @@ if ($Target -ne 'local') {
 
 # ---- 3. snapshot --------------------------------------------------------------------------
 
-# The pruner runs beside the accounts database: pinned by digest (1.37.0), as the app's user, with no
-# network (M3-08, M4-12). The backup runs in the old container's binary, which SQLite can't give a
-# missing directory and whose image has no shell, so busybox makes /data/backups first: a service's
-# first snapshot found none (v2.4.0 on Houston). A failed snapshot stays fatal.
+# The snapshot goes where the nightly backups go, BACKUP_DIR's /backups (the image's, or FULL_BACKUPS'
+# bind): status's backup age counts it, an operator looks in one place, and it is off the database's
+# disk. Each kind keeps its own: promote the newest 5 `pre-*.db`, the nightly job its `backup-*.db`.
+# The checks and the pruner run beside the database: busybox pinned by digest (1.37.0), as the app's
+# user, with no network (M3-08, M4-12). The backup runs in the old container's binary, whose image has
+# no shell and whose SQLite makes no directory, so busybox makes it first (v2.4.0's first snapshot found
+# none). A /backups the old container can't write stops the promote, as a failed snapshot does.
 $BUSYBOX = 'busybox:1.37.0@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec'
 foreach ($s in $Service | Where-Object { $SNAPSHOT -contains $_ }) {
 	Invoke-Host @"
 id=`$($dc ps -q $s)
 if [ -n "`$id" ]; then
-	docker run --rm --volumes-from "`$id" --user 10001:10001 --network none --entrypoint /bin/sh $BUSYBOX -c 'mkdir -p /data/backups'
-	docker exec "`$id" /app/bin --backup /data/backups/pre-$Tag.db
-	docker run --rm --volumes-from "`$id" --user 10001:10001 --network none --entrypoint /bin/sh $BUSYBOX -c 'ls -1t /data/backups/pre-*.db | tail -n +6 | xargs -r rm -f' 2>/dev/null || true
+	docker run --rm --volumes-from "`$id" --user 10001:10001 --network none --entrypoint /bin/sh $BUSYBOX -c 'mkdir -p /backups && test -w /backups' ||
+		{ echo "$s's /backups isn't writable by 10001 in the running container: no snapshot, nothing promoted"; exit 1; }
+	docker exec "`$id" /app/bin --backup /backups/pre-$Tag.db
+	docker run --rm --volumes-from "`$id" --user 10001:10001 --network none --entrypoint /bin/sh $BUSYBOX -c 'ls -1t /backups/pre-*.db | tail -n +6 | xargs -r rm -f' 2>/dev/null || true
 fi
 "@ | Out-Null
 }
