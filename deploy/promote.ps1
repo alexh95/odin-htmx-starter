@@ -128,13 +128,22 @@ if (-not $Tag -or $Tag -cnotmatch $TAG_RULE -or $Tag -ceq 'latest') { throw "-Ta
 
 # The current .env (the previous tags), then the new one with this promote's services moved.
 $prev = @{}
-# Only the services' tag keys are promote's to check: the stack's own settings (FULL_BACKUPS,
-# FULL_TOTP_KEY: paths, M4-12) live in the same .env, and are left as they are.
+# Besides its tags and IMAGE_PREFIX, the .env holds the stack's own host paths (M4-12): Houston's
+# backups' directory and its TOTP key's file. Promote leaves them as they are, absolute paths with
+# no `..`; anything else it doesn't know is refused, as a bad tag is.
 $tagKeys = @($SERVICES.Values | ForEach-Object { $_.Key })
+$STACK_PATHS = @('FULL_BACKUPS', 'FULL_TOTP_KEY')
+$PATH_RULE = '\A/[A-Za-z0-9._/-]+\z'
 foreach ($line in @(Invoke-Host "cat $dir/.env 2>/dev/null || true")) {
 	if ($line -match '^([A-Z_]+)=(.*)$') {
 		$k, $v = $Matches[1], $Matches[2]
-		if ($tagKeys -contains $k -and ($v -cnotmatch $TAG_RULE -or $v -ceq 'latest')) { throw "the host's .env has $k=$v, not a tag promote would set: fix it by hand first" }
+		if ($tagKeys -contains $k) {
+			if ($v -cnotmatch $TAG_RULE -or $v -ceq 'latest') { throw "the host's .env has $k=$v, not a tag promote would set: fix it by hand first" }
+		} elseif ($STACK_PATHS -contains $k) {
+			if ($v -cnotmatch $PATH_RULE -or $v -match '(^|/)\.\.(/|$)') { throw "the host's .env has $k=$v, not an absolute host path: fix it by hand first" }
+		} elseif ($k -ne 'IMAGE_PREFIX') {
+			throw "the host's .env has $k, which promote doesn't know: fix it by hand first"
+		}
 		$prev[$k] = $v
 	}
 }

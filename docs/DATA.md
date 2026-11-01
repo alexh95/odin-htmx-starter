@@ -90,7 +90,8 @@ one a second factor. The key is 32 bytes in a file, raw or as 64 hex digits:
 head -c 32 /dev/urandom > totp-key && chown 10001:10001 totp-key && chmod 400 totp-key
 ```
 
-In the stack, `FULL_TOTP_KEY=./totp-key` in `.env` mounts it (beside compose.yaml, as admin-hash).
+In the stack, `FULL_TOTP_KEY=<stack-dir>/totp-key` in `.env`, an absolute path, mounts it (beside compose.yaml, as
+admin-hash); promote refuses a relative one.
 The first boot with the key seals every plaintext secret, zeroes the old bytes and empties the WAL;
 backups taken before it still hold them in plaintext. Keep the key apart from the backups: a
 database whose secrets are sealed refuses to boot without it, and with it lost every member's

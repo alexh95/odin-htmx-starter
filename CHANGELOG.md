@@ -49,8 +49,10 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
   audit's own M4-04 scenario) and finds the entry.
 - **`accounts.spec`'s rotation case counts only its own change**: the worker's server is shared, and with four
   workers (CI's) another spec's admin session was there beside it.
-- **promote keeps the stack's own `.env` settings**: it refused any `.env` line whose value wasn't a tag, so
-  `FULL_BACKUPS` (a path, M4-12) would have stopped every promote; it checks only its services' tag keys now.
+- **promote keeps the stack's own `.env` paths**: it refused any `.env` line whose value wasn't a tag, so
+  `FULL_BACKUPS` (M4-12) would have stopped every promote. It now takes `FULL_BACKUPS` and `FULL_TOTP_KEY` as
+  absolute host paths with no `..`, leaves them untouched, and still refuses any other key it doesn't know;
+  `deploy/promote-test.ps1` runs its cases on the local target.
 - **promote says when the deploy files are newer than the tag**: it stages `compose.yaml`, the Caddyfile and the
   seccomp profile from the checkout (so newer promote fixes reach every release), and now prints their
   `git diff --stat` against the tag first: v2.4.0 nearly got a compose asking for a `/backups` its image lacked.
