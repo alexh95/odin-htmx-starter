@@ -81,6 +81,11 @@ go; Alex's step is the last: the 2–3 invites (Q23), only after the audit.
       (`0003_retention.sql`), the memory ring at the cap, the marker; `retention.spec` on both stores, the storetest's
       caps, sweep and a sweep across chunks, `trim_every`'s unit cases. Left: a room's own settings (up to 5000 / 90 d,
       by its owner or an admin), which need the room settings page.
+- [ ] **3a. The room settings page** (slice 3's leftover; planning 2026-11-01): a room's owner (or an admin) sets its own
+      caps (up to 5000 messages or 90 days), hands the room to another member, or deletes it. It is where an owner gets
+      out of a private room, which they can't leave (they'd leave it to no one). *Check:* e2e for each: the caps (a
+      room keeping more than its kind), a handover (the new owner's invite panel, the old one's Leave), a delete (its
+      members' 404, its rows gone); k6 for the routes.
 - [ ] **4. Edits, deletes, moderation** (§14.1): own edits within 10 min and deletes; moderators delete to a
       tombstone, mute, kick, lock and slow mode, each with an hx-prompt reason, audited (in the change's transaction,
       as M4-04); the per-message menu `GET /chat/m/<id>/menu` by the viewer's perms. *Check:* e2e per action, the

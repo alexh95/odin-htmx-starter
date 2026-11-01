@@ -3252,8 +3252,11 @@ This section specifies the two features Alex named first, chat and the bot, and 
   10 s (D14). Typing: at most one event per 2 s, expiring after 5 s, memory only.
 - Read receipts: the newest visible message carries `hx-trigger="intersect once"` → `POST /chat/r/<slug>/read?upto=`.
   Never a GET: a preload can't be told apart from a real read (04 §9).
-- Members edit their own messages within 10 minutes and delete their own. Moderators delete any message (to a
-  tombstone), mute, kick, lock a room and set slow mode, each with an hx-prompt reason for the audit log.
+- Members edit their own messages within 10 minutes and delete their own. In public rooms and announcements,
+  moderators delete any message (to a tombstone), mute, kick, lock a room and set slow mode, each with an hx-prompt
+  reason for the audit log. They don't read private rooms or DMs: those are moderated through reports, which any
+  member files on a message and which carry a copy of it, and from which a moderator removes the original (planning,
+  2026-11-01).
 - Mentions go to `notify_web.send` (a direct import, so notify comes with chat), `@bot` to `bot.ask:<room>` on the
   hub (§6.2, §14.3), images through `uploads` (§14.2). Moderation actions go to `store:audit`. Bodies are at most
   2,000 runes, cut by rune (the skeleton's rule).
