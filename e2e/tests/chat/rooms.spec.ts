@@ -113,6 +113,7 @@ test.describe('chat rooms', T, () => {
 
   // An invite is a row: a restart, as a deploy is, leaves it working.
   test('a live invite outlives a restart', { tag: '@chat-sqlite' }, async ({ browser }) => {
+    test.slow(); // two servers' boots and two registrations: past 30 s on CI's webkit
     const config = test.info().config;
     const dir = mkdtempSync(path.join(os.tmpdir(), 'odin-chat-'));
     const env = { DB_PATH: path.join(dir, 'data.db') };
