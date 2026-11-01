@@ -128,10 +128,13 @@ if (-not $Tag -or $Tag -cnotmatch $TAG_RULE -or $Tag -ceq 'latest') { throw "-Ta
 
 # The current .env (the previous tags), then the new one with this promote's services moved.
 $prev = @{}
+# Only the services' tag keys are promote's to check: the stack's own settings (FULL_BACKUPS,
+# FULL_TOTP_KEY: paths, M4-12) live in the same .env, and are left as they are.
+$tagKeys = @($SERVICES.Values | ForEach-Object { $_.Key })
 foreach ($line in @(Invoke-Host "cat $dir/.env 2>/dev/null || true")) {
 	if ($line -match '^([A-Z_]+)=(.*)$') {
 		$k, $v = $Matches[1], $Matches[2]
-		if ($k -ne 'IMAGE_PREFIX' -and ($v -cnotmatch $TAG_RULE -or $v -ceq 'latest')) { throw "the host's .env has $k=$v, not a tag promote would set: fix it by hand first" }
+		if ($tagKeys -contains $k -and ($v -cnotmatch $TAG_RULE -or $v -ceq 'latest')) { throw "the host's .env has $k=$v, not a tag promote would set: fix it by hand first" }
 		$prev[$k] = $v
 	}
 }

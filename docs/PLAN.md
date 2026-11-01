@@ -2786,6 +2786,10 @@ FTS folds `café` to `cafe` and `contains_ci` does not (12 §7, §10). M8's exit
 (`SK/app/src/repository/db.odin:269-295`), nightly from the query pool as a job (keep 7) and before every deploy from
 `promote.ps1` (keep 5, §20). Off-box copies follow Q16: a nightly pull to the dev PC now, a Hetzner Storage Box at
 stage 2. A restore drill runs every release. litestream is deferred: its checkpoint coordination is unverified (08 §9).
+*Where on apollo (M4-12, Alex's answer, 2026-11-01: "Yes, use the HDD"):* Houston's nightly backups go to
+`<APOLLO_BACKUP_DIR>` on apollo's HDD, a different disk from the database's volume and Docker's data-root (the SSD),
+through `FULL_BACKUPS` in the stack's `.env` (a bind mount at `/backups`, the directory chowned to `10001:10001`).
+The off-box half (Q16's nightly pull to the dev PC) is still open.
 
 ## 12. Client stack: bundles, CSP, the 17 extensions, hyperscript and themes
 
