@@ -24,7 +24,10 @@ export async function member(browser: Browser, baseURL: string, name = uid('m'))
   page.on('pageerror', (e) => {
     const cut = /^(AbortError|TypeError)$/.test(e.name) && /aborted|NetworkError/.test(e.message);
     if (cut && /\/static\/_hyperscript\.[0-9a-f]+\.min\.js/.test(e.stack || '')) return;
-    errors.push(e.message);
+    // With where it was thrown: WebKit's "…due to access control checks" for a cut /events has
+    // come without a source to go by.
+    const at = String(e.stack || '').split(String.fromCharCode(10)).slice(0, 4).join(' / ');
+    errors.push(at ? `${e.message} @ ${at}` : e.message);
   });
   page.on('console', (m) => {
     if (m.type() === 'error' && /Content Security Policy|Refused to/.test(m.text())) errors.push(m.text());
