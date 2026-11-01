@@ -35,7 +35,8 @@
 param(
 	[ValidateSet('apollo-lan', 'apollo', 'local')] [string] $Target = 'apollo-lan',
 	[string] $Tag,
-	[ValidateSet('starter-minimal', 'starter-streams', 'starter-skeleton', 'starter-lab')]
+	# Every service $SERVICES names (checked below); the default leaves Houston out: it goes only when named.
+	[ValidateSet('starter-minimal', 'starter-streams', 'starter-skeleton', 'starter-lab', 'starter-full')]
 	[string[]] $Service = @('starter-minimal', 'starter-streams', 'starter-skeleton', 'starter-lab'),
 	[switch] $Status,
 	[switch] $WhatIf,
@@ -58,6 +59,14 @@ $SERVICES = [ordered]@{
 	'starter-full'     = @{ Key = 'TAG_FULL';     Host = 'houston.alexh95.com';           Sse = $null;           Ws = $null }
 }
 $SNAPSHOT = @('starter-full') # its DB is /data/data.db
+
+# -Service takes exactly the services above: fefd2e3 added starter-full here but not to the
+# ValidateSet, and PowerShell refused -Service starter-full before anything ran.
+$valid = (Get-Command $PSCommandPath).Parameters['Service'].Attributes |
+	Where-Object { $_ -is [System.Management.Automation.ValidateSetAttribute] } | ForEach-Object { $_.ValidValues }
+if (Compare-Object @($valid) @($SERVICES.Keys)) {
+	throw "promote: -Service's ValidateSet ($($valid -join ', ')) and `$SERVICES ($($SERVICES.Keys -join ', ')) name different services"
+}
 $PORT = 8120
 
 # ---- where the stack is ------------------------------------------------------------------
