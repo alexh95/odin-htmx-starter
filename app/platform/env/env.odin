@@ -241,12 +241,13 @@ unknown :: proc(allocator := context.temp_allocator) -> []string {
 	out := make([dynamic]string, allocator)
 	environ, _ := os.environ(context.temp_allocator)
 	outer: for kv in environ {
-		name, _, _ := strings.partition(kv, "=")
-		name = strings.trim_suffix(name, "_FILE")
+		raw, _, _ := strings.partition(kv, "=")
+		name := strings.trim_suffix(raw, "_FILE")
 		for p in table.prefixes {
 			if !strings.has_prefix(name, p) { continue }
+			// A row may itself end in _FILE (ACCOUNTS_TOTP_KEY_FILE names a file it reads raw).
 			for v in table.values {
-				if v.row.name == name { continue outer }
+				if v.row.name == name || v.row.name == raw { continue outer }
 			}
 			append(&out, name)
 			continue outer

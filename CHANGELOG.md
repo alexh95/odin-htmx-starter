@@ -26,6 +26,8 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
   SQLite makes none. Step 3 now creates it as the app's user with the pinned busybox the pruner runs, before
   `--backup`; a failed snapshot is still fatal. `promote-test.ps1 -Snapshot` really promotes Houston locally
   from a `/data` with no backups directory, then again past five older snapshots, which the pruner cuts to five.
+- **An env row whose own name ends in `_FILE` isn't reported unknown**: boot warned `unknown=ACCOUNTS_TOTP_KEY`
+  for `ACCOUNTS_TOTP_KEY_FILE`, since the check cut `_FILE` (the file form of any row) before comparing names.
 - **A stranger can no longer slow every sign-in, or hold an account's door shut on its owner** (M4-03): sign-ins are
   limited per client and per network (an IPv4 /24, an IPv6 /48, `ACCOUNTS_LOGIN_PER_NET`, 20 per 15 min), and the
   ceiling over everyone (`ACCOUNTS_LOGIN_OVERALL`) counts only the attempts that reach the argon pool. A client that

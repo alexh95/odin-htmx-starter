@@ -1,8 +1,26 @@
 package env
 
 import "core:net"
+import "core:os"
+import "core:slice"
 import "core:testing"
 import "core:time"
+
+// v2.4.0 warned unknown=ACCOUNTS_TOTP_KEY for its own ACCOUNTS_TOTP_KEY_FILE row: the _FILE was cut
+// before the names were compared.
+@(test)
+unknown_knows_a_row_named_file :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	defer table = {}
+	// HASH is set itself, so the file HASH_FILE names is never read.
+	for kv in ([][2]string{{"ENVTEST_KEY_FILE", "/run/keys/k"}, {"ENVTEST_HASH", "h"}, {"ENVTEST_HASH_FILE", "/run/h"}, {"ENVTEST_TYPO", "1"}}) {
+		os.set_env(kv[0], kv[1])
+	}
+	defer for name in ([]string{"ENVTEST_KEY_FILE", "ENVTEST_HASH", "ENVTEST_HASH_FILE", "ENVTEST_TYPO"}) { os.unset_env(name) }
+	record("ENVTEST_", {{name = "ENVTEST_KEY_FILE", kind = .Path}, {name = "ENVTEST_HASH", kind = .Secret}})
+	got := unknown()
+	testing.expectf(t, slice.equal(got, []string{"ENVTEST_TYPO"}), "unknown: %v", got)
+}
 
 @(test)
 parses_each_kind :: proc(t: ^testing.T) {
