@@ -229,8 +229,10 @@ test.describe('chat', T, () => {
       await expect(ann.page.locator('.chat-composer .form-error')).toHaveText('Write something first.');
     }
     // Five in ten seconds, the sixth refused (a window may open mid-burst: then the
-    // eleventh is). Each post waits for its answer: htmx queues a form's next request
-    // behind the one in flight.
+    // eleventh is). Each post waits for its answer, as htmx queues a form's next request
+    // behind the one in flight, and an accepted one for the form's reset, which comes after
+    // the answer: on a slow runner the next burst was typed first, then cleared, and Enter
+    // on the empty required box sent nothing.
     await open(ann, slug, 'sse');
     const box = ann.page.locator('.chat-composer textarea');
     let refused: import('@playwright/test').Response | undefined;
@@ -241,6 +243,7 @@ test.describe('chat', T, () => {
         box.press('Enter'),
       ]);
       if (res.status() === 429) refused = res;
+      else await expect(box).toHaveValue('');
     }
     expect(refused, 'a post past the rate').toBeDefined();
     expect(Number(refused!.headers()['retry-after'])).toBeGreaterThan(0);
