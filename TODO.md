@@ -1233,6 +1233,11 @@ what still applies lives here.
       still kills the server. Report it upstream with the chunked path's `size < 0` guard (#117) as
       the fix. Fixed in the vendored fork (F-6, `app/vendor/odin-http/UPSTREAM.md`); the issue is
       drafted, still to post upstream.
+- [ ] **Upstream (_hyperscript 0.9.94): its bootstrap's fetch has no catch.** At load it fetches every
+      `<script type="text/hyperscript" src>` (`Promise.all(… await fetch(r.src) …)`, the bundle's line 22), and a
+      navigation that cuts the fetch rejects it in Firefox (AbortError, or a TypeError NetworkError; Chromium stays
+      silent), so the page logs an unhandled rejection. The suite skips exactly those two from that file in
+      `e2e/helpers/members.ts` (`ae982e8`). Filing it is Alex's go.
 
 ## Done
 
