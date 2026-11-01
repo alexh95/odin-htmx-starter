@@ -335,7 +335,7 @@ Alex, asked in one batch.
       gets the anonymous identity, and `ops`, `audit` and other features with member-only rows can't boot
       without one; `select` now refuses that (the catalog marks a feature `gated` when a ROUTES row asks for a
       permission). Generated projects drop the two jobs and the array. Left: one nightly run green.
-- [ ] **14. Exit**: the slice gate (a)–(f) for every new feature; the parity gate on both legs; `docs/audit/M4.md`
+- [x] **14. Exit**: the slice gate (a)–(f) for every new feature; the parity gate on both legs; `docs/audit/M4.md`
       by an agent that didn't write the code, 0 open CRITICAL/HIGH; `Audited:` stamps; CHANGELOG's 2.3.0 entry.
       Then, with Alex: `--hash-password` for the bootstrap admin (Alex alone; it measures apollo's derive time), the
       v2.3.0 tag, `starter-full` promoted, and Houston and its lab host through NPM at stage 1b (no invites yet).
@@ -346,6 +346,11 @@ Alex, asked in one batch.
       same code path; again at n = 5 at `eb228d8`, `static@file` 0.98 and `static@mem` 0.95 (25 % background):
       the static cells alternate around the bar. Linux at `eb228d8`: 20 of 20 (`docs/perf/PARITY-M4.md`). The stamps
       and the 2.3.0 lead are done. Left: Alex's call on the Windows static cells, and Alex's part.
+      **Done (2026-11-01): M4 is out as v2.3.0, and Houston is deployed at stage 1b, no invites.** Alex made the
+      bootstrap hash on apollo (`derive: 33.3 ms`, Q34's cost there), tagged v2.3.0 on `64c674d` (release run
+      41254342837, 19 of 19), and ran `promote.ps1 -Tag v2.3.0 -Service starter-full` (after `3738749`'s
+      ValidateSet fix): healthy, 0 restarts, 3.2 MiB. The smoke through NPM: 21 of 21 (`deploy/npm-smoke.mjs
+      --houston`) and a clean Chromium pass over both of Houston's hosts, /readyz on both.
 - [x] **M4 audit** (`docs/audit/M4.md`): every finding closed. Fixed: M4-03, M4-04, M4-12's code (the key's and the
       backups' place on apollo is Alex's) and M4-13's rest (2026-11-01), M4-05 and M4-09
       (2026-10-31), M4-06, M4-07, M4-08, M4-10, M4-11, M4-14, M4-15, M4-16, M4-12's busybox pin (and M3-08's),
