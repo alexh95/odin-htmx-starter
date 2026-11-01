@@ -25,7 +25,10 @@ wiring :: proc(r: m.Room) -> chat_views.Wiring {
 	b := strings.builder_make(context.temp_allocator)
 	strings.write_string(&b, ` hx-multipart:connect="/chat/r/`)
 	chat_views.esc(&b, r.slug)
-	strings.write_string(&b, `/parts"`)
+	// Uncached: Firefox holds a second fetch of a URL until the first one's response has ended
+	// (its cache entry), whatever that response's Cache-Control, so a member's second tab got no
+	// parts at all while the first stayed open. The SSE and the hub's #live differ by their cursor.
+	strings.write_string(&b, `/parts" hx-config='{"cache":"no-store"}'`)
 	return {pane = strings.to_string(b), composer = chat_views.post_composer(r)}
 }
 

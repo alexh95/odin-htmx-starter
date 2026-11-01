@@ -29,6 +29,12 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 
 ### Fixed
 
+- **A second tab's multipart stream connects in Firefox**: Firefox holds a fetch of a URL until an earlier fetch of
+  the same URL has its whole response, whatever that response's `Cache-Control`, so a member's second tab on a
+  multipart chat room (or an admin's second `/admin/ops` in multipart mode) never got a part while the first stayed
+  open. Both panes now ask with `hx-config='{"cache":"no-store"}'`; the hub's `#live` and the lab's feeds differ per
+  page already (their cursor, `tag=`). This, not Houston, was the mount's CI-only Firefox failure: chat had run in
+  CI in chromium and WebKit only.
 - **Promote's snapshot makes its directory first**: Houston's first snapshot (v2.4.0 on apollo) stopped at
   `unable to open database: /data/backups/pre-v2.4.0.db`, since the old container's `/data` had no `backups` and
   SQLite makes none. Step 3 now creates it as the app's user with the pinned busybox the pruner runs, before

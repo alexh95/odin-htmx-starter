@@ -121,7 +121,8 @@ page :: proc(req: ^web.Request, res: ^web.Response) {
 		buf: [24]byte
 		wiring = strings.concatenate({` hx-get="/admin/ops/panel" hx-trigger="every 1s" hx-swap="none" hx-ptag="`, strconv.write_uint(buf[:], seq, 10), `"`}, context.temp_allocator)
 	case .Multipart:
-		wiring = ` hx-multipart:connect="/admin/ops/parts" hx-swap="none"`
+		// Uncached, as chat's: Firefox holds a second tab's fetch of the URL behind the first's open response.
+		wiring = ` hx-multipart:connect="/admin/ops/parts" hx-swap="none" hx-config='{"cache":"no-store"}'`
 	}
 	web.render_page(req, res, "Ops", "/admin/ops", "What the process is doing.",
 		ops_views.page(samples[:], modules[:], limits[:], ops.last_crash(), mode, wiring), live = live)
