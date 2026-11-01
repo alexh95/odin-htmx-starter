@@ -150,6 +150,22 @@ foreach ($s in $SERVICES.Keys) {
 
 Write-Host "promote $Tag -> $Target ($($Service -join ', ')) in $dir"
 foreach ($s in $Service) { $k = $SERVICES[$s].Key; Write-Host ("  {0,-17} {1} -> {2}" -f $s, ($(if ($prev[$k]) { $prev[$k] } else { '(new)' })), $Tag) }
+
+# The deploy files come from this checkout, not from the tag: newer promote fixes reach every
+# release, but a compose newer than its image can ask for what the image lacks (v2.4.0's /backups
+# nearly did). Say so, so whoever runs it can look; a warning, never a refusal.
+$deployFiles = @('deploy/compose.yaml', 'deploy/Caddyfile', 'docker/seccomp-io-uring.json')
+git -C $root rev-parse --verify --quiet "$Tag^{commit}" *> $null
+if ($LASTEXITCODE -eq 0) {
+	$newer = git -C $root diff --stat $Tag -- @deployFiles
+	if ($newer) {
+		Write-Warning "the deploy files staged from this checkout differ from $Tag's:"
+		$newer | ForEach-Object { Write-Host "  $_" }
+	}
+} else {
+	Write-Host "  ($Tag is no git ref here: the deploy files can't be compared with it)"
+}
+$global:LASTEXITCODE = 0 # the check's git exit isn't the promote's
 if ($WhatIf) { Write-Host "(-WhatIf: nothing staged)"; return }
 
 $files = @{

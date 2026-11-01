@@ -52,6 +52,13 @@ go; Alex's step is the last: the 2–3 invites (Q23), only after the audit.
       Progress (2026-11-01): the SQLite store (rooms, messages, versions, edits and tombstones; rowids, so
       `PERSISTED`) and `chat/storetest` over both families. Left: rooms beyond public (private, announcements, DMs),
       members, and the mount in `full` with its specs.
+      **Open (2026-11-01): the mount in `full` failed in CI only, and is reverted (`51505e3`, of `d697760`).** Runs
+      41257098422 (`7efa854`) and 41257794341 (`3738749`), jobs "E2E (full, chromium)" and "E2E (full, firefox)":
+      in Firefox the members' pages log "NetworkError when attempting to fetch resource" (`chat.spec`'s "reaches the
+      other member once" over ws and sse, "an open edit form outlives…" over every transport; `notify.spec`'s
+      mention), and in chromium the rate case's `waitForResponse` never sees its POST. They pass on Windows and on
+      Linux with CI's four workers, the whole suite included. Find the cause (what fetch fails, on what), then mount
+      again; the specs' and scenarios' accounts members (`member()`, `lib/member.js`) are in `d697760`.
 - [ ] **3. Retention** (§14.1, Q19, D16): the per-kind caps and ages (`CHAT_ROOM_CAP`, `CHAT_DM_CAP`,
       `CHAT_ANNOUNCE_CAP` and their `_MAX_AGE`; a room's own up to 5000 / 90 d), chunked deletes every 50 inserts per
       room, a 60 s age sweep as a job, pinned messages exempt, the in-memory ring (`CHAT_RING_BYTES`), the marker.

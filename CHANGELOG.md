@@ -49,6 +49,9 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
   audit's own M4-04 scenario) and finds the entry.
 - **`accounts.spec`'s rotation case counts only its own change**: the worker's server is shared, and with four
   workers (CI's) another spec's admin session was there beside it.
+- **promote says when the deploy files are newer than the tag**: it stages `compose.yaml`, the Caddyfile and the
+  seccomp profile from the checkout (so newer promote fixes reach every release), and now prints their
+  `git diff --stat` against the tag first: v2.4.0 nearly got a compose asking for a `/backups` its image lacked.
 - **`promote.ps1 -Service starter-full` binds**: fefd2e3 added Houston to the services table but not to `-Service`'s
   ValidateSet, so PowerShell refused it before anything ran; the set has it now (the default list still leaves it
   out), and promote refuses to run when the two name different services.
