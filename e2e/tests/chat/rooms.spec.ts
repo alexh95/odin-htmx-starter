@@ -51,6 +51,7 @@ test.describe('chat rooms', T, () => {
     const slug = await newRoom(ann.page, 'private');
     await expect(ann.page.locator('.chat-head .chat-kind')).toHaveText('private');
     await expect(ann.page.locator('.chat-members li')).toHaveText([`${ann.name} owner`]);
+    await expect(ann.page.getByRole('button', { name: 'Leave the room' })).toHaveCount(0); // it would be no one's
 
     // Not Bob's: not listed, and every way in answers as a missing room does.
     await bob.page.goto('/chat');

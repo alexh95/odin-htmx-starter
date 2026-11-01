@@ -52,8 +52,8 @@ use), lists the open ones on the room's page and revokes them (`POST /chat/r/<sl
 is a row (`chat_invites`): its link is `/chat/join/<id>.<secret>`, the store keeps the secret's SHA-256 only and the
 domain compares it in constant time, and it lasts 7 days, through restarts, unless revoked or spent; a forged,
 revoked, expired or spent one answers 404 alike. The link's page joins by a plain form and sends a Referer to its own origin only, and
-the access log names the route's pattern only, so the token stays in the link. A member leaves with
-`POST /chat/r/<slug>/leave`; a DM isn't left (blocking is slice 4's). A DM
+the access log names the route's pattern only, so the token stays in the link. A member other than
+the owner leaves with `POST /chat/r/<slug>/leave`; a DM isn't left (blocking is slice 4's). A DM
 starts from a message's menu, "Message <name>" (`POST /chat/dm/<id>`, `Chat_Dm`): the two members' room with an
 opaque slug (`dm-` and 16 hex digits), found again from either side, never made twice. The domain holds the rule
 once (`room_for`, `may_read`, `may_post`, `reads`), and every handler, transport and topic asks it.

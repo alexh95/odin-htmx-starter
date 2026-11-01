@@ -11,14 +11,20 @@ export const FORM = { 'Content-Type': 'application/x-www-form-urlencoded' };
 
 const ACCOUNTS = __ENV.IDENTITY === 'accounts';
 
-export function signIn(name) {
+// `params` go with each request (a second member's own `jar`).
+export function signIn(name, params = {}) {
   if (ACCOUNTS) {
     // A username is letters, digits, `_`, `-` and `.`: a VU's name with a space isn't one.
     const username = name.replace(/[^A-Za-z0-9_.-]/g, '-');
-    return http.post(`${MAIN}/register`, { username, password: 'a-long-enough-password', again: 'a-long-enough-password' },
-      { headers: FORM, redirects: 0, tags: { name: 'POST /register' } });
+    const made = http.post(`${MAIN}/register`, { username, password: 'a-long-enough-password', again: 'a-long-enough-password' },
+      { headers: FORM, redirects: 0, tags: { name: 'POST /register' }, responseCallback: http.expectedStatuses({ min: 200, max: 399 }, 422), ...params });
+    if (made.status !== 422) return made;
+    // The name is taken: by this VU's own earlier registration, made from a jar it no longer has
+    // (k6 gives the measured window new VUs); sign in to it.
+    return http.post(`${MAIN}/login`, { username, password: 'a-long-enough-password', next: '/' },
+      { headers: FORM, redirects: 0, tags: { name: 'POST /login' }, ...params });
   }
-  return http.post(`${MAIN}/login`, { nick: name, next: '/' }, { headers: FORM, redirects: 0, tags: { name: 'POST /login' } });
+  return http.post(`${MAIN}/login`, { nick: name, next: '/' }, { headers: FORM, redirects: 0, tags: { name: 'POST /login' }, ...params });
 }
 
 // The jar's cookies as a Cookie header: a WebSocket's handshake carries no jar of its own.

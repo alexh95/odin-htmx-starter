@@ -190,8 +190,9 @@ may_invite :: proc(r: m.Room, v: authz.Viewer) -> bool {
 	return r.kind == .Private && v.id != 0 && (v.id == r.owner || authz.can(v, .Chat_Moderate))
 }
 
-// Only a private room is left: a DM is its two members', and the rest have no members.
-may_leave :: proc(r: m.Room, v: authz.Viewer) -> bool { return r.kind == .Private && reads(r, v.id) }
+// Only a private room is left, and not by its owner, who would leave it to no one: a DM is its
+// two members', and the rest have no members.
+may_leave :: proc(r: m.Room, v: authz.Viewer) -> bool { return r.kind == .Private && v.id != r.owner && reads(r, v.id) }
 
 members :: proc(r: m.Room, out: ^[dynamic]m.Member) -> m.Error { return chat_store.members(r.id, out) }
 leave_room :: proc(r: m.Room, v: authz.Viewer) -> m.Error { return chat_store.leave(r.id, v.id) }
