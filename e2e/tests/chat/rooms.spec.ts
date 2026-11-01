@@ -65,7 +65,7 @@ test.describe('chat rooms', T, () => {
     const href = await inviteLink(ann.page);
     await expect(ann.page.locator('.chat-invite-list li')).toHaveCount(1);
     expect((await bob.page.request.post(`${href}x`)).status()).toBe(404); // a forged token
-    const other = href.replace(/\.(\w)/, (_, c) => `.${c === 'A' ? 'B' : 'A'}`); // a secret one character off
+    const other = href.replace(/\.(.)/, (_, c) => `.${c === 'A' ? 'B' : 'A'}`); // a secret one character off
     expect((await bob.page.request.post(other)).status()).toBe(404);
     const page = await bob.page.goto(href);
     expect(page!.headers()['referrer-policy']).toBe('same-origin');
