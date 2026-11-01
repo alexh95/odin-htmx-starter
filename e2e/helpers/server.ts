@@ -91,7 +91,7 @@ export async function startServer(config: FullConfig, env: NodeJS.ProcessEnv = {
       BOT_SEED: '7', BOT_DELAY_MS: '25',
       ACCOUNTS_ADMIN_HASH: ADMIN_HASH, ACCOUNTS_LOGIN_PER_CLIENT: '1000000', ACCOUNTS_LOGIN_PER_NET: '1000000', ACCOUNTS_LOGIN_OVERALL: '1000000',
       ACCOUNTS_STEP_UP_PER_MEMBER: '1000000',
-      ACCOUNTS_ADMIN_TOTP: 'optional', ACCOUNTS_REGISTER_PER_HOUR: '1000000', ACCOUNTS_CODES_PER_HOUR: '1000000',
+      ACCOUNTS_ADMIN_TOTP: 'optional', ACCOUNTS_REGISTRATION: 'open', ACCOUNTS_REGISTER_PER_HOUR: '1000000', ACCOUNTS_CODES_PER_HOUR: '1000000',
       CONTACTS_CAP: '0', // full's demo cap: contacts/demo.spec sets its own
       // https and no port, like a real origin (hosts match by name): the SEO specs check its shape.
       ...(TWO_HOSTS ? { SITE_URL_LAB: proxied(port) && PROXY_LAB ? new URL(PROXY_LAB).origin : 'https://127.0.0.1' } : {}),

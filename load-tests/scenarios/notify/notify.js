@@ -1,10 +1,10 @@
 import http from 'k6/http';
 import { check } from 'k6';
-import { BASE } from '../../lib/config.js';
-import { FORM, signIn } from '../../lib/nick.js';
+import { MAIN as BASE } from '../../lib/config.js'; // chat and the Inbox are the main host's
+import { FORM, signIn } from '../../lib/member.js';
 import { options as build, summarize } from '../../lib/options.js';
 
-// tags: @notify @accounts-nick
+// tags: @notify
 //
 // A member's Inbox: the page, the log a resync refetches, and marking it all read.
 // (Notifications arrive from producers, chat's mentions: chat.js and the e2e specs.)

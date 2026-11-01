@@ -12,7 +12,12 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 
 - **chat on SQLite** (M6 slice 2, its store): `stores/sqlite/chat` keeps rooms and messages across restarts, ids
   the rowids (`PERSISTED`), a post or a change bumping the room's version in the writer's batch;
-  `features/chat/storetest` holds both families to one contract. Mounting it in `full` comes next.
+  `features/chat/storetest` holds both families to one contract.
+- **Chat and the Inbox in Houston** (M6 slice 2): `full` mounts chat (the four transports) and notify on its main
+  host, on SQLite, with Chat and Inbox in its nav and the Inbox's home card; the lobby is seeded after the
+  migrations (`chat_web.seed`). The chat and notify specs and scenarios run on both identities: `member()` and
+  `lib/member.js` register an account on an accounts build (the suites' servers keep registration open), pick a
+  nickname on a nick build; the memory store's ring and restart cases are tagged `@chat-memory`.
 - **notify on SQLite** (M6 slice 7, its store): `stores/sqlite/notify` keeps a member's newest 200 across restarts,
   trimmed in the add's own batch; `features/notify/storetest` holds both families to one contract.
 - **M6's first spike, hx-ws's errors** (`docs/spikes/M6.1.md`): a refused or dropped socket's `htmx:ws:error` carries a

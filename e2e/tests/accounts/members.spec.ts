@@ -53,7 +53,7 @@ async function join(browser: Browser, link: string, username: string, display = 
 
 test.describe('members', T, () => {
   test('by invite: the link registers with its role, once; without one there is no way in', async ({ browser, request }) => {
-    await own({}, async (_, base) => {
+    await own({ ACCOUNTS_REGISTRATION: 'invite' }, async (_, base) => { // the suite's servers keep it open
       const plain = await request.post(`${base}/register`, { form: { username: 'nobody', password: 'a-long-enough-password', again: 'a-long-enough-password' } });
       expect(plain.status()).toBe(422);
       expect(await plain.text()).toContain('invite');

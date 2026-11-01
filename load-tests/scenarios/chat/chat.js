@@ -1,10 +1,10 @@
 import http from 'k6/http';
 import { check } from 'k6';
-import { BASE } from '../../lib/config.js';
-import { FORM, signIn } from '../../lib/nick.js';
+import { MAIN as BASE } from '../../lib/config.js'; // chat and the Inbox are the main host's
+import { FORM, signIn } from '../../lib/member.js';
 import { options as build, summarize } from '../../lib/options.js';
 
-// tags: @chat @accounts-nick
+// tags: @chat
 //
 // A member's requests in a room, the transport rotating per iteration: the rooms,
 // the room page, the Connection setting, a post (5 in 10 s per member, so most
