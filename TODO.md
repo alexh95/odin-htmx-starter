@@ -96,9 +96,11 @@ go; Alex's step is the last: the 2–3 invites (Q23), only after the audit.
       `moderation.spec` (each act, the tombstone, the audit rows without the body; a private room's report),
       the storetest's moderation case, the `moderation` scenario. Open: chat.spec's "an open edit form outlives…"
       lost its typed text once over poll in streams webkit locally (1 of 4 suite runs, never in 60 runs alone).
-- [ ] **5. Presence, typing, receipts, unread** (§14.1, D14): presence debounced 10 s, typing ≤ 1 per 2 s expiring
+- [x] **5. Presence, typing, receipts, unread** (§14.1, D14): presence debounced 10 s, typing ≤ 1 per 2 s expiring
       after 5 s (memory only), read receipts by `POST /chat/r/<slug>/read?upto=` on `intersect once`, unread counts
       on `notify.user:<uid>`. *Check:* e2e across two members; a receipt never from a GET.
+      Done (2026-11-04): M2 built these; `chat.spec` now holds the rest of the check: a reload inside the debounce
+      doesn't flap presence, leaving shows away, typing expires, a receipt is a POST alone (a GET is 405).
 - [ ] **6. FTS** (§14.1, D16): FTS5 over message bodies with triggers, search within the rooms a member may read;
       the budget of 6.4 ms per 1000 retention deletes kept. *Check:* a storetest of search and membership; the
       retention budget measured.

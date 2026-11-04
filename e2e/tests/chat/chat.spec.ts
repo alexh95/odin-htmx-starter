@@ -215,7 +215,38 @@ test.describe('chat', T, () => {
     await ann.page.locator('.chat-composer textarea').pressSequentially('typ');
     await expect(bob.page.locator('.chat-typing')).toContainText(`${ann.name} is typing`);
     await expect(ann.page.locator('.chat-typing .typing-who')).toBeHidden(); // her own, marked and hidden
+    // Typing expires after 5 s: removed under hyperscript, faded out by CSS on the vanilla client.
+    await expect.poll(() => bob.page.locator('.chat-typing .typing-who').evaluateAll(
+      (els) => els.every((e) => getComputedStyle(e).opacity === '0')), { timeout: 8000 }).toBe(true);
     await leave(ann, bob);
+  });
+
+  // D14: online while a stream is open, away 10 s after the last one closed. A reload inside the
+  // debounce shows nothing to anyone.
+  test('presence: a reload does not flap, and leaving shows away after the debounce', async ({ browser, baseURL }) => {
+    test.slow();
+    const ann = await member(browser, baseURL!), bob = await member(browser, baseURL!);
+    const slug = await newRoom(ann.page);
+    await open(ann, slug, 'sse');
+    await open(bob, slug, 'sse');
+    const hers = bob.page.locator('.chat-who .who', { hasText: ann.name });
+    await expect(hers).toHaveClass(/who-online/);
+    await ann.page.reload();
+    await bob.page.waitForTimeout(6000); // past the sweep's 5 s
+    await expect(hers).toHaveClass(/who-online/);
+    await ann.page.goto('/about');
+    await expect(hers).toHaveClass(/who-away/, { timeout: 20_000 });
+    await leave(ann, bob);
+  });
+
+  // A preload can't be told from a real read, so a receipt is a POST alone (04 §9).
+  test('a read receipt is never a GET', async ({ browser, baseURL }) => {
+    const ann = await member(browser, baseURL!);
+    const slug = await newRoom(ann.page);
+    const got = await ann.page.request.get(`/chat/r/${slug}/read?upto=1`);
+    expect(got.status()).toBe(405);
+    expect(got.headers()['allow']).toContain('POST');
+    await leave(ann);
   });
 
   test('a refused message stays as typed, with the reason; past the rate a toast says to slow down', async ({ browser, baseURL }) => {
