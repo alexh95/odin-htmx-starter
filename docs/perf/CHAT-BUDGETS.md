@@ -14,7 +14,7 @@ CI's Playwright image under WSL2, 4 pinned cores, the server and clients sharing
 | Writer ≥ 3× autocommit | 12,265 against 3,062 msgs/s on one commit each: 4.0× | met |
 | 1000 msgs/s offered, p95 ≤ 50 ms | 10,000 of 10,000 answered; p50 0.19, p95 8.9, p99 13.7 ms | met |
 | The old row: writer ≥ 50k msgs/s batched on a file WAL | the same 12,265 msgs/s | **restated**, see below |
-| Send to another member's DOM p95 ≤ 50 ms, LAN through NPM | direct: p95 5.3 ms over WS, 11.3 ms over SSE, in a real browser | **not yet measured through NPM** |
+| Send to another member's DOM p95 ≤ 50 ms, LAN through NPM | 60 of 60 landed over WS on Houston at v2.5.0; p50 5.5, p95 9.3, max 11.7 ms (direct: p95 5.3 ms over WS, 11.3 ms over SSE) | met |
 | ~~A worst decode fits Houston's 512 MiB~~ | peak RSS 246.8 MiB during a hold of 1000 sockets | **superseded**: the server no longer decodes (PLAN §17.6) |
 
 ## The 50k row, restated
@@ -40,4 +40,8 @@ another thread counts, with a test that takes 100 ms without the fix. A socket's
 - **Fan-out:** 1000 sockets of one member in the lobby, 20 messages posted by others at once (a member may post 5 in 10 s).
 - **Send to DOM:** one reader, 12 senders of 5 messages each; a stamp in the page at submit, a MutationObserver in the
   reader's. One browser, so one clock.
+- **Send to DOM through NPM** (2026-11-04): Alex's machine on the LAN, against the live site through NPM, two accounts in
+  one room: `node tools/drills/chat-latency.mjs <Houston URL> --login <reader>:<pw>,<sender>:<pw> --room <slug> --count 60`.
+  One sender keeps to the post limit and deletes each message once it lands; Houston's log shows the 60 deletes all 200,
+  with no warning or error.
 - **Poll** isn't in the DOM row: its latency is its interval.

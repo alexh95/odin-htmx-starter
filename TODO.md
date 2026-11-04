@@ -157,7 +157,7 @@ go; Alex's step is the last: the 2–3 invites (Q23), only after the audit.
       Done (2026-11-04): `Auto` the default, falling back by `static/chat.js` for the browser's session; the setting on
       the account through `authz.keep_connection`, a cookie on builds with no accounts; the restart spec now runs on both
       stores.
-- [ ] **10. Budgets** (§18, D38): the WS chat budget at 1000 sockets; the writer task ≥ 3× autocommit at 1000
+- [x] **10. Budgets** (§18, D38): the WS chat budget at 1000 sockets; the writer task ≥ 3× autocommit at 1000
       msgs/s; send → another member's DOM p95 ≤ 50 ms on the LAN through NPM. *Check:* the drills and k6
       scenarios, recorded in `docs/perf/`.
       Recorded in `docs/perf/CHAT-BUDGETS.md` (2026-11-04), with the worst decode against 512 MiB; §18.4's writer row
@@ -166,7 +166,9 @@ go; Alex's step is the last: the 2–3 invites (Q23), only after the audit.
       wait on it.
       v2.5.0 promoted and smoked (2026-11-04): `deploy/npm-smoke.mjs --houston --version v2.5.0` 21/21, read only; a
       GET-only Chromium pass over Houston's two hosts, 25 pages, no CSP violation and no write sent; `promote -Status`
-      all five on v2.5.0, healthy. Left: Alex's drill through NPM (`tools/drills/chat-latency.mjs`), for the ≤ 50 ms row.
+      all five on v2.5.0, healthy.
+      Done (2026-11-04): Alex's drill through NPM on v2.5.0, `chat-latency.mjs <Houston URL> --login … --room <slug>
+      --count 60`: 60 of 60 landed over WS, p50 5.5, p95 9.3, max 11.7 ms against the 50 ms budget.
 - [ ] **11. The XSS/UGC suite and the oldest browser** (§19.1.2, D22): every place chat, notify and uploads render a
       member's text or file, against the injection set; D22's core flows on the oldest-browser device with no client
       behaviours (htmx 4 there UNVERIFIED (M6)). *Check:* the suite in e2e; the device run recorded.
@@ -174,10 +176,16 @@ go; Alex's step is the last: the 2–3 invites (Q23), only after the audit.
       names, the Inbox, invites, reports, the audit log, upload names. It found nothing. Closes after the promote, as
       M5's smoke did: the phone is Alex's (v2.5.0's steps), and the invites wait on the walk.
       v2.5.0 is promoted and smoked (slice 10's note), which doesn't touch this: left, the phone walk.
+      Alex walked the five flows on a current phone in the latest Brave (2026-11-04) and all worked, but that isn't the
+      oldest-browser device, so it doesn't meet D22's check. The walk on that device is still the check; Alex decides
+      whether it happens or the check is deferred.
 - [x] **12. Exit** (2026-11-04: parity `docs/perf/PARITY-M6.md`, audit `docs/audit/M6.md`; the tag is Alex's, and 10 and 11 close after the promote): the slice gate for every new feature; the parity gate on both legs; `docs/audit/M6.md`, the
       focused security audit of accounts, sessions, chat and uploads, by an agent that didn't write the code, 0 open
       CRITICAL/HIGH, and a re-read of its fixes; `Audited:` stamps; CHANGELOG's 2.5.0 lead. Then, with Alex: the
       v2.5.0 tag, `starter-full` promoted, and Q23's 2–3 invites.
+- [ ] **For the next release's steps:** an Admin needs two-step sign-in on before `/admin/accounts` opens, by design
+      (`ACCOUNTS_ADMIN_TOTP=required`), and Alex's terminal needs `npx.cmd playwright install chromium` once. Alex's admin
+      and `FULL_TOTP_KEY` are both set up now.
 
 ## M5 — Operate (v2.4.0)
 
