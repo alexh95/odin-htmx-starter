@@ -64,6 +64,10 @@ ROUTES := [?]web.Route {
 	{.Get, "/chat/m/(%d+)/menu", menu, .Chat_Read, {.Fragment}, 0},
 	{.Post, "/chat/m/(%d+)/remove", remove_message, .Chat_Moderate, {.Fragment}, 0},
 	{.Post, "/chat/m/(%d+)/report", report_message, .Chat_Read, {.Fragment}, 0},
+	{.Post, "/chat/m/(%d+)/block", block_author, .Chat_Read, {.Fragment}, 0},
+	{.Post, "/chat/r/([%w%-]+)/block", block_peer, .Chat_Read, {.Fragment}, 0},
+	{.Post, "/chat/unblock/(%d+)", unblock, .Chat_Read, {.Fragment}, 0},
+	{.Get, "/chat/blocks", blocks_page, .Chat_Read, {.Private}, 0},
 	{.Get, "/chat/m/(%d+)/edit", edit_form, .Chat_Post, {.Fragment}, 0},
 	{.Post, "/chat/m/(%d+)/edit", edit, .Chat_Post, {.Fragment}, POST_CAP},
 	{.Post, "/chat/m/(%d+)/delete", delete_message, .Chat_Post, {.Fragment}, 0},
@@ -192,7 +196,13 @@ room_page :: proc(req: ^web.Request, res: ^web.Response) {
 	case .Multipart:
 		wiring = chat_transport_multipart.wiring(r)
 	}
+	peer: chat_views.Dm_Peer
+	if r.kind == .Dm {
+		peer.id = chat.dm_peer(r, v.id)
+		peer.blocked = chat.blocking(v.id, peer.id)
+	}
 	rv := chat_views.Room_View{
+		peer = peer,
 		cannot_post = chat.why_not_post(r, v), may_invite = chat.may_invite(r, v), may_leave = chat.may_leave(r, v),
 		may_moderate = chat.may_moderate(r, v), may_attach = authz.can(v, .Chat_Attach), mute_button = notify_web.mute_button(v.id, chat.room_topic(r.id), "this room"),
 	}
@@ -413,14 +423,14 @@ announce :: proc(slug, room_name: string, kind: m.Room_Kind, msg: m.Message) {
 		_ = chat.members(r, &pair)
 		line := chat_views.dm_line(msg.name, msg.body)
 		for mem in pair {
-			if mem.who != msg.author { notify_web.send(mem.who, "chat.dm", ref, line, scope) }
+			if mem.who != msg.author && !chat.blocking(mem.who, msg.author) { notify_web.send(mem.who, "chat.dm", ref, line, scope) }
 		}
 	} else {
 		chat.mentioned(msg.body, msg.author, &who)
 		if len(who) > 0 {
 			line := chat_views.mention_line(msg.name, room_name, msg.body)
 			for id in who {
-				if chat.reads(r, id) { notify_web.send(id, "chat.mention", ref, line, scope) }
+				if chat.reads(r, id) && !chat.blocking(id, msg.author) { notify_web.send(id, "chat.mention", ref, line, scope) }
 			}
 		}
 	}
@@ -446,6 +456,7 @@ menu :: proc(req: ^web.Request, res: ^web.Response) {
 	acts := chat_views.Menu{
 		may_change = chat.may_change(msg, v.id), may_dm = authz.can(v, .Chat_Dm) && other,
 		may_moderate = chat.may_moderate(r, v) && other, may_report = other && v.id != 0,
+		may_block = other && v.id != 0, blocked = other && chat.blocking(v.id, msg.author),
 	}
 	web.respond_html(res, chat_views.menu(msg, r.slug, acts))
 }
@@ -501,7 +512,7 @@ change :: proc(req: ^web.Request, res: ^web.Response, msg: m.Message, r: m.Room,
 @(private)
 changing :: proc(req: ^web.Request, res: ^web.Response, msg: m.Message, r: m.Room, body: string, del: bool) -> ^Changing {
 	v := web.viewer(req)
-	op := store.new_op(Changing, 3 * len(body) + 2 * len(msg.name) + len(r.slug) + len(r.name))
+	op := store.new_op(Changing, 3 * len(body) + 2 * len(msg.name) + 2 * len(msg.blob) + len(r.slug) + len(r.name))
 	a := store.op_allocator(op)
 	op.id, op.author, op.delete = msg.id, v.id, del
 	op.body, op.typed = strings.clone(body, a), strings.clone(body, a)
@@ -528,6 +539,7 @@ changed :: proc(o: ^store.Op) {
 	res := web.resume(&op.deferred) // first, as posted's
 	if op.err == .None {
 		hub.publish(chat.room_topic(op.result.room), chat_views.one(op.result.room, op.slug, op.result), op.result.id)
+		chat.released(op.released)
 	}
 	if res == nil { return }
 	switch op.err {
@@ -737,13 +749,85 @@ start_dm :: proc(req: ^web.Request, res: ^web.Response) {
 		web.not_found(req, res)
 		return
 	}
-	r, err := chat.dm(web.viewer(req), u64(other))
+	v := web.viewer(req)
+	if chat.walled(v.id, u64(other)) {
+		web.respond_html(res, html.toast("error", chat.CANT_MESSAGE, true), .Forbidden)
+		return
+	}
+	r, err := chat.dm(v, u64(other))
 	if err != .None {
 		web.respond_store_error(req, res, err)
 		return
 	}
 	web.set_header(res, "hx-redirect", fmt.tprintf("/chat/r/%s", r.slug))
 	web.respond_status(res, .No_Content)
+}
+
+// ---- blocks ------------------------------------------------------------------------------------
+//
+// A's alone: a DM closes both ways, and B's mentions and DMs stop reaching A's Inbox. Public rooms
+// don't change (no per-viewer filtering of the fan-out), moderation doesn't notice, nothing's audited.
+
+@(private)
+block_member :: proc(req: ^web.Request, res: ^web.Response, other: u64, name: string) {
+	v := web.viewer(req)
+	if err := chat.block(v.id, other, name); err != .None {
+		web.respond_html(res, html.toast("error", "You can't block yourself.", true), .Unprocessable_Content)
+		return
+	}
+	refresh(res)
+}
+
+// From a message's menu: its author, under the name they wrote it under.
+@(private)
+block_author :: proc(req: ^web.Request, res: ^web.Response) {
+	msg, _, ok := message_of(req, res)
+	if ok { block_member(req, res, msg.author, msg.name) }
+}
+
+// From a DM's page: its other member.
+@(private)
+block_peer :: proc(req: ^web.Request, res: ^web.Response) {
+	v := web.viewer(req)
+	r, err := chat.room_for(req.url_params[0], v)
+	if err == .None && (r.kind != .Dm || !chat.may_read(r, v)) { err = .Not_Found }
+	if err != .None {
+		web.respond_store_error(req, res, err)
+		return
+	}
+	pair := make([dynamic]m.Member, 0, 2, context.temp_allocator)
+	_ = chat.members(r, &pair)
+	for mem in pair {
+		if mem.who != v.id {
+			block_member(req, res, mem.who, mem.name)
+			return
+		}
+	}
+	web.not_found(req, res)
+}
+
+@(private)
+unblock :: proc(req: ^web.Request, res: ^web.Response) {
+	other, ok := web.parse_id(req.url_params[0])
+	if !ok {
+		web.not_found(req, res)
+		return
+	}
+	if err := chat.unblock(web.viewer(req).id, u64(other)); err != .None {
+		web.respond_store_error(req, res, err)
+		return
+	}
+	refresh(res)
+}
+
+@(private)
+blocks_page :: proc(req: ^web.Request, res: ^web.Response) {
+	list := make([dynamic]m.Block, context.temp_allocator)
+	if err := chat.blocks(web.viewer(req).id, &list); err != .None {
+		web.respond_store_error(req, res, err)
+		return
+	}
+	web.render_page(req, res, "Blocked members", "/chat", "The members you've blocked.", chat_views.blocks_page(list[:]))
 }
 
 // ---- moderation (§14.1) -------------------------------------------------------------------------
@@ -859,8 +943,26 @@ remove_message :: proc(req: ^web.Request, res: ^web.Response) {
 	}
 	reason, rok := web.prompt_reason(req, res)
 	if !rok { return }
+	if err := purge(msg.blob, actor(), reason); err != .None {
+		web.respond_store_error(req, res, err)
+		return
+	}
 	op := changing(req, res, msg, r, "", true)
 	if !chat.remove(op, actor(), reason, "chat.remove") { unqueued(req, op) }
+}
+
+// An image out of everywhere, and the open pages told, as an edit tells them.
+@(private)
+purge :: proc(sha: string, a: chat.Actor, reason: string) -> m.Error {
+	if sha == "" { return .None }
+	changed := make([dynamic]m.Message, context.temp_allocator)
+	if err := chat.purge_image(sha, a, reason, &changed); err != .None { return err }
+	for msg in changed {
+		if r, err := chat.room_by_id(msg.room); err == .None {
+			hub.publish(chat.room_topic(msg.room), chat_views.one(msg.room, r.slug, msg), msg.id)
+		}
+	}
+	return .None
 }
 
 // Any reader's report of someone else's message, with a copy of it for the moderators.
@@ -920,6 +1022,10 @@ report_remove :: proc(req: ^web.Request, res: ^web.Response) {
 	if !ok { return }
 	a := actor()
 	if err := chat.resolve(rep, a, "removed", reason); err != .None {
+		web.respond_store_error(req, res, err)
+		return
+	}
+	if err := purge(rep.blob, a, reason); err != .None {
 		web.respond_store_error(req, res, err)
 		return
 	}

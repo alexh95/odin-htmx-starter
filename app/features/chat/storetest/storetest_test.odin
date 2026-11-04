@@ -68,6 +68,12 @@ Family :: struct {
 	message:     m.Store_Message,
 	post:        m.Store_Post,
 	change:      m.Store_Change,
+	blob_held:   m.Store_Blob_Held,
+	purge_blob:  m.Store_Purge_Blob,
+	block:       m.Store_Block,
+	unblock:     m.Store_Unblock,
+	blocking:    m.Store_Blocking,
+	blocks:      m.Store_Blocks,
 }
 
 @(private = "file")
@@ -152,6 +158,8 @@ conforms :: proc(t: ^testing.T, f: Family) {
 	side, serr := f.create_room("side", "Side", .Public, 7, "ann")
 	testing.expectf(t, serr == .None && side.slug == "side" && side.kind == .Public && side.owner == 7, "%s: a new room, %v", f.name, serr)
 	rooms_of_kinds(t, f)
+	images(t, f)
+	blocks(t, f)
 
 	first := say(t, f, lobby.id, 7, "first")
 	testing.expectf(t, last_err == .None && first.body == "first" && first.name == "ann" && first.id > 0 && first.room == lobby.id, "%s: post = %v", f.name, first)
@@ -347,6 +355,61 @@ retention :: proc(t: ^testing.T, f: Family) {
 	f.init(0, {})
 }
 
+// A blob is held by a live message or an open report; a purge takes it out of every message, in
+// any room, and bumps each room's version so a poll sees it go.
+@(private = "file")
+images :: proc(t: ^testing.T, f: Family) {
+	SHA :: "cc00000000000000000000000000000000000000000000000000000000000000"
+	lobby, _ := f.room("lobby")
+	testing.expect(t, !f.blob_held(SHA))
+	op := store.new_op(m.Post, 256)
+	a := store.op_allocator(op)
+	op.room, op.author, op.name, op.body, op.blob = lobby.id, 7, strings.clone("ann", a), strings.clone("", a), strings.clone(SHA, a)
+	op.done = proc(o: ^store.Op) {
+		last_err = o.err
+		keep((^m.Post)(o).result)
+		answered += 1
+		store.free_op(o)
+	}
+	before := answered
+	testing.expect(t, f.post(op))
+	wait(t, f, before)
+	testing.expectf(t, last_err == .None && last.blob == SHA, "%s: a post keeps its image, %v", f.name, last)
+	msg := last
+	testing.expectf(t, f.blob_held(SHA), "%s: a live message holds it", f.name)
+
+	id, rerr := f.report({room = lobby.id, msg = msg.id, author = 7, author_name = "ann", blob = SHA, by = 8, by_name = "bob", reason = "why", at = 100})
+	testing.expect_value(t, rerr, m.Error.None)
+	rep, _ := f.report_of(id)
+	testing.expect_value(t, rep.blob, SHA)
+
+	out := make([dynamic]m.Message, context.temp_allocator)
+	testing.expect_value(t, f.purge_blob(SHA, {}, &out), m.Error.None)
+	testing.expectf(t, len(out) == 1 && out[0].id == msg.id && out[0].blob == "" && out[0].ver > msg.ver, "%s: purged %v", f.name, out[:])
+	testing.expectf(t, !f.blob_held(SHA), "%s: nothing holds it now", f.name)
+	again, _ := f.message(msg.id)
+	testing.expect_value(t, again.blob, "")
+	rep, _ = f.report_of(id)
+	testing.expect_value(t, rep.blob, "")
+	testing.expect_value(t, f.resolve(id, 200, "dismissed", {}), m.Error.None)
+}
+
+@(private = "file")
+blocks :: proc(t: ^testing.T, f: Family) {
+	testing.expect(t, !f.blocking(7, 8))
+	testing.expect_value(t, f.block(7, 8, "bob", 100), m.Error.None)
+	testing.expect_value(t, f.block(7, 8, "bob", 101), m.Error.None) // again: nothing changes
+	testing.expect_value(t, f.block(7, 9, "cat", 102), m.Error.None)
+	testing.expect(t, f.blocking(7, 8))
+	testing.expect(t, !f.blocking(8, 7)) // one way
+	list := make([dynamic]m.Block, context.temp_allocator)
+	testing.expect_value(t, f.blocks(7, &list), m.Error.None)
+	testing.expectf(t, len(list) == 2 && list[0].name == "cat" && list[1].other == 8, "%s: blocks %v", f.name, list[:])
+	testing.expect_value(t, f.unblock(7, 8), m.Error.None)
+	testing.expect_value(t, f.unblock(7, 9), m.Error.None)
+	testing.expect(t, !f.blocking(7, 8))
+}
+
 // SQLite's deletes go 1000 rows a transaction: a sweep past a chunk takes two, and lets all go.
 @(private = "file")
 chunks :: proc(t: ^testing.T, f: Family) {
@@ -462,11 +525,11 @@ both_families :: proc(t: ^testing.T) {
 	testing.expect_value(t, nbio.acquire_thread_event_loop(), nil)
 	defer nbio.release_thread_event_loop()
 
-	conforms(t, {"memory", mem.init, mem.seed, mem.room, mem.rooms_for, mem.create_room, mem.dm, mem.members, mem.is_member, mem.join, mem.leave, mem.sweep, mem.search, mem.set_audit_writer, mem.set_room, mem.ban, mem.banned, mem.report, mem.reports, mem.report_of, mem.resolve, mem.add_invite, mem.invite, mem.invites, mem.revoke_invite, mem.use_invite, mem.recent, mem.after, mem.count_after, mem.changed, mem.message, mem.post, mem.change})
+	conforms(t, {"memory", mem.init, mem.seed, mem.room, mem.rooms_for, mem.create_room, mem.dm, mem.members, mem.is_member, mem.join, mem.leave, mem.sweep, mem.search, mem.set_audit_writer, mem.set_room, mem.ban, mem.banned, mem.report, mem.reports, mem.report_of, mem.resolve, mem.add_invite, mem.invite, mem.invites, mem.revoke_invite, mem.use_invite, mem.recent, mem.after, mem.count_after, mem.changed, mem.message, mem.post, mem.change, mem.blob_held, mem.purge_blob, mem.block, mem.unblock, mem.blocking, mem.blocks})
 
 	testing.expect_value(t, db.open_db(":memory:", .Ephemeral, "storetest"), "")
 	defer db.close()
 	db.migrate("chat", sql.MIGRATIONS[:])
-	conforms(t, {"sqlite", sql.init, sql.seed, sql.room, sql.rooms_for, sql.create_room, sql.dm, sql.members, sql.is_member, sql.join, sql.leave, sql.sweep, sql.search, sql.set_audit_writer, sql.set_room, sql.ban, sql.banned, sql.report, sql.reports, sql.report_of, sql.resolve, sql.add_invite, sql.invite, sql.invites, sql.revoke_invite, sql.use_invite, sql.recent, sql.after, sql.count_after, sql.changed, sql.message, sql.post, sql.change})
+	conforms(t, {"sqlite", sql.init, sql.seed, sql.room, sql.rooms_for, sql.create_room, sql.dm, sql.members, sql.is_member, sql.join, sql.leave, sql.sweep, sql.search, sql.set_audit_writer, sql.set_room, sql.ban, sql.banned, sql.report, sql.reports, sql.report_of, sql.resolve, sql.add_invite, sql.invite, sql.invites, sql.revoke_invite, sql.use_invite, sql.recent, sql.after, sql.count_after, sql.changed, sql.message, sql.post, sql.change, sql.blob_held, sql.purge_blob, sql.block, sql.unblock, sql.blocking, sql.blocks})
 	free_all(context.temp_allocator)
 }

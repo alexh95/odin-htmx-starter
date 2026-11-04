@@ -37,7 +37,13 @@ Room_View :: struct {
 	may_leave:    bool,
 	may_moderate: bool, // the room's lock and slow mode
 	may_attach:   bool, // the composer's image
+	peer:         Dm_Peer, // a DM's other member
 	mute_button:  string, // notify's: this room in the viewer's Inbox, markup of its own
+}
+
+Dm_Peer :: struct {
+	id:      u64,
+	blocked: bool, // by the viewer
 }
 
 // What a message's menu offers its viewer.
@@ -46,6 +52,8 @@ Menu :: struct {
 	may_dm:       bool, // a DM with its author
 	may_moderate: bool, // remove it, mute or kick its author
 	may_report:   bool, // someone else's
+	may_block:    bool, // its author
+	blocked:      bool, // ... already
 }
 
 Report_Row :: struct {
@@ -106,7 +114,7 @@ index_page :: proc(rows: []Room_Row, setting: string, may_create, may_announce: 
 		w(&b, `</select><button class="btn btn-primary" type="submit">Create</button></div><p class="field-msg form-error" id="room-error"></p></form>`)
 	}
 	connection(&b, setting)
-	w(&b, `</section>`)
+	w(&b, `<p class="chat-blocks-link"><a href="/chat/blocks">Blocked members</a></p></section>`)
 	return strings.to_string(b)
 }
 
@@ -232,8 +240,37 @@ room_page :: proc(r: m.Room, msgs: []m.Message, ver: i64, here: []chat.Presence_
 	w(&b, `</div>`)
 	if r.kind == .Private || r.kind == .Dm { members(&b, r, rv) }
 	w(&b, rv.mute_button)
+	if r.kind == .Dm { dm_block(&b, r, rv.peer) }
 	// What hx-pending shows while a post is on its way; the typed text arrives as data-body.
 	w(&b, `</aside></div><template id="chat-pending"><article class="chat-msg pending"><p class="chat-body muted">Sending…</p></article></template></section>`)
+	return strings.to_string(b)
+}
+
+// A DM's Block or Unblock: it can't be left, so this is how one ends.
+@(private)
+dm_block :: proc(b: ^strings.Builder, r: m.Room, peer: Dm_Peer) {
+	if peer.id == 0 { return }
+	if peer.blocked {
+		fmt.sbprintf(b, `<button class="btn btn-outline" type="button" hx-post="/chat/unblock/%d" hx-swap="none">Unblock</button>`, peer.id)
+		return
+	}
+	w(b, `<button class="btn btn-outline" type="button" hx-post="/chat/r/`)
+	esc(b, r.slug)
+	w(b, `/block" hx-swap="none">Block</button>`)
+}
+
+// The members a viewer has blocked, each with its Unblock.
+blocks_page :: proc(list: []m.Block) -> string {
+	b := strings.builder_make(context.temp_allocator)
+	html.page_head(&b, "Comms", "Blocked members", "A member you've blocked can't message you or reach your Inbox, and you can't message them. Public rooms stay as they are.")
+	w(&b, `<section class="block"><ul class="chat-blocks">`)
+	if len(list) == 0 { w(&b, `<li class="muted">You haven't blocked anyone.</li>`) }
+	for row in list {
+		w(&b, `<li><b>`)
+		esc(&b, row.name)
+		fmt.sbprintf(&b, `</b> <button class="btn btn-outline" type="button" hx-post="/chat/unblock/%d" hx-swap="none">Unblock</button></li>`, row.other)
+	}
+	w(&b, `</ul><p><a href="/chat">All rooms</a></p></section>`)
 	return strings.to_string(b)
 }
 
@@ -379,7 +416,11 @@ message :: proc(b: ^strings.Builder, msg: m.Message, slug: string, newest: bool)
 			esc(b, msg.body)
 			w(b, `</div>`)
 		}
-		if msg.blob != "" { image(b, msg) }
+		if msg.blob != "" {
+			image(b, msg)
+		} else if msg.body == "" {
+			w(b, `<p class="chat-body muted">Image removed.</p>`) // a moderator's, and it was all there was
+		}
 	}
 	// The menu's slot: a click outside the message, or Escape, empties it. hx-preserve keeps the
 	// slot, and the menu or edit form open in it, when the message is rendered again (its echo,
@@ -468,6 +509,13 @@ menu :: proc(msg: m.Message, slug: string, acts: Menu) -> string {
 	if acts.may_report {
 		fmt.sbprintf(&b, `<button class="btn btn-ghost" type="button" hx-post="/chat/m/%d/report" hx-prompt="What is wrong with this message?" hx-swap="none">Report</button>`, msg.id)
 	}
+	if acts.may_block {
+		if acts.blocked {
+			fmt.sbprintf(&b, `<button class="btn btn-ghost" type="button" hx-post="/chat/unblock/%d" hx-swap="none">Unblock</button>`, msg.author)
+		} else {
+			fmt.sbprintf(&b, `<button class="btn btn-ghost" type="button" hx-post="/chat/m/%d/block" hx-swap="none">Block</button>`, msg.id)
+		}
+	}
 	if acts.may_moderate {
 		fmt.sbprintf(&b, `<button class="btn btn-ghost" type="button" hx-post="/chat/m/%d/remove" hx-prompt="Why remove it?" hx-target="#mm-%d">Remove</button>`, msg.id, msg.id)
 		for kind in ([]string{"mute", "kick"}) {
@@ -497,7 +545,15 @@ reports_page :: proc(rows: []Report_Row) -> string {
 		if row.room.id != 0 { room_title(&b, row.room) } else { w(&b, `a room that is gone`) }
 		w(&b, `</p><blockquote class="chat-report-body">`)
 		esc(&b, rep.body)
-		w(&b, `</blockquote><p class="muted">Reported by `)
+		w(&b, `</blockquote>`)
+		if rep.blob != "" {
+			w(&b, `<a class="chat-img" href="/uploads/blob/`)
+			esc(&b, rep.blob)
+			w(&b, `"><img src="/uploads/blob/`)
+			esc(&b, rep.blob)
+			w(&b, `" loading="lazy" alt="The reported image"></a>`)
+		}
+		w(&b, `<p class="muted">Reported by `)
 		esc(&b, rep.by_name)
 		w(&b, `: `)
 		esc(&b, rep.reason)

@@ -10,6 +10,14 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 
 ### Added
 
+- **Blocking** (M6): a member can block another from a DM, a message's menu or `/chat/blocks`. The DM closes both ways,
+  neither can start one, and the blocked member's DMs and mentions stop reaching the Inbox. Public rooms and moderation
+  don't change, and nothing is audited (`0007_blocks.sql`).
+- **A blob's lifetime** (M6): a blob lives while a live message or an open report holds it. The hourly sweep takes any a
+  day old with no holder, a member's delete takes one at once, and a moderator's removal takes it out of every message
+  in any room, then off the disk, audited. A report keeps its own copy of the image.
+- **Images in backups** (M6): `uploads.mirror` copies blobs to `<BACKUP_DIR>/blobs/` daily and follows removals;
+  `docs/DATA.md` covers the restore.
 - **The XSS and UGC suite** (M6 slice 11): `xss.spec` runs one injection set through every place chat, notify and uploads
   render what a member wrote. Nothing got through.
 - **The Connection setting, with Auto** (M6 slice 9): Auto, now the default, is a WebSocket until two connects fail,

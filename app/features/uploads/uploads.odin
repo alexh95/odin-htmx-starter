@@ -7,6 +7,10 @@ package uploads
 // magic bytes first, then the size its header claims against MAX_PIXELS, before anything
 // allocates for it (a decode bomb is small on the wire), then a full decode. SVG and HTML never
 // get in: only what core:image decodes here, PNG and JPEG. The disk work runs on web's pool.
+//
+// A blob lives while something holds it (§17.6). Whoever uses blobs registers a Holder, asked
+// each time, so nothing counts and nothing drifts: the sweep takes what's a day old and unheld,
+// which covers retention and images never posted.
 
 import "base:runtime"
 import "core:crypto/hash"
@@ -35,6 +39,10 @@ DECODE_LIMIT :: 256 << 20 // what one decode may hold; past it an image is refus
 // §17.5. An upload nobody finished stops counting after ABANDONED, and the sweep takes it.
 AT_ONCE :: 2
 ABANDONED :: time.Hour
+UNHELD :: 24 * time.Hour // a blob with no holder, past this, goes
+
+// Whether something still needs this blob. True when it can't tell: a file goes only on a no.
+Holder :: proc(sha256: string) -> bool
 
 ENV := [?]env.Row {
 	{name = "UPLOADS_DIR", kind = .Path, def = "uploads", doc = "where parts and blobs live; a container's is on its volume"},
@@ -44,6 +52,9 @@ ENV := [?]env.Row {
 @(private)
 st: struct {
 	parts, blobs: string,
+	mirror:       string, // where the nightly copy goes; "": no backups here
+	holders:      [8]Holder,
+	n_holders:    int,
 }
 
 // At boot: the env rows. The directories wait for the first upload: `bin --limits` makes none.
@@ -53,6 +64,20 @@ init :: proc() {
 	dir := strings.trim_right(env.str("UPLOADS_DIR"), "/\\")
 	st.parts = strings.concatenate({dir, "/parts"})
 	st.blobs = strings.concatenate({dir, "/blobs"})
+}
+
+// At boot, by whatever keeps blobs in its rows.
+holds :: proc(h: Holder) {
+	st.holders[st.n_holders] = h
+	st.n_holders += 1
+}
+
+@(private)
+held :: proc(sha: string) -> bool {
+	for h in st.holders[:st.n_holders] {
+		if h(sha) { return true }
+	}
+	return false
 }
 
 per_hour :: proc() -> int { return env.int_("UPLOADS_PER_HOUR") }
@@ -105,12 +130,33 @@ drop :: proc(id: i64) {
 	_ = os.remove(part_path(id))
 }
 
-// The hourly job: what nobody finished.
-sweep :: proc() -> int {
+// A blob's row and file, whoever may hold it: a moderator's removal, once its holders let it go.
+erase :: proc(sha: string) -> m.Error {
+	if !valid_sha(sha) { return .Not_Found }
+	if err := uploads_store.drop_blob(sha); err != .None { return err }
+	_ = os.remove(blob_path(sha))
+	return .None
+}
+
+// A holder let go of it: gone now if nothing else holds it (a photo posted by mistake).
+release :: proc(sha: string) {
+	if valid_sha(sha) && !held(sha) { _ = erase(sha) }
+}
+
+// The hourly job: uploads nobody finished, and blobs a day old that nothing holds.
+sweep :: proc() -> (uploads, blobs: int) {
 	ids := make([dynamic]i64, context.temp_allocator)
-	if uploads_store.stale(oldest_open(), &ids) != .None { return 0 }
-	for id in ids { drop(id) }
-	return len(ids)
+	if uploads_store.stale(oldest_open(), &ids) == .None {
+		for id in ids { drop(id) }
+		uploads = len(ids)
+	}
+	shas := make([dynamic]string, context.temp_allocator)
+	if uploads_store.blobs(now() - i64(UNHELD / time.Second), &shas) == .None {
+		for sha in shas {
+			if !held(sha) && erase(sha) == .None { blobs += 1 }
+		}
+	}
+	return
 }
 
 // ---- the bytes, on the pool -----------------------------------------------------------------
@@ -158,6 +204,56 @@ read_blob :: proc(sha: string) -> ([]byte, bool) {
 
 free_bytes :: proc(data: []byte) { delete(data, runtime.heap_allocator()) }
 
+// ---- the backup's copy (§11.6, DATA.md) --------------------------------------------------------
+
+// From main, where there are backups to sit beside: BACKUP_DIR, as SQLite's package resolved it.
+// A build that never calls it has no copy.
+backs_up_to :: proc(dir: string) {
+	if dir != "" { st.mirror = strings.concatenate({strings.trim_right(dir, "/\\"), "/blobs"}) }
+}
+
+mirror_dir :: proc() -> string { return st.mirror }
+
+// `dest` as the blobs are: what's new copied by name (a part file, then a rename), and each copy
+// whose row has gone deleted, so a moderator's removal reaches the backup. By row, not by file: a
+// live disk that lost its files mustn't take the copies with it. ok false: something failed, and
+// the rest was still tried.
+mirror :: proc(dest: string) -> (copied, removed: int, ok: bool) {
+	ok = true
+	if !os.is_dir(st.blobs) { return } // nothing uploaded yet
+	if os.make_directory_all(dest) != nil && !os.is_dir(dest) { return 0, 0, false }
+	live := make([dynamic]string, context.temp_allocator)
+	if uploads_store.blobs(max(i64), &live) != .None { return 0, 0, false }
+	alive := make(map[string]bool, context.temp_allocator)
+	for sha in live {
+		alive[sha] = true
+		to := fmt.tprintf("%s/%s", dest, sha)
+		if os.exists(to) || !os.exists(blob_path(sha)) { continue }
+		part := fmt.tprintf("%s.part", to)
+		data, rerr := os.read_entire_file(blob_path(sha), runtime.heap_allocator())
+		if rerr != nil {
+			ok = false
+			continue
+		}
+		werr := os.write_entire_file(part, data)
+		delete(data, runtime.heap_allocator())
+		if werr != nil || os.rename(part, to) != nil {
+			_ = os.remove(part)
+			ok = false
+			continue
+		}
+		copied += 1
+	}
+	there, lerr := os.read_all_directory_by_path(dest, context.temp_allocator)
+	if lerr != nil { return copied, 0, false }
+	for f in there {
+		if !alive[strings.trim_suffix(f.name, ".part")] || strings.has_suffix(f.name, ".part") {
+			if os.remove(f.fullpath) == nil { removed += 1 } else { ok = false }
+		}
+	}
+	return
+}
+
 // ---- what the bytes are ---------------------------------------------------------------------
 
 Image_Kind :: enum u8 {
@@ -186,6 +282,12 @@ sniff :: proc(data: []byte) -> Image_Kind {
 // core:image's JPEG reader sums a Huffman table's counts in a u8, so a table past 256 symbols
 // wraps and indexes out of bounds: `huffman_fits` keeps those from it.
 claimed_size :: proc(data: []byte, kind: Image_Kind) -> (width, height: int, ok: bool) {
+	width, height, _, ok = read_header(data, kind)
+	return
+}
+
+@(private)
+read_header :: proc(data: []byte, kind: Image_Kind) -> (width, height: int, progressive, ok: bool) {
 	be16 :: proc(b: []byte) -> int { return int(b[0]) << 8 | int(b[1]) }
 	be32 :: proc(b: []byte) -> int { return int(b[0]) << 24 | int(b[1]) << 16 | int(b[2]) << 8 | int(b[3]) }
 	switch kind {
@@ -193,11 +295,11 @@ claimed_size :: proc(data: []byte, kind: Image_Kind) -> (width, height: int, ok:
 	case .Png:
 		// The signature, then IHDR: its length, its type, width, height.
 		if len(data) < 24 || string(data[12:16]) != "IHDR" { return }
-		return be32(data[16:20]), be32(data[20:24]), true
+		return be32(data[16:20]), be32(data[20:24]), false, true
 	case .Jpeg:
 		i := 2
 		for i + 4 <= len(data) {
-			if data[i] != 0xFF { return 0, 0, false }
+			if data[i] != 0xFF { return 0, 0, false, false }
 			marker := data[i + 1]
 			switch marker {
 			case 0xFF: // fill
@@ -207,23 +309,24 @@ claimed_size :: proc(data: []byte, kind: Image_Kind) -> (width, height: int, ok:
 				i += 2
 				continue
 			case 0xD9:
-				return width, height, width > 0
+				return width, height, progressive, width > 0
 			}
 			n := be16(data[i + 2:])
-			if n < 2 || i + 2 + n > len(data) { return 0, 0, false }
+			if n < 2 || i + 2 + n > len(data) { return 0, 0, false, false }
 			segment := data[i + 4:i + 2 + n]
 			i += 2 + n
 			switch marker {
 			case 0xC4:
-				if !huffman_fits(segment) { return 0, 0, false }
+				if !huffman_fits(segment) { return 0, 0, false, false }
 			case 0xC0 ..= 0xC3, 0xC5 ..= 0xC7, 0xC9 ..= 0xCB, 0xCD ..= 0xCF: // SOFn
-				if width != 0 || len(segment) < 5 { return 0, 0, false }
+				if width != 0 || len(segment) < 5 { return 0, 0, false, false }
 				width, height = be16(segment[3:]), be16(segment[1:])
+				progressive = marker == 0xC2
 			case 0xDA: // the scan: its data runs to the next marker that isn't stuffing or a restart
 				for i + 1 < len(data) && (data[i] != 0xFF || data[i + 1] == 0 || data[i + 1] & 0xF8 == 0xD0) { i += 1 }
 			}
 		}
-		return width, height, width > 0
+		return width, height, progressive, width > 0
 	}
 	return
 }
@@ -258,11 +361,13 @@ Checked :: struct {
 check :: proc(data: []byte) -> (c: Checked, problem: string) {
 	UNREADABLE :: "That image can't be read."
 	TOO_LARGE :: "That image is too large: at most 40 megapixels."
+	PROGRESSIVE :: "That's a progressive JPEG, which can't be read here. Save it as a regular JPEG or a PNG." // as images saved from the web often are
 	if len(data) == 0 || len(data) > MAX_IMAGE { return c, "An image is at most 10 MiB." }
 	c.kind = sniff(data)
 	if c.kind == .None { return c, "Only PNG and JPEG images." }
-	w, h, ok := claimed_size(data, c.kind)
+	w, h, progressive, ok := read_header(data, c.kind)
 	if !ok || w <= 0 || h <= 0 { return c, UNREADABLE }
+	if progressive { return c, PROGRESSIVE }
 	if w > MAX_PIXELS || h > MAX_PIXELS || w * h > MAX_PIXELS { return c, TOO_LARGE }
 
 	// A hard cap: core:image's inflate doesn't stop at the size a PNG declares, and a 282-byte

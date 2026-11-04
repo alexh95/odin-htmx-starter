@@ -73,6 +73,7 @@ main :: proc() {
 	store_sqlite.migrate("jobs", jobs_store.MIGRATIONS[:])
 	store_sqlite.migrate("notify", notify_store.MIGRATIONS[:])
 	store_sqlite.migrate("uploads", uploads_store.MIGRATIONS[:])
+	uploads_web.backs_up_to(store_sqlite.backup_dir())
 	identity.bootstrap() // the first admin, from ACCOUNTS_ADMIN_HASH
 	jobs_web.init()      // this boot's id; the runs an earlier boot left queued or running
 	jobs_web.admin_ids = identity.admin_ids // who hears of a failed run

@@ -76,6 +76,13 @@ second line, not the first.
 
 Rehearse it once before you need it: `e2e/tests/platform/backup.spec.ts` does exactly this.
 
+**Images.** A database backup doesn't hold them: a message names its image, and the bytes are files in `UPLOADS_DIR`
+(`blobs/<sha256>`). The `uploads.mirror` job copies them to `<BACKUP_DIR>/blobs/` once a day, new ones by name, and deletes
+a copy once its blob has gone, so a moderator's removal reaches the backup within a day. A failed copy fails the job, which
+reaches the admins' Inboxes like any job's. To restore, do the steps above, then copy `<BACKUP_DIR>/blobs/` to
+`<UPLOADS_DIR>/blobs/` before starting the app; `parts/` needs nothing, the app makes it. A restored database can name an
+image newer than the last copy: that message shows a broken image and nothing else fails.
+
 **Houston's own** (M5's `store.backup` job): nightly into `BACKUP_DIR`, the newest 7 kept. In
 `deploy/compose.yaml` that is `/backups`, a mount of its own outside the database's volume: a volume
 of its own by default, or the host directory `FULL_BACKUPS` names in the stack's `.env` (one line;

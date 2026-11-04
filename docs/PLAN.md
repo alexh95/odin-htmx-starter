@@ -4266,8 +4266,24 @@ concurrent uploads × 4 MiB are in flight. NPM streams bodies through (`proxy_re
 **As built (M6 slice 8):** PNG and JPEG (baseline), which is what `core:image` reads; a decode runs alone, in an arena
 with a hard cap (room for its pixels, at most 256 MiB), which ends the unbounded inflate the fuzz found and, on a 512 MiB
 container, is the real limit for a deep PNG. Every stored type is an image, so nothing is an attachment yet. A blob's
-address is its sha256; `Chat_Read` reaches any, so a private room's image is behind knowing that address. A removed
-message's blob stays on disk (`TODO.md`).
+address is its sha256, and a progressive JPEG is refused by name.
+
+**A blob's lifetime (decided by planning, M6 slices 8a-8b).** A blob lives while something holds it: uploads keeps a
+small table of holder procs, chat registers its own (a live message, an open report; avatars and video add a row later),
+and nothing counts, so nothing drifts and retention needs no hook. The hourly sweep takes any blob a day old with no
+holder, which covers retention and images never posted; a member's delete runs the same check at once with no grace; a
+moderator's removal takes the image everywhere, clearing it from every message that holds it, in any room, private rooms
+and DMs too, as an edit does (they act on what a report showed them, which opens no room to reading), then drops the row
+and the file and audits the hash. There's no deny list: a re-upload is a new post, for moderators to handle. A report
+keeps its own `blob`, so a moderator keeps the image if the author deletes first.
+
+**Decision: reads stay member-wide.** `/uploads/blob/<sha256>` is `Chat_Read`, not per room: a 256-bit address held only by
+people who saw the image is a capability, and it now leaves with the message. Its limit: `private, immutable` can't reach
+a copy already in a browser's cache, so a removal takes the image from the server, not from those who already have it.
+
+**Backups.** `store.backup` takes only the database, so `uploads.mirror` copies blobs to `<BACKUP_DIR>/blobs/` once a
+day: by name, what's new, through a part file and a rename; a copy whose row has gone is deleted, so a removal reaches the
+backup within a day. It goes by the row, not the file: a live disk that lost its files can't take the copies with it.
 
 ### 17.7 Audit log
 

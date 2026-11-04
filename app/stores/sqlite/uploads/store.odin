@@ -24,7 +24,9 @@ MIGRATIONS := [?]store.Migration {
 @(private) SQL_CLOSE :: "UPDATE uploads_parts SET state = ? WHERE id = ?"
 @(private) SQL_OPEN :: "SELECT count(*) FROM uploads_parts WHERE state = 0 AND user_id = ? AND at >= ?"
 @(private) SQL_STALE :: "SELECT id FROM uploads_parts WHERE state = 0 AND at < ?"
-@(private) SQL_ADD_BLOB :: "INSERT INTO uploads_blobs(sha256, mime, bytes, width, height, user_id, at) VALUES(?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING"
+@(private) SQL_ADD_BLOB :: "INSERT INTO uploads_blobs(sha256, mime, bytes, width, height, user_id, at) VALUES(?, ?, ?, ?, ?, ?, ?) ON CONFLICT(sha256) DO UPDATE SET at = excluded.at"
+@(private) SQL_BLOBS :: "SELECT sha256 FROM uploads_blobs WHERE at < ?"
+@(private) SQL_DROP_BLOB :: "DELETE FROM uploads_blobs WHERE sha256 = ?"
 @(private) SQL_BLOB :: "SELECT sha256, mime, bytes, width, height, user_id, at FROM uploads_blobs WHERE sha256 = ?"
 
 @(private, thread_local) t: struct {
@@ -34,6 +36,7 @@ MIGRATIONS := [?]store.Migration {
 	at:   i64,
 	blob: m.Blob,
 	out:  ^[dynamic]i64,
+	shas: ^[dynamic]string,
 	sql:  string,
 	err:  m.Error,
 }
@@ -103,6 +106,30 @@ stale :: proc(before: i64, out: ^[dynamic]i64) -> m.Error {
 	}))
 }
 
+// From the sweep and the mirror, on the writer's connection as `stale` is.
+blobs :: proc(before: i64, out: ^[dynamic]string) -> m.Error {
+	t = {at = before, shas = out}
+	return outcome(db.write_now(proc() -> bool {
+		q := db.writer_stmt(SQL_BLOBS)
+		defer db.reset(q)
+		db.bind_id(q, 1, t.at)
+		for db.next_row(q, &t.err) { append(t.shas, db.clone_col(q, 0)) }
+		return t.err == .None
+	}))
+}
+
+drop_blob :: proc(sha256: string) -> m.Error {
+	t = {blob = {sha256 = sha256}}
+	return outcome(db.write_now(proc() -> bool {
+		st := db.writer_stmt(SQL_DROP_BLOB)
+		defer db.reset(st)
+		db.bind_text(st, 1, t.blob.sha256)
+		t.err = db.step_done(st)
+		return t.err == .None
+	}))
+}
+
+// Uploaded again, it's as new: the sweep's 24 h count from the last time anyone sent it.
 add_blob :: proc(b: m.Blob) -> m.Error {
 	t = {blob = b}
 	return outcome(db.write_now(proc() -> bool {

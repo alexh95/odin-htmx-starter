@@ -118,6 +118,7 @@ init :: proc() {
 	}
 	chat_store.init(env.size("CHAT_RING_BYTES"), st.keep)
 	chat_store.set_audit_writer(audit_store.append_in)
+	uploads.holds(chat_store.blob_held)
 }
 
 // What a room of `kind` keeps: its newest `cap` messages, none older than `days`.
@@ -198,6 +199,7 @@ why_not_post :: proc(r: m.Room, v: authz.Viewer) -> string {
 		if v.id == 0 || (v.id != r.owner && !mod) { return "Only its owner and the moderators post here." }
 	case .Private, .Dm:
 		if !reads(r, v.id) { return "Only its members post here." }
+		if r.kind == .Dm && walled(v.id, dm_peer(r, v.id)) { return CANT_MESSAGE }
 	}
 	if r.locked && !mod { return "A moderator locked this room: only moderators post for now." }
 	if until := chat_store.banned(r.id, v.id, .Mute, now()); until != 0 {
@@ -293,17 +295,10 @@ remove :: proc(op: ^m.Change, a: Actor, reason, action: string) -> bool {
 	return chat_store.change(op)
 }
 
-// What a moderator reads of a reported message: its text, and where its image is.
-@(private)
-report_copy :: proc(msg: m.Message) -> string {
-	if msg.blob == "" { return msg.body }
-	return fmt.tprintf("%s\n[image: /uploads/blob/%s]", msg.body, msg.blob)
-}
-
 // A member's report of `msg` in `r` (any kind of room), with a copy of it for the moderators.
 report :: proc(msg: m.Message, v: authz.Viewer, reason: string) -> (i64, m.Error) {
 	return chat_store.report({
-		room = msg.room, msg = msg.id, author = msg.author, author_name = msg.name, body = report_copy(msg),
+		room = msg.room, msg = msg.id, author = msg.author, author_name = msg.name, body = msg.body, blob = msg.blob,
 		by = v.id, by_name = v.name, reason = reason, at = now(),
 	})
 }
@@ -505,6 +500,51 @@ check_post :: proc(body, blob: string) -> (trimmed, problem: string) {
 	if _, err := uploads.blob(blob); err != .None { return "", "That image isn't there any more." }
 	if strings.trim_space(body) == "" { return "", "" }
 	return check_body(body)
+}
+
+// ---- images ------------------------------------------------------------------------------------
+
+// A member's delete let go of an image: it goes now, if nothing else holds it.
+released :: proc(sha: string) {
+	if sha != "" { uploads.release(sha) }
+}
+
+// A moderator's removal (§17.6) takes the image everywhere: out of every message holding it, in any
+// room, private ones and DMs too (they act on what a report showed them, which opens no room to
+// reading), and off the disk. A re-upload is a new post, for moderators to handle.
+purge_image :: proc(sha: string, a: Actor, reason: string, out: ^[dynamic]m.Message) -> m.Error {
+	entry := audit(a, "chat.image_removed", "blob", 0, reason, fmt.tprintf("sha256=%s", sha))
+	if err := chat_store.purge_blob(sha, entry, out); err != .None { return err }
+	return uploads.erase(sha)
+}
+
+// ---- blocks ------------------------------------------------------------------------------------
+
+CANT_MESSAGE :: "You can't message this member."
+
+blocking :: proc(who, other: u64) -> bool { return chat_store.blocking(who, other) }
+
+// Either has blocked the other: a DM is closed both ways.
+walled :: proc(a, b: u64) -> bool {
+	return a != 0 && b != 0 && (chat_store.blocking(a, b) || chat_store.blocking(b, a))
+}
+
+block :: proc(who, other: u64, name: string) -> m.Error {
+	if other == 0 || who == other { return .Constraint }
+	return chat_store.block(who, other, name, now())
+}
+
+unblock :: proc(who, other: u64) -> m.Error { return chat_store.unblock(who, other) }
+blocks :: proc(who: u64, out: ^[dynamic]m.Block) -> m.Error { return chat_store.blocks(who, out) }
+
+// The other member of a DM, or 0.
+dm_peer :: proc(r: m.Room, me: u64) -> u64 {
+	pair := make([dynamic]m.Member, 0, 2, context.temp_allocator)
+	_ = chat_store.members(r.id, &pair)
+	for mem in pair {
+		if mem.who != me { return mem.who }
+	}
+	return 0
 }
 
 // Stores op's message; op.done runs once it is. false: the store is busy.

@@ -1,5 +1,13 @@
+import { randomBytes } from 'node:crypto';
+import { cpSync, mkdtempSync, rmSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { test, expect } from '../../fixtures';
+import type { Page } from '@playwright/test';
+import { signIn } from '../../helpers/accounts';
 import { leave, member, uid } from '../../helpers/members';
+import { startServer, stopServer, mainOrigin, type Server } from '../../helpers/server';
 
 // Uploads (PLAN §14.2, §17.6): an image goes up in chunks through the shim, each chunk at the
 // offset the server is at, and finishing it checks what the bytes are, whatever they were called.
@@ -155,4 +163,180 @@ test.describe('uploads', T, () => {
     expect((await context.request.get(`/uploads/blob/${'0'.repeat(64)}`, { maxRedirects: 0 })).status()).toBeGreaterThanOrEqual(300);
     await context.close();
   });
+});
+
+// A PNG of its own: bytes after IEND are ignored, and they give it its own address.
+const unique = () => Buffer.concat([PNG, randomBytes(16)]);
+
+async function uploaded(page: Page, data: Buffer): Promise<string> {
+  const id = await made(page, data.length);
+  expect((await put(page, id, 0, data)).status()).toBe(200);
+  const done = await page.request.post(`/uploads/${id}/finish`);
+  expect(done.status()).toBe(200);
+  return (await done.json()).sha256;
+}
+
+const blob = (page: Page, sha: string) => page.request.get(`/uploads/blob/${sha}`);
+const message = (page: Page, text: string) => page.locator('.chat-log > article.chat-msg').filter({ hasText: text });
+
+async function menuOf(page: Page, text: string) {
+  const msg = message(page, text);
+  await msg.hover();
+  await msg.getByRole('button', { name: 'Message actions' }).click();
+  return msg;
+}
+
+async function post(page: Page, slug: string, body: string, attachment: string) {
+  expect((await page.request.post(`/chat/r/${slug}`, { form: { body, attachment } })).status()).toBe(200);
+}
+
+test.describe('a blob lives while something holds it', T, () => {
+  test("a member's delete takes it at once, unless another message holds it", async ({ browser, baseURL }) => {
+    const ann = await member(browser, baseURL!);
+    const slug = await room(ann.page, 'sse');
+    const sha = await uploaded(ann.page, unique());
+    await post(ann.page, slug, 'one', sha);
+    await post(ann.page, slug, 'two', sha);
+    await ann.page.goto(`/chat/r/${slug}?transport=sse`);
+
+    let msg = await menuOf(ann.page, 'one');
+    await msg.getByRole('button', { name: 'Delete' }).click();
+    await expect(ann.page.locator('.chat-log').filter({ hasText: 'Message deleted.' })).toHaveCount(1);
+    expect((await blob(ann.page, sha)).status()).toBe(200); // the other still holds it
+
+    msg = await menuOf(ann.page, 'two');
+    await msg.getByRole('button', { name: 'Delete' }).click();
+    await expect.poll(async () => (await blob(ann.page, sha)).status()).toBe(404);
+    await leave(ann);
+  });
+});
+
+test.describe('a moderator takes an image everywhere', { tag: ['@uploads', '@chat', '@accounts-accounts', '@audit'] }, () => {
+  test('from a report, out of a private room too, keeping the copy past an author\'s delete', async ({ browser, baseURL }) => {
+    const mod = await signIn(browser, baseURL!, '/chat');
+    mod.page.on('dialog', (d) => d.accept('removed after a report'));
+    const ann = await member(browser, baseURL!), bob = await member(browser, baseURL!);
+    bob.page.on('dialog', (d) => d.accept('this image'));
+    const open = await room(ann.page, 'sse');
+    const sha = await uploaded(ann.page, unique());
+    await post(ann.page, open, 'reported one', sha);
+
+    // The same image in a private room of Ann's, which no moderator reads.
+    await ann.page.goto('/chat');
+    await ann.page.locator('#room-name').fill(uid('den '));
+    await ann.page.locator('#room-kind').selectOption('private');
+    await ann.page.getByRole('button', { name: 'Create' }).click();
+    await ann.page.waitForURL(/\/chat\/r\//);
+    const den = new URL(ann.page.url()).pathname.split('/').pop()!;
+    await post(ann.page, den, 'the same one, private', sha);
+
+    await bob.page.goto(`/chat/r/${open}?transport=sse`);
+    const msg = await menuOf(bob.page, 'reported one');
+    await msg.getByRole('button', { name: 'Report' }).click();
+    await expect(bob.page.locator('#toasts .toast').last()).toContainText('Reported');
+
+    // An open report holds it: her delete leaves the moderator the image.
+    await ann.page.goto(`/chat/r/${open}?transport=sse`);
+    const hers = await menuOf(ann.page, 'reported one');
+    await hers.getByRole('button', { name: 'Delete' }).click();
+    await expect(message(ann.page, 'reported one')).toHaveCount(0);
+    expect((await blob(ann.page, sha)).status()).toBe(200);
+
+    await ann.page.goto(`/chat/r/${den}?transport=sse`);
+    await expect(ann.page.locator('.chat-img img')).toHaveCount(1);
+
+    await mod.page.goto('/chat/reports');
+    const report = mod.page.locator('.chat-report').filter({ hasText: 'reported one' });
+    await expect(report.locator('.chat-img img')).toHaveCount(1);
+    await report.getByRole('button', { name: 'Remove the message' }).click();
+    await expect(mod.page.locator('.chat-report').filter({ hasText: 'reported one' })).toHaveCount(0);
+
+    await expect(ann.page.locator('.chat-img img')).toHaveCount(0); // live, on an open page
+    await expect(message(ann.page, 'the same one, private')).toHaveCount(1); // her words stay
+    expect((await blob(ann.page, sha)).status()).toBe(404);
+    const csv = await (await mod.context.request.get('/admin/audit/export?action=chat.image_removed')).text();
+    expect(csv).toContain(sha);
+    await mod.context.close();
+    await leave(ann, bob);
+  });
+
+  test('an image alone leaves a line saying so', async ({ browser, baseURL }) => {
+    const mod = await signIn(browser, baseURL!, '/chat');
+    mod.page.on('dialog', (d) => d.accept('off topic'));
+    const ann = await member(browser, baseURL!);
+    const open = await room(ann.page, 'sse');
+    const sha = await uploaded(ann.page, unique());
+    await post(ann.page, open, 'with words', sha);
+    await post(ann.page, open, '', sha);
+    await ann.page.goto(`/chat/r/${open}?transport=sse`);
+    await mod.page.goto(`/chat/r/${open}?transport=sse`);
+    const msg = await menuOf(mod.page, 'with words');
+    await msg.getByRole('button', { name: 'Remove' }).click();
+    await expect(ann.page.locator('.chat-log')).toContainText('Image removed.');
+    await expect(ann.page.locator('.chat-img img')).toHaveCount(0);
+    await mod.context.close();
+    await leave(ann);
+  });
+});
+
+// DATA.md's restore, for images: the database's backup and the blobs' copy, on a new disk.
+test('a restore brings an image back, and a removal reaches the copy', { tag: ['@uploads', '@chat', '@jobs', '@accounts-accounts', '@platform-sqlite'] }, async ({ browser }) => {
+  test.slow();
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'odin-blobs-'));
+  const env = { DB_PATH: path.join(dir, 'data.db'), BACKUP_DIR: path.join(dir, 'backups'), UPLOADS_DIR: path.join(dir, 'uploads') };
+  let s: Server | undefined;
+  try {
+    s = await startServer(test.info().config, env);
+    const admin = await signIn(browser, mainOrigin(s.port), '/chat');
+    admin.page.on('dialog', (d) => d.accept('the copy'));
+    const slug = await room(admin.page, 'sse');
+    const kept = await uploaded(admin.page, unique()), gone = await uploaded(admin.page, unique());
+    await post(admin.page, slug, 'kept', kept);
+    await post(admin.page, slug, 'gone', gone);
+
+    const mirror = async () => {
+      await admin.page.goto('/admin/jobs');
+      const row = admin.page.locator('tr.job').filter({ has: admin.page.locator('code', { hasText: /^uploads\.mirror$/ }) });
+      const before = await admin.page.locator('#jobs-runs tr.run').count();
+      await row.getByRole('button', { name: 'Run now' }).click();
+      await expect(admin.page.locator('#jobs-runs tr.run')).toHaveCount(before + 1);
+      await expect(admin.page.locator('#jobs-runs tr.run').first().locator('.run-state')).toHaveText('done', { timeout: 10_000 });
+    };
+    const copy = path.join(env.BACKUP_DIR, 'blobs');
+    const copied = () => { try { return execFileSync('ls', [copy], { encoding: 'utf8' }); } catch { return ''; } };
+    await mirror();
+    expect(copied()).toContain(kept);
+    expect(copied()).toContain(gone);
+
+    // A blob that's gone goes from the copy on the next run.
+    await admin.page.goto(`/chat/r/${slug}?transport=sse`);
+    const msg = await menuOf(admin.page, 'gone');
+    await msg.getByRole('button', { name: 'Delete' }).click();
+    await expect.poll(async () => (await blob(admin.page, gone)).status()).toBe(404);
+    await mirror();
+    expect(copied()).toContain(kept);
+    expect(copied()).not.toContain(gone);
+
+    const db = path.join(dir, 'restored.db');
+    execFileSync(s.proc.spawnfile, ['--backup', db], { env: { ...process.env, DB_PATH: env.DB_PATH }, stdio: 'pipe' });
+    const cookies = await admin.context.cookies();
+    await admin.context.close();
+    await stopServer(s);
+    s = undefined;
+
+    const fresh = path.join(dir, 'fresh-uploads');
+    cpSync(copy, path.join(fresh, 'blobs'), { recursive: true });
+    s = await startServer(test.info().config, { DB_PATH: db, BACKUP_DIR: path.join(dir, 'backups2'), UPLOADS_DIR: fresh });
+    const back = await browser.newContext({ baseURL: mainOrigin(s.port) });
+    await back.addCookies(cookies.map((c) => ({ ...c, domain: new URL(mainOrigin(s!.port)).hostname })));
+    const page = await back.newPage();
+    await page.goto(`/chat/r/${slug}?transport=sse`);
+    const img = page.locator('.chat-log .chat-img img');
+    await expect(img).toHaveCount(1);
+    await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBe(1);
+    await back.close();
+  } finally {
+    if (s) await stopServer(s);
+    try { rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
+  }
 });

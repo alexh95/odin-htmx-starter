@@ -44,3 +44,5 @@ Store_Open_Count :: proc(user: u64, since: i64) -> int // their open uploads mad
 Store_Stale :: proc(before: i64, out: ^[dynamic]i64) -> Error // open uploads made before `before`
 Store_Add_Blob :: proc(b: Blob) -> Error // .None when the content is here already
 Store_Blob :: proc(sha256: string) -> (Blob, Error)
+Store_Blobs :: proc(before: i64, out: ^[dynamic]string) -> Error // the addresses of those made before `before`
+Store_Drop_Blob :: proc(sha256: string) -> Error

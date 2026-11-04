@@ -36,6 +36,7 @@ MIGRATIONS := [?]store.Migration {
 	{4, "0004_moderation.sql", #load("migrations/0004_moderation.sql", string)},
 	{5, "0005_fts.sql", #load("migrations/0005_fts.sql", string)},
 	{6, "0006_images.sql", #load("migrations/0006_images.sql", string)},
+	{7, "0007_blocks.sql", #load("migrations/0007_blocks.sql", string)},
 }
 
 @(private) ROOM_COLS :: "id, slug, name, at, kind, owner, dropped, locked, slow"
@@ -84,11 +85,19 @@ MIGRATIONS := [?]store.Migration {
 @(private) SQL_SET_ROOM :: "UPDATE chat_rooms SET locked = ?, slow = ? WHERE id = ?"
 @(private) SQL_BAN :: "INSERT INTO chat_bans(room, who, kind, until, made_by) VALUES(?, ?, ?, ?, ?) ON CONFLICT(room, who, kind) DO UPDATE SET until = excluded.until, made_by = excluded.made_by"
 @(private) SQL_BANNED :: "SELECT until FROM chat_bans WHERE room = ? AND who = ? AND kind = ? AND until > ?"
-@(private) REPORT_COLS :: "id, room, msg, author, author_name, body, made_by, by_name, reason, at, resolved, outcome"
-@(private) SQL_REPORT :: "INSERT INTO chat_reports(room, msg, author, author_name, body, made_by, by_name, reason, at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)"
+@(private) REPORT_COLS :: "id, room, msg, author, author_name, body, made_by, by_name, reason, at, resolved, outcome, blob"
+@(private) SQL_REPORT :: "INSERT INTO chat_reports(room, msg, author, author_name, body, made_by, by_name, reason, at, blob) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 @(private) SQL_REPORTS :: "SELECT " + REPORT_COLS + " FROM chat_reports WHERE resolved = 0 ORDER BY id"
 @(private) SQL_REPORT_OF :: "SELECT " + REPORT_COLS + " FROM chat_reports WHERE id = ?"
 @(private) SQL_RESOLVE :: "UPDATE chat_reports SET resolved = ?, outcome = ? WHERE id = ? AND resolved = 0"
+@(private) SQL_BLOB_HELD :: "SELECT EXISTS(SELECT 1 FROM chat_messages WHERE blob = ?1) OR EXISTS(SELECT 1 FROM chat_reports WHERE blob = ?1 AND resolved = 0)"
+@(private) SQL_HOLDING :: "SELECT " + MSG_COLS + " FROM chat_messages WHERE blob = ?"
+@(private) SQL_UNBLOB :: "UPDATE chat_messages SET blob = '', ver = ? WHERE id = ?"
+@(private) SQL_UNBLOB_REPORTS :: "UPDATE chat_reports SET blob = '' WHERE blob = ?"
+@(private) SQL_BLOCK :: "INSERT INTO chat_blocks(who, other, name, at) VALUES(?, ?, ?, ?) ON CONFLICT DO NOTHING"
+@(private) SQL_UNBLOCK :: "DELETE FROM chat_blocks WHERE who = ? AND other = ?"
+@(private) SQL_BLOCKING :: "SELECT 1 FROM chat_blocks WHERE who = ? AND other = ?"
+@(private) SQL_BLOCKS :: "SELECT other, name, at FROM chat_blocks WHERE who = ? ORDER BY at DESC, other"
 @(private) SQL_DROPPED :: "UPDATE chat_rooms SET dropped = max(dropped, ?), dropped_ver = max(dropped_ver, ?) WHERE id = ?"
 @(private) SQL_POST :: "INSERT INTO chat_messages(room, author, name, body, at, ver, blob) VALUES(?, ?, ?, ?, ?, ?, ?)"
 @(private) SQL_EDIT :: "UPDATE chat_messages SET body = ?, edited = ?, ver = ? WHERE id = ?"
@@ -455,6 +464,7 @@ change_run :: proc(o: ^store.Op) {
 	op.result = msg
 	op.result.ver = ver
 	if op.delete {
+		op.released = msg.blob
 		op.result.body, op.result.blob, op.result.gone = "", "", true
 	} else {
 		op.result.body, op.result.edited = strings.clone(op.body, a), edited
@@ -595,6 +605,7 @@ report :: proc(r: m.Report) -> (id: i64, err: m.Error) {
 		db.bind_text(st, 7, r.by_name)
 		db.bind_text(st, 8, r.reason)
 		db.bind_id(st, 9, r.at)
+		db.bind_text(st, 10, r.blob)
 		if making.err = db.step_done(st); making.err != .None { return false }
 		making.report.id = db.last_insert_id()
 		return true
@@ -641,7 +652,117 @@ one_report :: proc(q: db.Stmt) -> m.Report {
 		id = db.column_id(q, 0), room = db.column_id(q, 1), msg = db.column_id(q, 2), author = u64(db.column_id(q, 3)),
 		author_name = db.clone_col(q, 4), body = db.clone_col(q, 5), by = u64(db.column_id(q, 6)), by_name = db.clone_col(q, 7),
 		reason = db.clone_col(q, 8), at = db.column_id(q, 9), resolved = db.column_id(q, 10), outcome = db.clone_col(q, 11),
+		blob = db.clone_col(q, 12),
 	}
+}
+
+// ---- blobs ------------------------------------------------------------------------------------
+
+@(private, thread_local) blobbing: struct {
+	sha:  string,
+	held: bool,
+	audit: m.Audit,
+	out:  ^[dynamic]m.Message,
+	err:  m.Error,
+}
+
+// From the uploads sweep's thread too, which has no reader: on the writer's connection.
+blob_held :: proc(sha256: string) -> bool {
+	blobbing = {sha = sha256, held = true}
+	_ = db.write_now(proc() -> bool {
+		q := db.writer_stmt(SQL_BLOB_HELD)
+		defer db.reset(q)
+		db.bind_text(q, 1, blobbing.sha)
+		if db.next_row(q, &blobbing.err) { blobbing.held = db.column_int(q, 0) != 0 }
+		return blobbing.err == .None
+	})
+	return blobbing.held
+}
+
+purge_blob :: proc(sha256: string, audit: m.Audit, out: ^[dynamic]m.Message) -> m.Error {
+	blobbing = {sha = sha256, audit = audit, out = out}
+	ok := db.write_now(proc() -> bool {
+		q := db.writer_stmt(SQL_HOLDING)
+		db.bind_text(q, 1, blobbing.sha)
+		for db.next_row(q, &blobbing.err) { append(blobbing.out, one_msg(q)) }
+		db.reset(q)
+		if blobbing.err != .None { return false }
+		for &msg in blobbing.out {
+			ver: i64
+			if ver, _, blobbing.err = bump(msg.room); blobbing.err != .None { return false }
+			st := db.writer_stmt(SQL_UNBLOB)
+			db.bind_id(st, 1, ver)
+			db.bind_id(st, 2, msg.id)
+			blobbing.err = db.step_done(st)
+			db.reset(st)
+			if blobbing.err != .None { return false }
+			msg.blob, msg.ver = "", ver
+		}
+		st := db.writer_stmt(SQL_UNBLOB_REPORTS)
+		db.bind_text(st, 1, blobbing.sha)
+		blobbing.err = db.step_done(st)
+		db.reset(st)
+		if blobbing.err != .None { return false }
+		blobbing.err = note(blobbing.audit)
+		return blobbing.err == .None
+	})
+	return .None if ok else blobbing.err if blobbing.err != .None else .Failed
+}
+
+// ---- blocks -----------------------------------------------------------------------------------
+
+@(private, thread_local) blocking_: struct {
+	who, other: u64,
+	name:       string,
+	at:         i64,
+	err:        m.Error,
+}
+
+block :: proc(who, other: u64, name: string, at: i64) -> m.Error {
+	blocking_ = {who = who, other = other, name = name, at = at}
+	ok := db.write_now(proc() -> bool {
+		st := db.writer_stmt(SQL_BLOCK)
+		defer db.reset(st)
+		db.bind_id(st, 1, i64(blocking_.who))
+		db.bind_id(st, 2, i64(blocking_.other))
+		db.bind_text(st, 3, blocking_.name)
+		db.bind_id(st, 4, blocking_.at)
+		blocking_.err = db.step_done(st)
+		return blocking_.err == .None
+	})
+	return .None if ok else blocking_.err if blocking_.err != .None else .Failed
+}
+
+unblock :: proc(who, other: u64) -> m.Error {
+	blocking_ = {who = who, other = other}
+	ok := db.write_now(proc() -> bool {
+		st := db.writer_stmt(SQL_UNBLOCK)
+		defer db.reset(st)
+		db.bind_id(st, 1, i64(blocking_.who))
+		db.bind_id(st, 2, i64(blocking_.other))
+		blocking_.err = db.step_done(st)
+		return blocking_.err == .None
+	})
+	return .None if ok else blocking_.err if blocking_.err != .None else .Failed
+}
+
+blocking :: proc(who, other: u64) -> bool {
+	q := db.read(SQL_BLOCKING)
+	defer db.reset(q)
+	db.bind_id(q, 1, i64(who))
+	db.bind_id(q, 2, i64(other))
+	err: m.Error
+	return db.next_row(q, &err)
+}
+
+blocks :: proc(who: u64, out: ^[dynamic]m.Block) -> (err: m.Error) {
+	q := db.read(SQL_BLOCKS)
+	defer db.reset(q)
+	db.bind_id(q, 1, i64(who))
+	for db.next_row(q, &err) {
+		append(out, m.Block{other = u64(db.column_id(q, 0)), name = db.clone_col(q, 1), at = db.column_id(q, 2)})
+	}
+	return
 }
 
 // ---- invites -------------------------------------------------------------------------------

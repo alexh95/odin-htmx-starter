@@ -12,3 +12,5 @@ _ : m.Store_Open_Count : open_count
 _ : m.Store_Stale : stale
 _ : m.Store_Add_Blob : add_blob
 _ : m.Store_Blob : blob
+_ : m.Store_Blobs : blobs
+_ : m.Store_Drop_Blob : drop_blob

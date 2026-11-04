@@ -25,7 +25,16 @@ in front of it (the fuzz found both; both are upstream reports waiting in `TODO.
   refusal is what ends it. On a small container that cap is the real limit, below 40 MP for a deep PNG.
 
 **Serving**: the type from the row, `nosniff` as on every response, `inline` (every blob is an image), immutable: an
-address is its content. Blobs are for members, not for a room: a private room's image is behind knowing its sha256.
+address is its content. Blobs are for members, not for a room: an address held only by those who saw the image is the
+capability, and it leaves with the message (PLAN §17.6, with what it can't reach: a browser's cache).
+
+**Lifetime**: a blob lives while something holds it. `uploads.holds(proc)` registers a holder, asked each time, so nothing
+counts. `uploads.sweep`, hourly, takes what's a day old and unheld; `release` is the same check at once, for a member's
+delete; `erase` takes it regardless, once a moderator's removal has cleared its holders. A holder that can't tell answers
+true: a file goes only on a no.
+
+**Backups**: `uploads.mirror`, daily, keeps `<BACKUP_DIR>/blobs/` as the rows say (`docs/DATA.md`): a build with no backups
+calls no `backs_up_to` and the job does nothing.
 
 **Pools**: chunks on `uploads` (2 threads, queue 8: §17.6's 8 × 4 MiB), finishes on `decodes` (1, queue 8), reads on
 `blobs` (2, queue 32); past a queue, 503.

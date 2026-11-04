@@ -125,6 +125,14 @@ go; Alex's step is the last: the 2–3 invites (Q23), only after the audit.
       load); PNG and JPEG only, not progressive JPEG (`core:image`); a finish runs one at a time on its own pool. The
       fuzz found two faults in `core:image`, both held off in `uploads.check`, so a decode's arena has a 256 MiB cap,
       which on Houston's 512 MiB is the real limit, below 40 MP for a deep PNG (§17.6 updated).
+- [x] **8a. Blob lifetime** (planning, 2026-11-04): holders, not counters; the sweep past 24 h, a member's delete at once,
+      a moderator's removal everywhere, audited; a report's own `blob`; reads stay member-wide, written in §17.6 as a
+      decision. *Check:* `uploads.spec`, storetests over both families, the domain's `sweep_and_mirror`.
+- [x] **8b. Blobs in backups** (planning, 2026-11-04): the daily `uploads.mirror`, following removals by row; DATA.md.
+      *Check:* a restore brings an image back (`uploads.spec`).
+- [x] **8c. Blocking** (planning, 2026-11-04): the DM closed both ways, no new one, no DMs or mentions in the Inbox; public
+      rooms and moderation unchanged, no audit row; Block and Unblock on the DM page and the message menu, the list at
+      `/chat/blocks`. *Check:* `blocks.spec`, k6's `blocks`.
 - [x] **9. The connection-mode setting** (§14.1): Auto / WebSocket / Streaming / Polling / Multipart in
       `accounts_prefs`, per request by `chat_web`'s switch, `x-impl` on every response; Auto as the spike says.
       *Check:* the four transports × resume specs on `full`, including across a restart (D37).
@@ -1274,9 +1282,6 @@ what still applies lives here.
       inflate doesn't stop at the declared size, so a 282-byte file (`app/features/uploads/testdata/endless.png`) grows
       its output until the allocator refuses. `uploads` holds both off; drop `huffman_fits` and the cap's comment when
       they're fixed.
-- [ ] **Uploads: blobs nobody references.** A removed message, or one past retention, leaves its blob on disk and
-      servable by its address; so does an image never posted. A moderator's removal should take the file too. Needs a
-      reference count across chat, avatars and video (M6 slice 8 left it out).
 - [ ] **Upstream (_hyperscript 0.9.94): its bootstrap's fetch has no catch.** At load it fetches every
       `<script type="text/hyperscript" src>` (`Promise.all(… await fetch(r.src) …)`, the bundle's line 22), and a
       navigation that cuts the fetch rejects it in Firefox (AbortError, or a TypeError NetworkError; Chromium stays

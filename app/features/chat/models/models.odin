@@ -55,6 +55,7 @@ Report :: struct {
 	author:      u64,
 	author_name: string,
 	body:        string,
+	blob:        string, // the message's image, kept for the report: an author's delete leaves it
 	by:          u64,
 	by_name:     string,
 	reason:      string,
@@ -107,6 +108,13 @@ Message :: struct {
 	ver:    i64, // the room's version at its last change
 }
 
+// A member `who` blocked, and their name as it was.
+Block :: struct {
+	other: u64,
+	name:  string,
+	at:    i64,
+}
+
 // An invite to a private room: its link is `/chat/join/<id>.<secret>`, and the store keeps the
 // secret's hash only. Open while not revoked, not expired and not used up.
 Invite :: struct {
@@ -154,6 +162,7 @@ Change :: struct {
 	moderated: bool,
 	audit:     Audit,
 	result:    Message,
+	released:  string, // a delete: the image it carried, now maybe no one's
 }
 
 Store_Init :: proc(ring_bytes: int, keep: Retention)
@@ -199,3 +208,12 @@ Store_Search :: proc(who: u64, words: []string, now: i64, limit: int, out: ^[dyn
 Store_Post :: proc(op: ^Post) -> bool // false: the store is busy; `done` won't run
 Store_Change :: proc(op: ^Change) -> bool
 Store_Seed :: proc()
+// A live message or an open report carries it. True when the store can't tell.
+Store_Blob_Held :: proc(sha256: string) -> bool
+// Clears an image from every message and report, audited, each message's room version bumped so
+// open pages lose it. `out`: the messages as they are now.
+Store_Purge_Blob :: proc(sha256: string, audit: Audit, out: ^[dynamic]Message) -> Error
+Store_Block :: proc(who, other: u64, name: string, at: i64) -> Error // again: nothing changes
+Store_Unblock :: proc(who, other: u64) -> Error
+Store_Blocking :: proc(who, other: u64) -> bool
+Store_Blocks :: proc(who: u64, out: ^[dynamic]Block) -> Error // the newest first

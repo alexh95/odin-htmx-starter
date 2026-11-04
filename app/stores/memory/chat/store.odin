@@ -58,6 +58,7 @@ s: struct {
 	reports:   [dynamic]m.Report, // strings on the heap; MAX_REPORTS, the oldest resolved going first
 	report_seq: mem_store.Seq,
 	msg_seq:   mem_store.Seq,
+	blocks:    [dynamic]Block_Row, // names on the heap; MAX_BLOCKS, the oldest going first
 	base:      i64,
 	bytes:     int,
 	max_bytes: int,
@@ -259,6 +260,7 @@ change :: proc(op: ^m.Change) -> bool {
 		s.bytes -= cost(msg^)
 		delete(msg.body)
 		if op.delete {
+			op.released = strings.clone(msg.blob, store.op_allocator(op))
 			delete(msg.blob)
 			msg.body, msg.blob, msg.gone = "", "", true
 		} else {
@@ -386,6 +388,7 @@ report :: proc(r: m.Report) -> (id: i64, err: m.Error) {
 	row := r
 	row.id, row.resolved, row.outcome = mem_store.next_id(&s.report_seq), 0, ""
 	row.author_name, row.body, row.by_name, row.reason = strings.clone(r.author_name), strings.clone(r.body), strings.clone(r.by_name), strings.clone(r.reason)
+	row.blob = strings.clone(r.blob)
 	append(&s.reports, row)
 	return row.id, .None
 }
@@ -428,6 +431,7 @@ copy_report :: proc(r: m.Report) -> m.Report {
 	out := r
 	out.author_name, out.body = strings.clone(r.author_name, context.temp_allocator), strings.clone(r.body, context.temp_allocator)
 	out.by_name, out.reason = strings.clone(r.by_name, context.temp_allocator), strings.clone(r.reason, context.temp_allocator)
+	out.blob = strings.clone(r.blob, context.temp_allocator)
 	return out
 }
 
@@ -437,6 +441,105 @@ free_report :: proc(r: m.Report) {
 	delete(r.body)
 	delete(r.by_name)
 	delete(r.reason)
+	delete(r.blob)
+}
+
+// ---- blobs ------------------------------------------------------------------------------------
+
+blob_held :: proc(sha256: string) -> bool {
+	mem_store.lock(&s.lock)
+	defer mem_store.unlock(&s.lock)
+	for r in s.rooms {
+		for i in 0 ..< r.ring.n {
+			if mem_store.ring_newest(&r.ring, i).blob == sha256 { return true }
+		}
+	}
+	for rep in s.reports {
+		if rep.resolved == 0 && rep.blob == sha256 { return true }
+	}
+	return false
+}
+
+purge_blob :: proc(sha256: string, audit: m.Audit, out: ^[dynamic]m.Message) -> m.Error {
+	mem_store.lock(&s.lock)
+	for r in s.rooms {
+		for i in 0 ..< r.ring.n {
+			msg := mem_store.ring_newest(&r.ring, i)
+			if msg.blob != sha256 { continue }
+			r.ver += 1
+			r.bytes -= cost(msg^)
+			s.bytes -= cost(msg^)
+			delete(msg.blob)
+			msg.blob, msg.ver = "", r.ver
+			r.bytes += cost(msg^)
+			s.bytes += cost(msg^)
+			append(out, copy_msg(msg^))
+		}
+	}
+	for &rep in s.reports {
+		if rep.blob == sha256 {
+			delete(rep.blob)
+			rep.blob = ""
+		}
+	}
+	mem_store.unlock(&s.lock)
+	note(audit)
+	return .None
+}
+
+// ---- blocks -----------------------------------------------------------------------------------
+
+MAX_BLOCKS :: 4096
+
+@(private)
+Block_Row :: struct {
+	who: u64,
+	row: m.Block,
+}
+
+block :: proc(who, other: u64, name: string, at: i64) -> m.Error {
+	mem_store.lock(&s.lock)
+	defer mem_store.unlock(&s.lock)
+	for b in s.blocks {
+		if b.who == who && b.row.other == other { return .None }
+	}
+	if len(s.blocks) >= MAX_BLOCKS {
+		delete(s.blocks[0].row.name)
+		ordered_remove(&s.blocks, 0)
+	}
+	append(&s.blocks, Block_Row{who, {other, strings.clone(name), at}})
+	return .None
+}
+
+unblock :: proc(who, other: u64) -> m.Error {
+	mem_store.lock(&s.lock)
+	defer mem_store.unlock(&s.lock)
+	for b, i in s.blocks {
+		if b.who == who && b.row.other == other {
+			delete(b.row.name)
+			ordered_remove(&s.blocks, i)
+			break
+		}
+	}
+	return .None
+}
+
+blocking :: proc(who, other: u64) -> bool {
+	mem_store.lock(&s.lock)
+	defer mem_store.unlock(&s.lock)
+	for b in s.blocks {
+		if b.who == who && b.row.other == other { return true }
+	}
+	return false
+}
+
+blocks :: proc(who: u64, out: ^[dynamic]m.Block) -> m.Error {
+	mem_store.lock(&s.lock)
+	defer mem_store.unlock(&s.lock)
+	#reverse for b in s.blocks {
+		if b.who == who { append(out, m.Block{b.row.other, strings.clone(b.row.name, context.temp_allocator), b.row.at}) }
+	}
+	return .None
 }
 
 // What is older than each room's kind's age goes, oldest first.

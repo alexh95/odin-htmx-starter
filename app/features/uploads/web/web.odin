@@ -29,6 +29,7 @@ ROUTES := [?]web.Route {
 
 JOBS := [?]workers.Job {
 	{"uploads.sweep", time.Hour, sweep_job, nil},
+	{"uploads.mirror", 10 * time.Minute, mirror_job, mirror_due},
 }
 
 @(private) starts := web.Limit{window = time.Hour} // n: UPLOADS_PER_HOUR
@@ -47,7 +48,36 @@ init :: proc() {
 
 @(private)
 sweep_job :: proc() {
-	if n := uploads.sweep(); n > 0 { workers.log("%d abandoned", n) }
+	abandoned, unheld := uploads.sweep()
+	if abandoned + unheld > 0 { workers.log("%d abandoned, %d blobs unheld", abandoned, unheld) }
+}
+
+// Where the nightly copy goes, from main.
+backs_up_to :: proc(dir: string) { uploads.backs_up_to(dir) }
+
+// Once a day, wherever there's a backup to sit beside.
+@(private) MIRROR_EVERY :: 24 * time.Hour
+@(private) mirrored: time.Tick
+
+@(private)
+mirror_due :: proc() -> bool {
+	return uploads.mirror_dir() != "" && (mirrored == {} || time.tick_since(mirrored) >= MIRROR_EVERY)
+}
+
+@(private)
+mirror_job :: proc() {
+	dir := uploads.mirror_dir()
+	if dir == "" {
+		workers.log("no backups here")
+		return
+	}
+	copied, removed, ok := uploads.mirror(dir)
+	mirrored = time.tick_now()
+	if ok {
+		workers.log("%d copied, %d removed", copied, removed)
+	} else {
+		workers.fail("%d copied, %d removed, and some failed", copied, removed)
+	}
 }
 
 @(private)

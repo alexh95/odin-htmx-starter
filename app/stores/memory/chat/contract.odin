@@ -36,3 +36,9 @@ _ : m.Store_Message : message
 _ : m.Store_Post : post
 _ : m.Store_Change : change
 _ : m.Store_Seed : seed
+_ : m.Store_Blob_Held : blob_held
+_ : m.Store_Purge_Blob : purge_blob
+_ : m.Store_Block : block
+_ : m.Store_Unblock : unblock
+_ : m.Store_Blocking : blocking
+_ : m.Store_Blocks : blocks

@@ -2,10 +2,18 @@ package uploads
 
 // ---- what an upload's bytes are: the sniff, the claimed size, the decode bomb (§17.6) ---------
 
+import "base:runtime"
+import "core:fmt"
 import "core:hash"
+import "core:os"
+import "core:strings"
 import "core:testing"
+import "core:time"
 
 import "../../platform/fuzz"
+import "../../platform/obs"
+import m "models"
+import uploads_store "store:uploads"
 
 // 1×1, RGB, one white pixel.
 @(private = "file")
@@ -123,8 +131,66 @@ fuzz_the_decoders :: proc(t: ^testing.T) {
 reads_each_seed :: proc(t: ^testing.T) {
 	for seed, i in SEEDS {
 		c, why := check(seed)
-		// Only the progressive one: core:image doesn't read those.
-		testing.expectf(t, why == "" || i == 6, "%d: %q", i, why)
-		if why == "" { testing.expect(t, c.width > 0 && c.height > 0) }
+		if i == 6 { // core:image doesn't read those, and the member hears why
+			testing.expectf(t, strings.contains(why, "progressive"), "%q", why)
+			continue
+		}
+		testing.expectf(t, why == "", "%d: %q", i, why)
+		testing.expect(t, c.width > 0 && c.height > 0)
 	}
+}
+
+// ---- a blob's lifetime, on the build's store, in a directory of its own -------------------------
+
+@(private = "file")
+SHA_A :: "a000000000000000000000000000000000000000000000000000000000000000"
+@(private = "file")
+SHA_B :: "b000000000000000000000000000000000000000000000000000000000000000"
+
+@(test)
+sweep_and_mirror :: proc(t: ^testing.T) {
+	context.allocator = runtime.heap_allocator()
+	obs.init(.Fatal)
+	dir := fmt.tprintf("%s/uploads-test-%d", os.temp_directory(context.temp_allocator) or_else ".", os.get_pid())
+	defer os.remove_all(dir)
+	st.parts, st.blobs = fmt.tprintf("%s/parts", dir), fmt.tprintf("%s/blobs", dir)
+	testing.expect(t, directories())
+	st.n_holders = 0
+	holds(proc(sha: string) -> bool { return sha == SHA_A })
+
+	old := now() - i64(UNHELD / time.Second) - 60
+	for sha in ([?]string{SHA_A, SHA_B}) {
+		_ = os.write_entire_file(blob_path(sha), transmute([]byte)sha)
+		testing.expect_value(t, uploads_store.add_blob(m.Blob{sha256 = sha, mime = "image/png", at = old}), m.Error.None)
+	}
+
+	dest := fmt.tprintf("%s/backup/blobs", dir)
+	copied, removed, ok := mirror(dest)
+	testing.expect(t, ok && copied == 2 && removed == 0)
+	again, _, _ := mirror(dest)
+	testing.expect_value(t, again, 0) // by name: nothing new
+
+	// A live disk that lost a file doesn't take its copy: the row is still there.
+	_ = os.remove(blob_path(SHA_A))
+	_, removed, ok = mirror(dest)
+	testing.expect(t, ok && removed == 0 && os.exists(fmt.tprintf("%s/%s", dest, SHA_A)))
+	_ = os.write_entire_file(blob_path(SHA_A), string(SHA_A))
+
+	// A day old: the unheld one goes, the held one stays, and the copy follows.
+	_, unheld := sweep()
+	testing.expect_value(t, unheld, 1)
+	testing.expect(t, os.exists(blob_path(SHA_A)) && !os.exists(blob_path(SHA_B)))
+	_, gone := blob(SHA_B)
+	testing.expect_value(t, gone, m.Error.Not_Found)
+	_, removed, _ = mirror(dest)
+	testing.expect_value(t, removed, 1)
+	testing.expect(t, os.exists(fmt.tprintf("%s/%s", dest, SHA_A)) && !os.exists(fmt.tprintf("%s/%s", dest, SHA_B)))
+
+	// A release with no grace, and a holder that can't tell keeps it.
+	release(SHA_A)
+	testing.expect(t, os.exists(blob_path(SHA_A)))
+	st.n_holders = 0
+	release(SHA_A)
+	testing.expect(t, !os.exists(blob_path(SHA_A)))
+	free_all(context.temp_allocator)
 }

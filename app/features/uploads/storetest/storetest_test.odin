@@ -24,6 +24,8 @@ Family :: struct {
 	stale:      m.Store_Stale,
 	add_blob:   m.Store_Add_Blob,
 	blob:       m.Store_Blob,
+	blobs:      m.Store_Blobs,
+	drop_blob:  m.Store_Drop_Blob,
 }
 
 @(private = "file")
@@ -60,6 +62,22 @@ conforms :: proc(t: ^testing.T, f: Family) {
 	testing.expectf(t, berr == .None && got.mime == "image/png" && got.width == 3 && got.height == 2 && got.user == 7, "%s: a blob, %v", f.name, got)
 	_, none := f.blob("bb")
 	testing.expect_value(t, none, m.Error.Not_Found)
+
+	list := make([dynamic]string, context.temp_allocator)
+	testing.expect_value(t, f.blobs(NOW, &list), m.Error.None)
+	testing.expectf(t, len(list) == 0, "%s: none made before %d: %v", f.name, NOW, list[:])
+	testing.expect_value(t, f.blobs(NOW + 1, &list), m.Error.None)
+	testing.expectf(t, len(list) == 1 && list[0] == SHA, "%s: blobs %v", f.name, list[:])
+	later := row
+	later.at = NOW + 100
+	testing.expect_value(t, f.add_blob(later), m.Error.None) // sent again: as new
+	clear(&list)
+	testing.expect_value(t, f.blobs(NOW + 1, &list), m.Error.None)
+	testing.expect_value(t, len(list), 0)
+	testing.expect_value(t, f.drop_blob(SHA), m.Error.None)
+	_, dropped := f.blob(SHA)
+	testing.expect_value(t, dropped, m.Error.Not_Found)
+	testing.expect_value(t, f.drop_blob(SHA), m.Error.None)
 }
 
 // One test, in order: the stores are process-wide.
@@ -70,10 +88,10 @@ both_families :: proc(t: ^testing.T) {
 	guard.install(proc(_: ^guard.Crash) {})
 	testing.expect_value(t, nbio.acquire_thread_event_loop(), nil)
 	defer nbio.release_thread_event_loop()
-	conforms(t, {"memory", mem.create, mem.upload, mem.advance, mem.close, mem.open_count, mem.stale, mem.add_blob, mem.blob})
+	conforms(t, {"memory", mem.create, mem.upload, mem.advance, mem.close, mem.open_count, mem.stale, mem.add_blob, mem.blob, mem.blobs, mem.drop_blob})
 	testing.expect_value(t, db.open_db(":memory:", .Ephemeral, "storetest"), "")
 	defer db.close()
 	db.migrate("uploads", sql.MIGRATIONS[:])
-	conforms(t, {"sqlite", sql.create, sql.upload, sql.advance, sql.close, sql.open_count, sql.stale, sql.add_blob, sql.blob})
+	conforms(t, {"sqlite", sql.create, sql.upload, sql.advance, sql.close, sql.open_count, sql.stale, sql.add_blob, sql.blob, sql.blobs, sql.drop_blob})
 	free_all(context.temp_allocator)
 }

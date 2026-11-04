@@ -89,8 +89,11 @@ stale :: proc(before: i64, out: ^[dynamic]i64) -> m.Error {
 add_blob :: proc(b: m.Blob) -> m.Error {
 	mem_store.lock(&s.lock)
 	defer mem_store.unlock(&s.lock)
-	for old in s.blobs {
-		if old.sha256 == b.sha256 { return .None }
+	for &old in s.blobs {
+		if old.sha256 == b.sha256 {
+			old.at = b.at // uploaded again, it's as new
+			return .None
+		}
 	}
 	if len(s.blobs) >= MAX_ROWS {
 		delete(s.blobs[0].sha256)
@@ -100,6 +103,29 @@ add_blob :: proc(b: m.Blob) -> m.Error {
 	row := b
 	row.sha256, row.mime = strings.clone(b.sha256), strings.clone(b.mime)
 	append(&s.blobs, row)
+	return .None
+}
+
+blobs :: proc(before: i64, out: ^[dynamic]string) -> m.Error {
+	mem_store.lock(&s.lock)
+	defer mem_store.unlock(&s.lock)
+	for b in s.blobs {
+		if b.at < before { append(out, strings.clone(b.sha256, context.temp_allocator)) }
+	}
+	return .None
+}
+
+drop_blob :: proc(sha256: string) -> m.Error {
+	mem_store.lock(&s.lock)
+	defer mem_store.unlock(&s.lock)
+	for b, i in s.blobs {
+		if b.sha256 == sha256 {
+			delete(b.sha256)
+			delete(b.mime)
+			ordered_remove(&s.blobs, i)
+			break
+		}
+	}
 	return .None
 }
 

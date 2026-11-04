@@ -63,6 +63,9 @@ backup_init :: proc() {
 	obs.backup_report(nightly, max(by_hand, before_deploy))
 }
 
+// Where the backups go, resolved; "" when the database is no file.
+backup_dir :: proc() -> string { return bk.dir }
+
 // Nightly: at its hour, and not yet today.
 @(private)
 backup_due :: proc() -> bool {
