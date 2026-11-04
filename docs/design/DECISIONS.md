@@ -2155,7 +2155,7 @@ class can't return (01 §14.4). No 1-loop leg (D17).
 | Restart | boot → `/readyz` ≤ 50 ms (file DB, 20k rows) plus the bind retry; 4000 clients back ≤ 3 s; stale cursors → replay or resync 100 % | 13 §3.3-3.4 |
 | Shutdown | ≤ 6 s with 500 SSE + 500 WS + a slowloris + a half-sent body + a non-closing idle peer | 13 §4.1 (13.2 s and > 30 s today) |
 | Login storm | 50 logins/s under `cpus: 2.0` with one argon thread: other routes' p99 ≤ their base + 0.5 ms, the cgroup never throttled, every login answered (Q34, answered 2026-10-26; the first budget, +10 %, failed in S0.5) | 07 §5.6; S0.5 |
-| Chat | writer task ≥ 50k msgs/s batched on a file WAL; send → another member's DOM on the LAN via NPM p95 ≤ 50 ms (NEW) | 12 §3.1 |
+| Chat | writer task, on a real post (FTS, the version bump, a trim at the cap) on a file WAL: ≥ 10k msgs/s at a retention cap, ≥ 3× autocommit, 1000 msgs/s offered at p95 ≤ 50 ms; send → another member's DOM on the LAN via NPM p95 ≤ 50 ms (NEW) | 12 §3.1; restated at M6 from "≥ 50k msgs/s batched", a bare insert's number (`docs/perf/CHAT-BUDGETS.md`) |
 | Bot (mock) | 1000 concurrent generations × 200 tokens at 20 Hz ≤ 1 core and ≤ +30 MB (NEW) | — |
 | Video | 256 MiB Range transfer ≤ 8 MB peak private memory (Linux splice UNVERIFIED) | 07 §0.2 (5.1 MB) |
 | Terminal | 80×24 full render ≤ 100 µs; LAN key echo p95 ≤ 50 ms (estimate UNVERIFIED) | 07 §3.3 (53 µs) |

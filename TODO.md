@@ -18,6 +18,9 @@ copy-and-start ergonomics and good defaults matter more than feature depth.
 
 ## Known flakes (seen once, passed on a rerun: not fixed)
 
+- `contacts/crud.spec:4` on Firefox (skeleton): "Invited" stayed where "Disabled" was due, both attempts of one run on
+  69df7b9. Watch it.
+
 - [x] **dbview's drill, Linux** (run 41251995318, job "Drills (full, Linux)", on `eea5cae`): a query running to its
       2 s budget left the writes' slowest at 63 ms (alone: 1.1 ms), against the drill's bar; it passed on the rerun.
       Found: the bar (the slowest ≤ max(50 ms, 3× alone)) caught one write on a four-core runner whose core the
@@ -142,15 +145,16 @@ go; Alex's step is the last: the 2–3 invites (Q23), only after the audit.
 - [ ] **10. Budgets** (§18, D38): the WS chat budget at 1000 sockets; the writer task ≥ 3× autocommit at 1000
       msgs/s; send → another member's DOM p95 ≤ 50 ms on the LAN through NPM. *Check:* the drills and k6
       scenarios, recorded in `docs/perf/`.
-      Recorded in `docs/perf/CHAT-BUDGETS.md` (2026-11-04), with the worst decode against 512 MiB. Open: the DOM number
-      through NPM, which needs Houston on this code (5.3 ms direct), and §18.4's 50k row, measured 12k with a real post's
-      FTS and version: planning's call to restate. It found the socket wait fixed in F-23.
+      Recorded in `docs/perf/CHAT-BUDGETS.md` (2026-11-04), with the worst decode against 512 MiB; §18.4's writer row
+      restated against a real post (planning, 2026-11-04). It found the socket wait fixed in F-23. Closes after the
+      promote, as M5's smoke did: the DOM number through NPM needs Houston on this code (5.3 ms direct), and the invites
+      wait on it.
 - [ ] **11. The XSS/UGC suite and the oldest browser** (§19.1.2, D22): every place chat, notify and uploads render a
       member's text or file, against the injection set; D22's core flows on the oldest-browser device with no client
       behaviours (htmx 4 there UNVERIFIED (M6)). *Check:* the suite in e2e; the device run recorded.
       The suite is in (`e2e/tests/chat/xss.spec.ts`, 2026-11-04): messages over the four transports, edits, search, room
-      names, the Inbox, invites, reports, the audit log, upload names. It found nothing. The device run waits on Alex:
-      the phone is his (v2.5.0's steps), so this stays open.
+      names, the Inbox, invites, reports, the audit log, upload names. It found nothing. Closes after the promote, as
+      M5's smoke did: the phone is Alex's (v2.5.0's steps), and the invites wait on the walk.
 - [ ] **12. Exit**: the slice gate for every new feature; the parity gate on both legs; `docs/audit/M6.md`, the
       focused security audit of accounts, sessions, chat and uploads, by an agent that didn't write the code, 0 open
       CRITICAL/HIGH, and a re-read of its fixes; `Audited:` stamps; CHANGELOG's 2.5.0 lead. Then, with Alex: the

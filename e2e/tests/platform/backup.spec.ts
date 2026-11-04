@@ -1,6 +1,6 @@
 import { test, expect, has } from '../../fixtures';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { startServer, stopServer, get, post, onMain, type Server } from '../../helpers/server';
@@ -46,13 +46,16 @@ test('a backup taken under a live server restores with the data in it', { tag: '
     backup(copy);
     expect(existsSync(copy)).toBe(true);
     expect(() => backup(copy)).toThrow(); // never overwrites a file
+    // A selection with notes and no home page has nowhere that lists one: the copy's bytes say it's there.
+    const listed = !notes || has('home');
+    if (!listed) expect(readFileSync(copy).includes(marker)).toBe(true);
 
     await stopServer(srv);
     srv = await startServer(test.info().config, { DB_PATH: copy });
     const page = demo ? `/api/search?q=${encodeURIComponent(marker)}` : accounts ? '/login' : '/';
-    const restored = await get(srv.port, marker ? page : '/healthz', cookie ? { cookie, ...onMain(srv.port) } : {});
+    const restored = await get(srv.port, marker && listed ? page : '/healthz', cookie ? { cookie, ...onMain(srv.port) } : {});
     expect(restored.status).toBe(200);
-    expect(restored.body).toContain(marker);
+    if (listed) expect(restored.body).toContain(marker);
   } finally {
     if (srv) await stopServer(srv);
     try { rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }

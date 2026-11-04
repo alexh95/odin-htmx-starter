@@ -3331,8 +3331,9 @@ Polling / Multipart" setting: a compatibility mode for networks whose proxies ki
 `data-author`) and an on-demand menu, `GET /chat/m/<id>/menu`, rendered with the viewer's perms. The hub skips
 nobody: the author's reply and the hub's copy share an id and dedupe by upsert, so the author's other tabs get the
 message too (D13). Unread counts for other rooms go to `notify.user:<uid>` as hx-targets updates of `.unread-<room>`.
-The writer task's measured insert rates are in §11; D38 budgets ≥ 50k msgs/s and send → another member's DOM p95
-≤ 50 ms on the LAN via NPM (**NEW**, §18).
+The writer task's measured insert rates are in §11. D38 budgets a real post (FTS, the room's version, a trim at the cap):
+≥ 10k msgs/s at a retention cap, ≥ 3× autocommit and 1000 msgs/s offered at p95 ≤ 50 ms; and send → another member's DOM
+p95 ≤ 50 ms on the LAN via NPM (**NEW**, §18).
 
 **Limits** (D30; the rate-limit table is in §17.5): posts 5 per 10 s per user, burst 10, with a 429 and `Retry-After`
 into the toast slot; WS frames 20 per second per connection, then close 1008; 64 KiB WS messages; typing 1 per 2 s;
@@ -4481,7 +4482,7 @@ read v3 at 0.38–0.43×, so, as X17 provides, the file DB gets candidate C's gr
 | Restart | boot → `/readyz` ≤ 50 ms (file DB, 20k rows) plus the bind retry; 4000 clients back ≤ 3 s; stale cursors → replay or resync 100 % | 13 §3.3-3.4 |
 | Shutdown | ≤ 6 s with 500 SSE + 500 WS + a slowloris + a half-sent body + a non-closing idle peer | 13 §4.1 (13.2 s and > 30 s today) |
 | Login storm | 50 logins/s under `cpus: 2.0` with one argon thread: other routes' p99 ≤ their base + 0.5 ms, the cgroup never throttled, every login answered (200/401, or 503 at once past the queue); Q34, answered 2026-10-26; the first budget, p99 within +10 %, failed in every setting (S0.5: +24 % to ×22 on a sub-millisecond p99, never by blocking a loop; +0.08–0.12 ms with one thread) | 07 §5.6; S0.5 |
-| Chat | writer task ≥ 50k msgs/s batched on a file WAL; send → another member's DOM on the LAN via NPM p95 ≤ 50 ms (NEW) | 12 §3.1 |
+| Chat | writer task, on a real post (FTS, the version bump, a trim at the cap) on a file WAL: ≥ 10k msgs/s at a retention cap, ≥ 3× autocommit, 1000 msgs/s offered at p95 ≤ 50 ms; send → another member's DOM on the LAN via NPM p95 ≤ 50 ms (NEW) | 12 §3.1; restated at M6 from "≥ 50k msgs/s batched", a bare insert's number (`docs/perf/CHAT-BUDGETS.md`) |
 | Bot (mock) | 1000 concurrent generations × 200 tokens at 20 Hz ≤ 1 core and ≤ +30 MB (NEW) | — |
 | Video | 256 MiB Range transfer ≤ 8 MB peak private memory (Linux splice UNVERIFIED) | 07 §0.2 (5.1 MB) |
 | Terminal | 80×24 full render ≤ 100 µs; LAN key echo p95 ≤ 50 ms (estimate UNVERIFIED) | 07 §3.3 (53 µs) |

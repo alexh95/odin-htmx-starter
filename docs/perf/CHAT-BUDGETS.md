@@ -10,18 +10,20 @@ CI's Playwright image under WSL2, 4 pinned cores, the server and clients sharing
 | Budget | Measured | Verdict |
 |---|---|---|
 | WS, 1000 sockets × 20 messages delivered ≤ 2 s | 20,000 of 20,000 through a real room, each POSTed as a composer posts it; p50 6.2, p95 15.2, p99 17.5 ms | met |
+| Writer ≥ 10k msgs/s at a retention cap, a real post | 12,265 msgs/s at a 10,000-message cap; about 21,000 with no cap | met |
 | Writer ≥ 3× autocommit | 12,265 against 3,062 msgs/s on one commit each: 4.0× | met |
-| 1000 msgs/s offered | 10,000 of 10,000 answered; p50 0.19, p95 8.9, p99 13.7 ms | met |
-| Writer ≥ 50k msgs/s batched on a file WAL (§18.4) | 12,265 msgs/s at a 10,000-message cap; about 21,000 with no cap | **not met**, see below |
+| 1000 msgs/s offered, p95 ≤ 50 ms | 10,000 of 10,000 answered; p50 0.19, p95 8.9, p99 13.7 ms | met |
+| The old row: writer ≥ 50k msgs/s batched on a file WAL | the same 12,265 msgs/s | **restated**, see below |
 | Send to another member's DOM p95 ≤ 50 ms, LAN through NPM | direct: p95 5.3 ms over WS, 11.3 ms over SSE, in a real browser | **not yet measured through NPM** |
 | A worst decode fits Houston's 512 MiB | peak RSS 246.8 MiB during a hold of 1000 sockets; the cap allows 314 MiB at most | met |
 
-## The 50k row
+## The 50k row, restated
 
 It came from early measurements of a bare insert (`12 §3.1`: 131–163k at 100 a transaction). A post today is more: a
 savepoint, a room version, an FTS5 insert through a trigger and, at its room's cap, a trim that deletes through FTS5 too.
-Chat's own limit is 5 messages in 10 s per member, so nothing here is near either number. §18.4's row wants restating
-against a real post; nothing was tuned to chase it.
+Chat's own limit is 5 messages in 10 s per member, so nothing here is near either number, and nothing was tuned to chase
+it. Planning restated §18.4 and D38 on 2026-11-04 in three parts on a real post, the throughput floor kept so that the
+1000 msgs/s bar alone can't hide a large regression.
 
 ## What this slice found
 

@@ -1266,7 +1266,7 @@ tr.htmx-swapping { animation: row-out 220ms var(--ease) forwards; }
 @media (max-width: 720px) {
   .topbar { flex-wrap: wrap; gap: 10px; padding: 10px 14px; }
   .brand-name { display: none; }
-  .nav { margin-left: 0; gap: 2px; }
+  .nav { margin-left: 0; gap: 2px; flex-wrap: wrap; } /* a selection can mount more than a phone's row holds */
   .nav-link { padding: 8px 10px; }
   .picker { margin-left: auto; }                 /* hold the picker at the right of row 1 */
   .search { order: 10; flex: 1 1 100%; margin-left: 0; }
