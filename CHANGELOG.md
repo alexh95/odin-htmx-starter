@@ -82,6 +82,8 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 
 ### Fixed
 
+- **A chat message over a WebSocket on a store with a writer thread waited for the next timer**, up to 1 s: the writer's
+  answer queued the hub's drain, and the loop went to sleep past it. F-23 now counts work posted from other threads.
 - **An open stream can't outlive its room's rules**: a socket's frame was judged on the room as the socket found it,
   so a lock, slow mode or a kick missed it, and a DM's or private room's post read as a public one. Each frame now
   reads the room. A kick or a leave ends that member's streams on the room (`hub.kick_member`, `gone`), and chat's

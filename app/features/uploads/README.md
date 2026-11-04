@@ -22,7 +22,8 @@ in front of it (the fuzz found both; both are upstream reports waiting in `TODO.
   bounds;
 - a decode runs in an arena with a hard cap, room for its declared pixels and never more than 256 MiB: the inflate
   behind PNG doesn't stop at the declared size, and a 282-byte file would take all the memory there is. The allocator's
-  refusal is what ends it. On a small container that cap is the real limit, below 40 MP for a deep PNG.
+  refusal is what ends it. That cap is the real limit, below 40 MP: about 31 MP for a JPEG, 23 MP for an RGB PNG
+  (`docs/perf/CHAT-BUDGETS.md`).
 
 **Serving**: the type from the row, `nosniff` as on every response, `inline` (every blob is an image), immutable: an
 address is its content. Blobs are for members, not for a room: an address held only by those who saw the image is the

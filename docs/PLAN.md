@@ -4264,8 +4264,9 @@ concurrent uploads × 4 MiB are in flight. NPM streams bodies through (`proxy_re
 `client_max_body_size 16m`, D41). M6 adds a decode-bomb fuzz.
 
 **As built (M6 slice 8):** PNG and JPEG (baseline), which is what `core:image` reads; a decode runs alone, in an arena
-with a hard cap (room for its pixels, at most 256 MiB), which ends the unbounded inflate the fuzz found and, on a 512 MiB
-container, is the real limit for a deep PNG. Every stored type is an image, so nothing is an attachment yet. A blob's
+with a hard cap (room for its pixels, at most 256 MiB), which ends the unbounded inflate the fuzz found. Measured, that cap
+is the real limit, below 40 MP: about 31 MP for a JPEG, 23 MP for an RGB PNG, 17 MP RGBA, 8.8 MP at 16 bits; the peak with
+1000 sockets held is 247 MiB of Houston's 512 (`docs/perf/CHAT-BUDGETS.md`). Every stored type is an image, so nothing is an attachment yet. A blob's
 address is its sha256, and a progressive JPEG is refused by name.
 
 **A blob's lifetime (decided by planning, M6 slices 8a-8b).** A blob lives while something holds it: uploads keeps a

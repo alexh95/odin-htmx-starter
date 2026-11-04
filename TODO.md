@@ -142,6 +142,9 @@ go; Alex's step is the last: the 2–3 invites (Q23), only after the audit.
 - [ ] **10. Budgets** (§18, D38): the WS chat budget at 1000 sockets; the writer task ≥ 3× autocommit at 1000
       msgs/s; send → another member's DOM p95 ≤ 50 ms on the LAN through NPM. *Check:* the drills and k6
       scenarios, recorded in `docs/perf/`.
+      Recorded in `docs/perf/CHAT-BUDGETS.md` (2026-11-04), with the worst decode against 512 MiB. Open: the DOM number
+      through NPM, which needs Houston on this code (5.3 ms direct), and §18.4's 50k row, measured 12k with a real post's
+      FTS and version: planning's call to restate. It found the socket wait fixed in F-23.
 - [ ] **11. The XSS/UGC suite and the oldest browser** (§19.1.2, D22): every place chat, notify and uploads render a
       member's text or file, against the injection set; D22's core flows on the oldest-browser device with no client
       behaviours (htmx 4 there UNVERIFIED (M6)). *Check:* the suite in e2e; the device run recorded.

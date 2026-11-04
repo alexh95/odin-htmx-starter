@@ -341,10 +341,14 @@ _server_thread_init :: proc(s: ^Server, ttd: ^Server_Thread) {
 // F-23: one turn of a serving loop. core:nbio's Linux tick runs the callbacks queued before it
 // began, then waits on the kernel even when they queued more (a next_tick, a 0 ms timeout), so
 // that work waited for some unrelated event, on a quiet loop the next 1 s timer. Its Windows and
-// posix ticks don't wait while work is queued, and neither does this one.
+// posix ticks don't wait while work is queued, and neither does this one. Work another thread
+// posted counts: the tick takes it from `l.queue` and runs it, and whatever that queues (the hub's
+// drain, from the writer's answer on a socket's post) would wait the same way, with no response
+// in flight to wake the loop.
 _server_tick :: proc() -> nbio.General_Error {
 	l := nbio.current_thread_event_loop()
-	return nbio.tick(0 if queue.len(l.completed) > 0 else nbio.NO_TIMEOUT)
+	busy := queue.len(l.completed) > 0 || sync.atomic_load(&l.queue.count) > 0
+	return nbio.tick(0 if busy else nbio.NO_TIMEOUT)
 }
 
 

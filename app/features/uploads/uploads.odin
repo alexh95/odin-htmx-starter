@@ -373,10 +373,10 @@ check :: proc(data: []byte) -> (c: Checked, problem: string) {
 
 	// A hard cap: core:image's inflate doesn't stop at the size a PNG declares, and a 282-byte
 	// stream that never ends grows its output until the allocator says no. It takes that no as
-	// an error, so the arena is what ends it. Room for the raw rows and the pixels at 16 bits
-	// and four channels, never more than a small container's share.
+	// an error, so the arena is what ends it. Room for what a decode takes at its deepest, 31
+	// bytes a pixel at 16 bits and four channels, never more than a small container's share.
 	arena: virtual.Arena
-	limit := uint(min(w * h * 8 * 3 + 16 << 20, DECODE_LIMIT))
+	limit := uint(min(w * h * 32 + 16 << 20, DECODE_LIMIT))
 	if virtual.arena_init_static(&arena, limit) != nil { return c, UNREADABLE }
 	defer virtual.arena_destroy(&arena)
 	a := virtual.arena_allocator(&arena)
@@ -390,7 +390,7 @@ check :: proc(data: []byte) -> (c: Checked, problem: string) {
 	case .Jpeg:
 		img, err = jpeg.load_from_bytes(data, {}, a)
 	}
-	if err != nil || img == nil { return c, TOO_DEEP if arena.total_used >= limit / 2 else UNREADABLE }
+	if err != nil || img == nil { return c, TOO_DEEP if arena.total_used >= limit / 3 else UNREADABLE }
 	c.width, c.height = img.width, img.height
 	if c.width * c.height > MAX_PIXELS { return c, TOO_LARGE }
 

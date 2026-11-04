@@ -90,6 +90,7 @@ const landed = await reader.evaluate(() => window.landed);
 await browser.close();
 
 const lat = Object.entries(sent).filter(([id]) => landed[id]).map(([id, at]) => landed[id] - at).sort((a, b) => a - b);
+if (lat.length === 0) { console.error(`none of ${Object.keys(sent).length} landed over ${TRANSPORT}`); process.exit(1); }
 const pct = (p) => lat[Math.min(lat.length - 1, Math.floor(lat.length * p / 100))];
 console.log(`${lat.length} of ${Object.keys(sent).length} landed over ${TRANSPORT}; ms p50 ${pct(50).toFixed(1)} p95 ${pct(95).toFixed(1)} max ${lat[lat.length - 1].toFixed(1)} (budget p95 ≤ 50)`);
 process.exit(lat.length === Object.keys(sent).length && pct(95) <= 50 ? 0 : 1);
