@@ -101,9 +101,13 @@ go; Alex's step is the last: the 2–3 invites (Q23), only after the audit.
       on `notify.user:<uid>`. *Check:* e2e across two members; a receipt never from a GET.
       Done (2026-11-04): M2 built these; `chat.spec` now holds the rest of the check: a reload inside the debounce
       doesn't flap presence, leaving shows away, typing expires, a receipt is a POST alone (a GET is 405).
-- [ ] **6. FTS** (§14.1, D16): FTS5 over message bodies with triggers, search within the rooms a member may read;
+- [x] **6. FTS** (§14.1, D16): FTS5 over message bodies with triggers, search within the rooms a member may read;
       the budget of 6.4 ms per 1000 retention deletes kept. *Check:* a storetest of search and membership; the
       retention budget measured.
+      Done (2026-11-04): `0005_fts.sql`, `/chat/search` over the rooms a member may read, the memory store's scan;
+      the storetest's `searching` (membership, a kick, every word, the prefix, typed syntax, an edit and a tombstone),
+      `rooms.spec`'s search case. 3.8 to 4.5 ms per 1000 rows (`docs/perf/CHAT-RETENTION.md`). It also found that
+      `close` crashed on FTS5's internal statements; fixed.
 - [ ] **7. Notify on SQLite** (§14.2): `stores/sqlite/notify`, 200 per user, read ones gone after 30 days, mutes per
       room and kind in `accounts_prefs`; mentions and DMs from chat, job failures to admins. *Check:* notify's
       storetest over both families; e2e of a mention's bell and its count.

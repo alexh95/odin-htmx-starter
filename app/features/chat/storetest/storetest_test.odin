@@ -13,10 +13,13 @@ package chat_storetest
 // keeps a room's newest `cap` (the gap said by `dropped` and `after`'s reached), and the sweep lets
 // go of what is past its kind's age. Moderation: a room's lock and slow mode read back, a ban holds
 // until its time and is lifted by one in the past, a report is resolved once, and a moderator's
-// delete takes anyone's message and writes its audit entry, whose failure (SQLite) undoes it. What the ring keeps and lets go is the
+// delete takes anyone's message and writes its audit entry, whose failure (SQLite) undoes it. Search
+// finds a message in the rooms a member may read and nowhere else, follows an edit and a delete,
+// and treats what is typed as words, never as syntax. What the ring keeps and lets go is the
 // memory store's own test; the SQLite store keeps every message, with ids that are rowids.
 
 import "base:runtime"
+import "core:log"
 import "core:nbio"
 import "core:strings"
 import "core:testing"
@@ -44,6 +47,7 @@ Family :: struct {
 	join:        m.Store_Join,
 	leave:       m.Store_Leave,
 	sweep:       m.Store_Sweep,
+	search:      m.Store_Search,
 	set_audit:   m.Store_Set_Audit_Writer,
 	set_room:    m.Store_Set_Room,
 	ban:         m.Store_Ban,
@@ -184,6 +188,44 @@ conforms :: proc(t: ^testing.T, f: Family) {
 	testing.expectf(t, e5 == .Not_Found, "%s: no such message, %v", f.name, e5)
 	retention(t, f)
 	moderation(t, f)
+	searching(t, f)
+}
+
+@(private = "file")
+searching :: proc(t: ^testing.T, f: Family) {
+	NOW :: i64(1_800_000_000)
+	found :: proc(f: Family, who: u64, words: ..string) -> [dynamic]m.Hit {
+		hits := make([dynamic]m.Hit, context.temp_allocator)
+		_ = f.search(who, words, NOW, 20, &hits)
+		return hits
+	}
+	open, _ := f.create_room("found", "Found", .Public, 7, "ann")
+	shut, _ := f.create_room("hidden", "Hidden", .Private, 7, "ann")
+	a := say(t, f, open.id, 7, "the zebra crossing")
+	b := say(t, f, shut.id, 7, "a zebra in private")
+	hits := found(f, 7, "zebra")
+	testing.expectf(t, len(hits) == 2 && hits[0].msg.id == b.id && hits[1].msg.id == a.id, "%s: the owner finds both, newest first: %v", f.name, hits[:])
+	testing.expectf(t, hits[1].room.slug == "found" && hits[1].msg.body == "the zebra crossing", "%s: a hit's room and body, %v", f.name, hits[1])
+	hits = found(f, 8, "zebra")
+	testing.expectf(t, len(hits) == 1 && hits[0].msg.id == a.id, "%s: a private room is its members' alone: %v", f.name, hits[:])
+	testing.expect_value(t, f.join(shut.id, 8, "bob"), m.Error.None)
+	testing.expectf(t, len(found(f, 8, "zebra")) == 2, "%s: a member finds it", f.name)
+	testing.expect_value(t, f.ban({room = open.id, who = 8, kind = .Kick, until = NOW + 60, by = 1}, {}), m.Error.None)
+	hits = found(f, 8, "zebra")
+	testing.expectf(t, len(hits) == 1 && hits[0].msg.id == b.id, "%s: nor a room they're kicked from: %v", f.name, hits[:])
+
+	testing.expectf(t, len(found(f, 7, "zebra", "crossing")) == 1, "%s: every word", f.name)
+	testing.expectf(t, len(found(f, 7, "zebra", "nothing")) == 0, "%s: every word, none here", f.name)
+	testing.expectf(t, len(found(f, 7, "ZEBRA")) == 2, "%s: any case", f.name)
+	testing.expectf(t, len(found(f, 7, "zeb")) == 2, "%s: the last word as a prefix", f.name)
+	testing.expectf(t, len(found(f, 7, `ze"bra OR *`)) == 0, "%s: what is typed is no syntax", f.name)
+	testing.expectf(t, len(found(f, 7)) == 0, "%s: nothing asked, nothing found", f.name)
+
+	// An edit and a tombstone reach the index.
+	edited, _ := alter(t, f, a.id, 7, "a giraffe now", false)
+	testing.expectf(t, edited.body == "a giraffe now" && len(found(f, 7, "giraffe")) == 1 && len(found(f, 7, "crossing")) == 0, "%s: an edit, %v", f.name, edited)
+	_, _ = alter(t, f, b.id, 7, "", true)
+	testing.expectf(t, len(found(f, 7, "zebra")) == 0, "%s: a tombstone is gone from search", f.name)
 }
 
 @(private = "file")
@@ -314,8 +356,15 @@ chunks :: proc(t: ^testing.T, f: Family) {
 	testing.expect_value(t, sql.trim_every(5000), 50)
 	big, _ := f.create_room("big", "Big", .Announce, 7, "ann")
 	for _ in 0 ..< 1500 { say(t, f, big.id, 7, "x") }
+	start := time.tick_now()
 	removed, err := f.sweep(time.time_to_unix(time.now()) + 120)
+	took := time.tick_since(start)
 	testing.expectf(t, err == .None && removed == 1500, "sqlite: a sweep across chunks, %d %v", removed, err)
+	// §14.1's budget is 6.4 ms per 1000 rows with the FTS triggers on; ten times it fails here, on
+	// any box, and docs/perf/CHAT-RETENTION.md keeps the figure.
+	per_1000 := time.duration_milliseconds(took) * 1000 / f64(max(removed, 1))
+	log.infof("retention: %.2f ms per 1000 rows", per_1000)
+	testing.expectf(t, per_1000 < 64, "sqlite: retention at %.2f ms per 1000 rows", per_1000)
 }
 
 @(private = "file")
@@ -413,11 +462,11 @@ both_families :: proc(t: ^testing.T) {
 	testing.expect_value(t, nbio.acquire_thread_event_loop(), nil)
 	defer nbio.release_thread_event_loop()
 
-	conforms(t, {"memory", mem.init, mem.seed, mem.room, mem.rooms_for, mem.create_room, mem.dm, mem.members, mem.is_member, mem.join, mem.leave, mem.sweep, mem.set_audit_writer, mem.set_room, mem.ban, mem.banned, mem.report, mem.reports, mem.report_of, mem.resolve, mem.add_invite, mem.invite, mem.invites, mem.revoke_invite, mem.use_invite, mem.recent, mem.after, mem.count_after, mem.changed, mem.message, mem.post, mem.change})
+	conforms(t, {"memory", mem.init, mem.seed, mem.room, mem.rooms_for, mem.create_room, mem.dm, mem.members, mem.is_member, mem.join, mem.leave, mem.sweep, mem.search, mem.set_audit_writer, mem.set_room, mem.ban, mem.banned, mem.report, mem.reports, mem.report_of, mem.resolve, mem.add_invite, mem.invite, mem.invites, mem.revoke_invite, mem.use_invite, mem.recent, mem.after, mem.count_after, mem.changed, mem.message, mem.post, mem.change})
 
 	testing.expect_value(t, db.open_db(":memory:", .Ephemeral, "storetest"), "")
 	defer db.close()
 	db.migrate("chat", sql.MIGRATIONS[:])
-	conforms(t, {"sqlite", sql.init, sql.seed, sql.room, sql.rooms_for, sql.create_room, sql.dm, sql.members, sql.is_member, sql.join, sql.leave, sql.sweep, sql.set_audit_writer, sql.set_room, sql.ban, sql.banned, sql.report, sql.reports, sql.report_of, sql.resolve, sql.add_invite, sql.invite, sql.invites, sql.revoke_invite, sql.use_invite, sql.recent, sql.after, sql.count_after, sql.changed, sql.message, sql.post, sql.change})
+	conforms(t, {"sqlite", sql.init, sql.seed, sql.room, sql.rooms_for, sql.create_room, sql.dm, sql.members, sql.is_member, sql.join, sql.leave, sql.sweep, sql.search, sql.set_audit_writer, sql.set_room, sql.ban, sql.banned, sql.report, sql.reports, sql.report_of, sql.resolve, sql.add_invite, sql.invite, sql.invites, sql.revoke_invite, sql.use_invite, sql.recent, sql.after, sql.count_after, sql.changed, sql.message, sql.post, sql.change})
 	free_all(context.temp_allocator)
 }

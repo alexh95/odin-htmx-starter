@@ -145,6 +145,15 @@ sql_contains_ci :: proc "c" (ctx: sqlite.Context, argc: c.int, argv: [^]sqlite.V
 	sqlite.result_int(ctx, 1 if store.contains_ci(sqlite.value_text(argv[0]), sqlite.value_text(argv[1])) else 0)
 }
 
+// A connection's own statements, before it closes. Only these: sqlite3_next_stmt walks FTS5's
+// internal ones too, and finalising those under it crashed the close that followed.
+@(private)
+finalize_cached :: proc(c: ^Conn) {
+	for st in c.stmts[:] {
+		if st != nil { sqlite.finalize(st) }
+	}
+}
+
 // The statement for `sql` on `c`, prepared on first use.
 @(private)
 cached :: proc(c: ^Conn, sql: string) -> Stmt {

@@ -11,6 +11,7 @@ package chat_store_memory
 
 import "core:fmt"
 import "core:mem"
+import "core:slice"
 import "core:strings"
 import "core:time"
 
@@ -272,6 +273,50 @@ change :: proc(op: ^m.Change) -> bool {
 	if op.err == .None && op.moderated { note(op.audit) } // a log line: nothing to undo
 	mem_store.finish(op)
 	return true
+}
+
+// ---- search --------------------------------------------------------------------------------
+
+// A contains_ci scan of the rings: what FTS5 folds (`cafe` for `café`) this doesn't (§11.8).
+search :: proc(who: u64, words: []string, at: i64, limit: int, out: ^[dynamic]m.Hit) -> m.Error {
+	if len(words) == 0 { return .None }
+	mem_store.lock(&s.lock)
+	defer mem_store.unlock(&s.lock)
+	lower := make([]string, len(words), context.temp_allocator)
+	for w, i in words { lower[i] = strings.to_lower(w, context.temp_allocator) }
+	start := len(out)
+	for r in s.rooms {
+		switch r.room.kind {
+		case .Public, .Announce:
+			if kicked(r.room.id, who, at) { continue }
+		case .Private, .Dm:
+			if member_at(r, who) < 0 { continue }
+		}
+		for i in 0 ..< r.ring.n { // newest first
+			msg := mem_store.ring_newest(&r.ring, i)
+			if msg.gone { continue }
+			body := strings.to_lower(msg.body, context.temp_allocator)
+			all := true
+			for w in lower {
+				if !strings.contains(body, w) {
+					all = false
+					break
+				}
+			}
+			if all { append(out, m.Hit{msg = copy_msg(msg^), room = copy_room(r.room)}) }
+		}
+	}
+	slice.sort_by(out[start:], proc(a, b: m.Hit) -> bool { return a.msg.id > b.msg.id })
+	if len(out) - start > limit { resize(out, start + limit) }
+	return .None
+}
+
+@(private)
+kicked :: proc(room_id: i64, who: u64, at: i64) -> bool {
+	for b in s.bans {
+		if b.room == room_id && b.who == who && b.kind == .Kick && b.until > at { return true }
+	}
+	return false
 }
 
 // ---- moderation ----------------------------------------------------------------------------

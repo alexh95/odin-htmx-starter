@@ -428,6 +428,22 @@ room_by_id :: proc(id: i64) -> (m.Room, m.Error) {
 	return {}, .Not_Found
 }
 
+// ---- search ------------------------------------------------------------------------------
+
+SEARCH_HITS :: 50
+MAX_SEARCH_WORDS :: 8
+
+// What `q` finds in the rooms `v` may read, newest first. Global search is `find`'s (M8).
+search :: proc(v: authz.Viewer, q: string, out: ^[dynamic]m.Hit) -> m.Error {
+	words := make([dynamic]string, 0, MAX_SEARCH_WORDS, context.temp_allocator)
+	rest := q
+	for w in strings.fields_iterator(&rest) {
+		if len(words) == MAX_SEARCH_WORDS { break }
+		append(&words, w)
+	}
+	return chat_store.search(v.id, words[:], now(), SEARCH_HITS, out)
+}
+
 // ---- messages ----------------------------------------------------------------------------
 
 // The newest SNAPSHOT, oldest first.

@@ -121,6 +121,12 @@ Invite :: struct {
 	revoked:  i64, // when; 0: not revoked
 }
 
+// A search's match: the message, and its room's for the link.
+Hit :: struct {
+	msg:  Message,
+	room: Room,
+}
+
 Error :: store.Error
 
 // A post: `done` runs once it is stored, with the message.
@@ -184,6 +190,10 @@ Store_After :: proc(room: i64, after: i64, out: ^[dynamic]Message) -> (reached: 
 Store_Count_After :: proc(room: i64, after: i64) -> int // how many kept messages have id > after
 Store_Changed :: proc(room: i64, since: i64, out: ^[dynamic]Message) -> (ver: i64, reached: bool, err: Error) // ver > since; the room's version; false: something changed after `since` has left the room
 Store_Message :: proc(id: i64) -> (Message, Error)
+// The newest `limit` live messages holding `words` (each, whole; the last also as a prefix), in the
+// rooms `who` may read at `now`: public rooms and announcements they aren't kicked from, and the
+// private rooms and DMs they are in.
+Store_Search :: proc(who: u64, words: []string, now: i64, limit: int, out: ^[dynamic]Hit) -> Error
 Store_Post :: proc(op: ^Post) -> bool // false: the store is busy; `done` won't run
 Store_Change :: proc(op: ^Change) -> bool
 Store_Seed :: proc()

@@ -34,6 +34,7 @@ MIGRATIONS := [?]store.Migration {
 	{2, "0002_rooms.sql", #load("migrations/0002_rooms.sql", string)},
 	{3, "0003_retention.sql", #load("migrations/0003_retention.sql", string)},
 	{4, "0004_moderation.sql", #load("migrations/0004_moderation.sql", string)},
+	{5, "0005_fts.sql", #load("migrations/0005_fts.sql", string)},
 }
 
 @(private) ROOM_COLS :: "id, slug, name, at, kind, owner, dropped, locked, slow"
@@ -70,6 +71,12 @@ MIGRATIONS := [?]store.Migration {
 @(private) PAST_AGE :: "SELECT m.room AS room, m.id AS id, m.ver AS ver FROM chat_messages m JOIN chat_rooms r ON r.id = m.room WHERE r.kind = ? AND m.pinned = 0 AND m.at < ? ORDER BY m.id LIMIT 1000"
 @(private) SQL_PAST_AGE :: "SELECT room, max(id), max(ver), count(*) FROM (" + PAST_AGE + ") GROUP BY room"
 @(private) SQL_AGE_OUT :: "DELETE FROM chat_messages WHERE id IN (SELECT id FROM (" + PAST_AGE + "))"
+@(private) SQL_SEARCH :: "SELECT m.id, m.room, m.author, m.name, m.body, m.at, m.edited, m.gone, m.ver, r.id, r.slug, r.name, r.at, r.kind, r.owner, r.dropped, r.locked, r.slow " +
+	"FROM chat_fts f JOIN chat_messages m ON m.id = f.rowid JOIN chat_rooms r ON r.id = m.room " +
+	"WHERE chat_fts MATCH ? AND m.gone = 0 " +
+	"AND (r.kind IN (0, 2) OR EXISTS (SELECT 1 FROM chat_members c WHERE c.room = r.id AND c.who = ?)) " +
+	"AND NOT EXISTS (SELECT 1 FROM chat_bans b WHERE b.room = r.id AND b.who = ? AND b.kind = 1 AND b.until > ?) " +
+	"ORDER BY m.id DESC LIMIT ?"
 @(private) SQL_SAVE :: "SAVEPOINT op"
 @(private) SQL_UNDO :: "ROLLBACK TO op"
 @(private) SQL_RELEASE :: "RELEASE op"
@@ -468,6 +475,47 @@ exec :: proc(sql: string) {
 	st := db.writer_stmt(sql)
 	_ = db.step_done(st)
 	db.reset(st)
+}
+
+// ---- search --------------------------------------------------------------------------------
+
+// Each word quoted, so nothing a member types is FTS5 syntax; the last also matches as a prefix.
+@(private)
+fts_query :: proc(words: []string) -> string {
+	b := strings.builder_make(context.temp_allocator)
+	for w, i in words {
+		if i > 0 { strings.write_byte(&b, ' ') }
+		strings.write_byte(&b, '"')
+		for c in transmute([]byte)w {
+			if c == '"' { strings.write_byte(&b, '"') }
+			strings.write_byte(&b, c)
+		}
+		strings.write_byte(&b, '"')
+		if i == len(words) - 1 { strings.write_byte(&b, '*') }
+	}
+	return strings.to_string(b)
+}
+
+search :: proc(who: u64, words: []string, at: i64, limit: int, out: ^[dynamic]m.Hit) -> (err: m.Error) {
+	if len(words) == 0 { return }
+	q := db.read(SQL_SEARCH)
+	defer db.reset(q)
+	db.bind_text(q, 1, fts_query(words))
+	db.bind_id(q, 2, i64(who))
+	db.bind_id(q, 3, i64(who))
+	db.bind_id(q, 4, at)
+	db.bind_int(q, 5, limit)
+	for db.next_row(q, &err) {
+		kind, _ := store.enum_from_int(m.Room_Kind, db.column_int(q, 13))
+		append(out, m.Hit{
+			msg = one_msg(q),
+			room = {
+				id = db.column_id(q, 9), slug = db.clone_col(q, 10), name = db.clone_col(q, 11), at = db.column_id(q, 12), kind = kind,
+				owner = u64(db.column_id(q, 14)), dropped = db.column_id(q, 15), locked = db.column_int(q, 16) != 0, slow = db.column_int(q, 17),
+			},
+		})
+	}
+	return
 }
 
 // ---- moderation ----------------------------------------------------------------------------

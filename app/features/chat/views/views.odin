@@ -83,6 +83,7 @@ index_page :: proc(rows: []Room_Row, t: chat.Transport, may_create, may_announce
 	b := strings.builder_make(context.temp_allocator)
 	html.page_head(&b, "Comms", "Chat", "Rooms on the LAN." if chat.PERSISTED else "Rooms on the LAN. They are kept in memory, so a restart empties them.")
 	w(&b, `<section class="block chat-index">`)
+	search_form(&b, "")
 	if reports >= 0 { fmt.sbprintf(&b, `<p class="chat-reports-link"><a href="/chat/reports">Reports</a> <span class="badge">%d</span></p>`, reports) }
 	w(&b, `<ul class="chat-rooms">`)
 	for r in rows {
@@ -104,6 +105,36 @@ index_page :: proc(rows: []Room_Row, t: chat.Transport, may_create, may_announce
 	}
 	connection(&b, t)
 	w(&b, `</section>`)
+	return strings.to_string(b)
+}
+
+@(private)
+search_form :: proc(b: ^strings.Builder, q: string) {
+	w(b, `<form class="chat-search" method="get" action="/chat/search" role="search"><input id="chat-q" name="q" type="search" maxlength="200" aria-label="Search the rooms" placeholder="Search the rooms" value="`)
+	esc(b, q)
+	w(b, `"><button class="btn btn-outline" type="submit">Search</button></form>`)
+}
+
+// What a search found, newest first, each a link to its message.
+search_page :: proc(q: string, hits: []m.Hit) -> string {
+	b := strings.builder_make(context.temp_allocator)
+	html.page_head(&b, "Comms", "Search", "The rooms you can read.")
+	w(&b, `<section class="block">`)
+	search_form(&b, q)
+	if q != "" && len(hits) == 0 { w(&b, `<p class="muted chat-search-none">Nothing found.</p>`) }
+	w(&b, `<ul class="chat-hits">`)
+	for hit in hits {
+		w(&b, `<li class="chat-hit"><a href="/chat/r/`)
+		esc(&b, hit.room.slug)
+		fmt.sbprintf(&b, `#m-%d">`, hit.msg.id)
+		room_title(&b, hit.room)
+		w(&b, `</a> <b class="chat-name">`)
+		esc(&b, hit.msg.name)
+		w(&b, `</b><div class="chat-body" hx-ignore data-disable-scripting>`)
+		esc(&b, hit.msg.body)
+		w(&b, `</div></li>`)
+	}
+	w(&b, `</ul></section>`)
 	return strings.to_string(b)
 }
 

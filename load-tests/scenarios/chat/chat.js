@@ -30,6 +30,8 @@ export default function () {
   const t = TRANSPORTS[__ITER % TRANSPORTS.length];
   const rooms = http.get(`${BASE}/chat`, { tags: { name: 'GET /chat' } });
   check(rooms, { 'rooms 200': (r) => r.status === 200 && r.body.includes('chat-rooms') });
+  const found = http.get(`${BASE}/chat/search?q=load`, { tags: { name: 'GET /chat/search' } });
+  check(found, { 'search 200': (r) => r.status === 200 && r.body.includes('chat-hits') });
   const page = http.get(`${BASE}/chat/r/lobby?transport=${t}`, { tags: { name: 'GET /chat/r/:slug' } });
   check(page, { 'room 200': (r) => r.status === 200 && (r.headers['X-Impl'] || '').includes(`chat.transport=${t}`) });
   const set = http.post(`${BASE}/chat/transport`, { transport: t }, { headers: FORM, redirects: 0, tags: { name: 'POST /chat/transport' }, responseCallback: ok(303) });

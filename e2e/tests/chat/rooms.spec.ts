@@ -111,6 +111,39 @@ test.describe('chat rooms', T, () => {
     await leave(ann, bob, cat);
   });
 
+  // Search covers the rooms a member reads, nothing else (§14.1); `find` is M8's.
+  test('search finds what a member may read, escaped, and links to it', async ({ browser, baseURL }) => {
+    const ann = await member(browser, baseURL!), bob = await member(browser, baseURL!);
+    const word = uid('needle');
+    const shut = await newRoom(ann.page, 'private');
+    await open(ann.page, shut);
+    await say(ann.page, `${word} in private`);
+    const room = await newRoom(ann.page, 'public');
+    await open(ann.page, room);
+    await say(ann.page, `${word} <img src=x onerror=alert(1)>`);
+
+    const search = async (page: Page, q: string) => {
+      await page.goto('/chat');
+      await page.locator('#chat-q').fill(q);
+      await page.getByRole('button', { name: 'Search', exact: true }).click();
+      await page.waitForURL(/\/chat\/search/);
+    };
+    await search(ann.page, word);
+    await expect(ann.page.locator('.chat-hit')).toHaveCount(2);
+    await search(bob.page, word);
+    const hit = bob.page.locator('.chat-hit');
+    await expect(hit).toHaveCount(1);
+    await expect(hit.locator('.chat-body')).toHaveText(`${word} <img src=x onerror=alert(1)>`);
+    await expect(hit.locator('img')).toHaveCount(0);
+    await hit.locator('a').click();
+    await bob.page.waitForURL(new RegExp(`/chat/r/${room}#m-`));
+    await search(bob.page, 'zzzznothing');
+    await expect(bob.page.locator('.chat-search-none')).toBeVisible();
+    expect(ann.errors).toEqual([]);
+    expect(bob.errors).toEqual([]);
+    await leave(ann, bob);
+  });
+
   // An invite is a row: a restart, as a deploy is, leaves it working.
   test('a live invite outlives a restart', { tag: '@chat-sqlite' }, async ({ browser }) => {
     test.slow(); // two servers' boots and two registrations: past 30 s on CI's webkit

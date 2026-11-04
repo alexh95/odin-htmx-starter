@@ -14,6 +14,7 @@ _ : m.Store_Is_Member : is_member
 _ : m.Store_Join : join
 _ : m.Store_Leave : leave
 _ : m.Store_Sweep : sweep
+_ : m.Store_Search : search
 _ : m.Store_Set_Audit_Writer : set_audit_writer
 _ : m.Store_Set_Room : set_room
 _ : m.Store_Ban : ban

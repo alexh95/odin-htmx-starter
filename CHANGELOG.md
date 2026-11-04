@@ -13,6 +13,9 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 - **chat on SQLite** (M6 slice 2, its store): `stores/sqlite/chat` keeps rooms and messages across restarts, ids
   the rowids (`PERSISTED`), a post or a change bumping the room's version in the writer's batch;
   `features/chat/storetest` holds both families to one contract.
+- **Chat search** (M6 slice 6): `/chat/search` finds messages in the rooms a member may read: FTS5 with triggers on
+  SQLite (`0005_fts.sql`), a scan in memory. Retention with the triggers on measures 3.8 to 4.5 ms per 1000 rows against
+  the 6.4 ms budget (`docs/perf/CHAT-RETENTION.md`).
 - **Chat moderation** (M6 slice 4): in public rooms and announcements a moderator removes a message to a tombstone,
   mutes or kicks a member for a while, locks the room and sets slow mode, each with an hx-prompt reason and audited in
   the change's own transaction (never the body). Private rooms and DMs are moderated through reports: any reader
@@ -58,6 +61,8 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 
 ### Fixed
 
+- **A store closes cleanly with FTS5 in it**: `close` finalised every statement `sqlite3_next_stmt` returned, FTS5's
+  internal ones included, and the close that followed crashed. It now finalises the connection's own cached statements.
 - **A build that streams but has no topics serves its streams** (the nightly's selections): a generated `status` or
   `scripting` called no `hub.init`, so its first stream tripped an assertion and answered 500. `app.check` now
   initialises streams whenever a mounted row is `.Stream`. A private room's owner lists first among its members. The

@@ -4,7 +4,7 @@
     {"name": "accounts", "lines": 4300, "stores": ["sqlite"], "sqlite": "none", "deps": [], "switched": [], "declares": [], "profiles": ["streams", "full"]},
     {"name": "audit", "lines": 500, "stores": ["memory", "sqlite"], "sqlite": "any", "deps": [], "switched": [], "declares": ["ROUTES", "EXTS"], "profiles": ["streams", "full"]},
     {"name": "bot", "lines": 1100, "stores": ["memory"], "sqlite": "never", "deps": [], "switched": ["backend_mock"], "declares": ["ROUTES", "EXTS", "TOPICS", "init"], "profiles": ["streams"]},
-    {"name": "chat", "lines": 4300, "stores": ["memory", "sqlite"], "sqlite": "any", "deps": ["notify", "audit"], "switched": ["transport_multipart", "transport_poll", "transport_sse", "transport_ws"], "declares": ["ROUTES", "EXTS", "TOPICS", "JOBS", "init"], "profiles": ["streams", "full"]},
+    {"name": "chat", "lines": 4500, "stores": ["memory", "sqlite"], "sqlite": "any", "deps": ["notify", "audit"], "switched": ["transport_multipart", "transport_poll", "transport_sse", "transport_ws"], "declares": ["ROUTES", "EXTS", "TOPICS", "JOBS", "init"], "profiles": ["streams", "full"]},
     {"name": "compat", "lines": 100, "stores": [], "sqlite": "none", "deps": [], "switched": [], "declares": ["ROUTES", "EXTS", "BUNDLES"], "profiles": ["lab"]},
     {"name": "contacts", "lines": 1600, "stores": ["sqlite"], "sqlite": "required", "deps": [], "switched": [], "declares": ["ROUTES", "EXTS"], "profiles": ["skeleton"]},
     {"name": "dashboard", "lines": 200, "stores": [], "sqlite": "none", "deps": ["contacts"], "switched": [], "declares": ["ROUTES", "EXTS"], "profiles": ["skeleton"]},

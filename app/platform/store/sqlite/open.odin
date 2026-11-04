@@ -144,7 +144,7 @@ close :: proc() {
 	}
 	sync.mutex_lock(&db.readers_mu)
 	for r in db.readers {
-		sqlite.finalize_all(r.db)
+		finalize_cached(r)
 		sqlite.close(r.db)
 		free(r, runtime.heap_allocator())
 	}
@@ -155,7 +155,7 @@ close :: proc() {
 	// which drain doesn't wait for (M5-06).
 	guard.lock(&db.wlock)
 	if db.writer.db != nil {
-		sqlite.finalize_all(db.writer.db)
+		finalize_cached(&db.writer)
 		sqlite.close(db.writer.db)
 	}
 	db.writer = {}

@@ -58,6 +58,11 @@ starts from a message's menu, "Message <name>" (`POST /chat/dm/<id>`, `Chat_Dm`)
 opaque slug (`dm-` and 16 hex digits), found again from either side, never made twice. The domain holds the rule
 once (`room_for`, `may_read`, `may_post`, `reads`), and every handler, transport and topic asks it.
 
+**Search** (M6 slice 6, §11.8): `/chat/search?q=` finds messages holding every word (the last also as a prefix) in the
+rooms the member may read, moderators included in that rule: FTS5 over bodies on SQLite (external content, triggers),
+a `contains_ci` scan of the rings in memory. What is typed is quoted, so it is never FTS syntax; hits are escaped
+as any body. Global search is `find`'s (M8).
+
 **Moderation** (§14.1, planning 2026-11-01). In a public room or announcements a moderator (`Chat_Moderate`) removes a
 message to a tombstone (`POST /chat/m/<id>/remove`), mutes or kicks its author for a while (`/chat/r/<slug>/mute/<id>`,
 `/kick/<id>`, `minutes`, 0 lifts it), locks the room (`/lock`: only moderators post) and sets slow mode (`/slow`: one

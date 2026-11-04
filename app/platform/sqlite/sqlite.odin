@@ -294,13 +294,6 @@ reset_all :: proc(db: DB) -> (n: int) {
 	return
 }
 
-finalize_all :: proc(db: DB) {
-	enter(); defer leave()
-	for s := sqlite3_next_stmt(db, nil); s != nil; s = sqlite3_next_stmt(db, nil) {
-		sqlite3_finalize(s)
-	}
-}
-
 stmt_status :: proc(s: Stmt, op: c.int, reset := false) -> int {
 	enter(); defer leave()
 	return int(sqlite3_stmt_status(s, op, c.int(reset)))

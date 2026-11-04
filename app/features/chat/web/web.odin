@@ -38,6 +38,7 @@ POST_CAP :: 32 * 1024
 
 ROUTES := [?]web.Route {
 	{.Get, "/chat", index, .Public, {.Private}, 0}, // the rooms, or the LAN notice
+	{.Get, "/chat/search", search_page, .Chat_Read, {.Private}, 0},
 	{.Post, "/chat/rooms", create_room, .Chat_Create_Room, {.Fragment}, 1024},
 	{.Post, "/chat/transport", set_transport, .Chat_Read, {.Fragment}, 256},
 	{.Get, "/chat/r/([%w%-]+)", room_page, .Chat_Read, {.Private}, 0},
@@ -130,6 +131,18 @@ index :: proc(req: ^web.Request, res: ^web.Response) {
 	rows := make([]chat_views.Room_Row, len(all), context.temp_allocator)
 	for r, i in all { rows[i] = {r, chat.unread(r.id, v.id)} }
 	web.render_page(req, res, "Chat", "/chat", "The rooms on the LAN.", chat_views.index_page(rows, transport(req), chat.may_create(.Public, v), chat.may_create(.Announce, v), open_reports(v)))
+}
+
+// What a member finds in the rooms they may read (a plain GET form: it works with no script).
+@(private)
+search_page :: proc(req: ^web.Request, res: ^web.Response) {
+	q := web.query_get(req, "q")
+	hits := make([dynamic]m.Hit, context.temp_allocator)
+	if err := chat.search(web.viewer(req), q, &hits); err != .None {
+		web.respond_store_error(req, res, err)
+		return
+	}
+	web.render_page(req, res, "Search", "/chat", "Search the rooms you can read.", chat_views.search_page(q, hits[:]))
 }
 
 @(private)
