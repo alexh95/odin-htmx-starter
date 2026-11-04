@@ -96,6 +96,8 @@ sessions_of :: proc(user_id: i64, into: ^[dynamic]m.Session) -> m.Error {
 	return accounts_store.sessions_of(user_id, into)
 }
 
+admin_ids :: proc(out: ^[dynamic]u64) { accounts_store.admin_ids(out) }
+
 count_admins :: proc() -> (int, m.Error) {
 	return accounts_store.count_admins()
 }

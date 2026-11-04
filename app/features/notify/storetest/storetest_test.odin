@@ -29,6 +29,10 @@ Family :: struct {
 	add:       m.Store_Add,
 	mark_read: m.Store_Mark_Read,
 	prune:     m.Store_Prune,
+	add_now:   m.Store_Add_Now,
+	mute:      m.Store_Mute,
+	muted:     m.Store_Muted,
+	mutes:     m.Store_Mutes,
 }
 
 @(private = "file")
@@ -75,6 +79,20 @@ conforms :: proc(t: ^testing.T, f: Family) {
 	clear(&list)
 	f.list(8, 10, &list)
 	testing.expectf(t, len(list) == 1, "%s: an unread item stays", f.name)
+
+	// From a job: stored at once, and counted. A mute is a member's, once, until it is lifted.
+	it, unread, err := f.add_now(77, "jobs.failed", "/admin/jobs", "<b>failed</b>")
+	testing.expectf(t, err == .None && it.id > 0 && it.kind == "jobs.failed" && unread == 1, "%s: add_now %v %d %v", f.name, it, unread, err)
+	testing.expect_value(t, f.unread(77), 1)
+	testing.expect_value(t, f.mute(77, "chat.mention", true), m.Error.None)
+	testing.expect_value(t, f.mute(77, "chat.mention", true), m.Error.None)
+	testing.expect_value(t, f.mute(77, "chat.room:1", true), m.Error.None)
+	testing.expectf(t, f.muted(77, "chat.mention") && !f.muted(78, "chat.mention"), "%s: a member's own", f.name)
+	keys := make([dynamic]string, context.temp_allocator)
+	testing.expect_value(t, f.mutes(77, &keys), m.Error.None)
+	testing.expectf(t, len(keys) == 2 && keys[0] == "chat.mention" && keys[1] == "chat.room:1", "%s: mutes %v", f.name, keys[:])
+	testing.expect_value(t, f.mute(77, "chat.mention", false), m.Error.None)
+	testing.expectf(t, !f.muted(77, "chat.mention"), "%s: lifted", f.name)
 }
 
 // One test, in order: the stores are process-wide.
@@ -86,12 +104,12 @@ both_families :: proc(t: ^testing.T) {
 	testing.expect_value(t, nbio.acquire_thread_event_loop(), nil)
 	defer nbio.release_thread_event_loop()
 
-	conforms(t, {"memory", mem.list, mem.unread, mem.add, mem.mark_read, mem.prune})
+	conforms(t, {"memory", mem.list, mem.unread, mem.add, mem.mark_read, mem.prune, mem.add_now, mem.mute, mem.muted, mem.mutes})
 
 	testing.expect_value(t, db.open_db(":memory:", .Ephemeral, "storetest"), "")
 	defer db.close()
 	db.migrate("notify", sql.MIGRATIONS[:])
-	conforms(t, {"sqlite", sql.list, sql.unread, sql.add, sql.mark_read, sql.prune})
+	conforms(t, {"sqlite", sql.list, sql.unread, sql.add, sql.mark_read, sql.prune, sql.add_now, sql.mute, sql.muted, sql.mutes})
 
 	// SQLite keeps a member's newest KEEP.
 	for _ in 0 ..< sql.KEEP + 3 { add(t, {name = "sqlite", add = sql.add}, 9, "x") }

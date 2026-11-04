@@ -71,6 +71,7 @@ main :: proc() {
 	store_sqlite.migrate("notify", notify_store.MIGRATIONS[:])
 	identity.bootstrap() // the first admin, from ACCOUNTS_ADMIN_HASH
 	jobs_web.init()      // this boot's id; the runs an earlier boot left queued or running
+	jobs_web.admin_ids = identity.admin_ids // who hears of a failed run
 	chat_web.seed()      // the lobby, into an empty store
 	if store_sqlite.unowned() { contacts_web.seed() } // :memory:, or SEED=1: the lab host's demo rows
 

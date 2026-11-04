@@ -104,6 +104,55 @@ test.describe('chat moderation', MOD, () => {
     await leave(bob, cat);
   });
 
+  // A socket outlives what happens to its room: each frame is judged as the room is now, and a
+  // kick ends the member's streams, wherever they sit, and takes the page to the rooms.
+  for (const t of ['ws', 'sse', 'multipart'] as const) {
+    test(`over ${t}, a lock holds on an open page, and a kick ends the stream`, async ({ browser, baseURL }) => {
+      const mod = await signIn(browser, baseURL!, '/chat');
+      answers(mod.page, 'e2e reason');
+      const bob = await member(browser, baseURL!);
+      const slug = await newRoom(mod.page);
+      await open(mod.page, slug);
+      await bob.page.goto(`/chat/r/${slug}?transport=${t}`);
+      await expect(bob.page.locator('.chat-room')).toBeVisible();
+      if (t === 'ws') await expect.poll(() => bob.page.locator('.chat-pane').evaluate((el: any) => el._htmx?.ws?.connection?.socket?.readyState)).toBe(1);
+      await expect(mod.page.locator('.chat-who .who-online', { hasText: bob.name })).toBeVisible();
+      const box = bob.page.locator('.chat-composer textarea');
+      await box.fill('before the lock');
+      await box.press('Enter');
+      await expect(message(mod.page, 'before the lock')).toHaveCount(1);
+
+      await mod.page.locator('.chat-mod').getByRole('button', { name: 'Lock' }).click();
+      await expect(mod.page.locator('.chat-mod').getByRole('button', { name: 'Unlock' })).toBeVisible();
+      await box.fill('after the lock');
+      await box.press('Enter');
+      await expect(bob.page.locator('.chat-composer .form-error')).toContainText('locked');
+      await open(mod.page, slug);
+      await expect(message(mod.page, 'after the lock')).toHaveCount(0);
+
+      const msg = await menuOf(mod.page, 'before the lock');
+      await msg.getByRole('button', { name: 'Kick for an hour' }).click();
+      await bob.page.waitForURL('**/chat');
+      expect((await bob.page.goto(`/chat/r/${slug}`))!.status()).toBe(404);
+      await mod.context.close();
+      await leave(bob);
+    });
+  }
+
+  // A socket names its viewer, so a revoke finds it as it finds #live (M4-09).
+  test('signing out ends a room socket', async ({ browser, baseURL }) => {
+    const bob = await member(browser, baseURL!);
+    await bob.page.goto('/chat/r/lobby?transport=ws');
+    const state = () => bob.page.locator('.chat-pane').evaluate((el: any) => el._htmx?.ws?.connection?.socket?.readyState);
+    await expect.poll(state).toBe(1);
+    const closed = bob.page.evaluate(() => new Promise((done) => {
+      (document.querySelector('.chat-pane') as any)._htmx.ws.connection.socket.addEventListener('close', (e: CloseEvent) => done(e.code));
+    }));
+    expect((await bob.context.request.post('/logout', { maxRedirects: 0 })).status()).toBeLessThan(400);
+    expect(await closed).toBe(1008);
+    await leave(bob);
+  });
+
   test("a private room's message is moderated through its report, from a copy", async ({ browser, baseURL }) => {
     const mod = await signIn(browser, baseURL!, '/chat');
     answers(mod.page, 'removed after a report');

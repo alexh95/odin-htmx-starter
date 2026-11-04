@@ -75,6 +75,9 @@ init :: proc() {
 // The identity's own CLI flags: nick has none.
 cli :: proc() {}
 
+// A nickname's admin is one by its address, with no list to read.
+admin_ids :: proc(out: ^[dynamic]u64) {}
+
 // What a request's cookie and address make its viewer, and a renewed cookie when
 // half of its life is gone.
 load_viewer :: proc(ask: authz.Ask) -> (v: authz.Viewer, set_cookie: string) {

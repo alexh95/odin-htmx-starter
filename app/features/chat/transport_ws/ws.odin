@@ -33,7 +33,7 @@ MAX_RATE :: 20
 Socket :: struct {
 	conn: ^stream.Conn,
 	sub:  ^hub.Sub,
-	room: m.Room,       // slug and name on the heap
+	room: m.Room,       // its id, slug and name, on the heap: a frame re-reads the rest
 	who:  authz.Viewer, // name on the heap
 	// The page's version is answered once: a reconnect is a new socket, and a version on
 	// every frame would buy a snapshot render each (M3-02).
@@ -67,7 +67,7 @@ socket :: proc(req: ^web.Request, res: ^web.Response) {
 	c.user = s
 	// Subscribed before the page's version arrives: a message between the two arrives
 	// twice rather than never, and upsert keeps one.
-	s.sub = hub.subscribe(c, {chat.room_topic(r.id)})
+	s.sub = hub.subscribe(c, {chat.room_topic(r.id)}, v)
 }
 
 // The page's first frame, its version: what changed since, or the snapshot replacing

@@ -237,6 +237,7 @@ Totp_Row :: struct {
 	old, new: string,
 }
 
+Store_Admin_Ids :: proc(out: ^[dynamic]u64) // the enabled admins, from any thread
 Store_Set_Audit_Writer :: proc(w: Audit_Writer) // at init
 Store_Has_Audit_Writer :: proc() -> bool          // the boot check: an identity that audits must have set it
 Store_Totp_Secrets :: proc(into: ^[dynamic]Totp_Row) -> Error // every set one, at boot

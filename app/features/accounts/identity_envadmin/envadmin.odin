@@ -94,6 +94,8 @@ warn :: proc(ev, msg: string) {
 
 cli :: proc() { password.cli() }
 
+admin_ids :: proc(out: ^[dynamic]u64) { append(out, 1) } // the one admin's fixed id
+
 // The admin, while the cookie's MAC is ours and it hasn't expired; anyone else is a Guest.
 load_viewer :: proc(ask: authz.Ask) -> (v: authz.Viewer, set_cookie: string) {
 	value := authz.cookie(ask.cookies, COOKIE)

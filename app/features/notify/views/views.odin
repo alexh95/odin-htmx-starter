@@ -16,15 +16,35 @@ import m "../models"
 w :: html.w
 esc :: html.esc
 
-page :: proc(list: []m.Item, unread: int) -> string {
+page :: proc(list: []m.Item, unread: int, muted: []string) -> string {
 	b := strings.builder_make(context.temp_allocator)
 	html.page_head(&b, "Inbox", "Notifications", "Mentions, direct messages and replies, as they happen.")
 	w(&b, `<section class="block notify"><div class="notify-head"><p><span class="notify-count">`)
 	strings.write_int(&b, unread)
 	w(&b, `</span> unread</p><form hx-post="/notify/read" hx-target="#notify-list" hx-swap="innerHTML"><button class="btn btn-outline" type="submit">Mark all read</button></form></div>`)
 	log(&b, list)
+	if len(muted) > 0 {
+		w(&b, `<h2>Muted</h2><ul class="notify-muted">`)
+		for key in muted {
+			w(&b, `<li>`)
+			esc(&b, key)
+			w(&b, ` `)
+			mute_form(&b, key, false, "Unmute")
+			w(&b, `</li>`)
+		}
+		w(&b, `</ul>`)
+	}
 	w(&b, `</section>`)
 	return strings.to_string(b)
+}
+
+// Mutes or unmutes `key`, a kind or a producer's scope: its button, wherever a page offers it.
+mute_form :: proc(b: ^strings.Builder, key: string, on: bool, label: string) {
+	w(b, `<form class="notify-mute" hx-post="/notify/mute" hx-swap="none"><input type="hidden" name="key" value="`)
+	esc(b, key)
+	fmt.sbprintf(b, `"><input type="hidden" name="on" value="%s"><button class="btn btn-ghost" type="submit">`, "1" if on else "0")
+	esc(b, label)
+	w(b, `</button></form>`)
 }
 
 // The log alone: the page's, and what a resync refetches (hx-trigger on the log).
@@ -61,7 +81,9 @@ item :: proc(b: ^strings.Builder, it: m.Item) {
 	}
 	w(b, `<small class="muted">`)
 	esc(b, html.time_ago(it.at))
-	w(b, `</small></article>`)
+	w(b, `</small>`)
+	mute_form(b, it.kind, true, "Mute these")
+	w(b, `</article>`)
 }
 
 // The push for one new item: into the top of the log, and every count (§9.1: OOB

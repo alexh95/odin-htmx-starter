@@ -28,6 +28,7 @@ MIGRATIONS := [?]store.Migration {
 @(private) SQL_SESSION :: "SELECT " + SESSION_COLS + " FROM sessions WHERE token_hash = ?"
 @(private) SQL_SESSIONS_OF :: "SELECT " + SESSION_COLS + " FROM sessions WHERE user_id = ? ORDER BY last_seen DESC LIMIT 100"
 @(private) SQL_ADMINS :: "SELECT count(*) FROM users WHERE role = 3 AND disabled_at = 0"
+@(private) SQL_ADMIN_IDS :: "SELECT id FROM users WHERE role = 3 AND disabled_at = 0 ORDER BY id"
 @(private) SQL_CREATE :: "INSERT INTO users(username, display, pw_hash, role, created_at) VALUES(?, ?, ?, ?, ?)"
 @(private) SQL_FAILED :: "UPDATE users SET failed_logins = failed_logins + 1, backoff_until = ? WHERE id = ?"
 @(private) SQL_CLEAR :: "UPDATE users SET failed_logins = 0, backoff_until = 0 WHERE id = ?"
@@ -137,6 +138,21 @@ one_session :: proc(q: db.Stmt) -> m.Session {
 		expires_at = db.column_id(q, 4),
 		step_up_at = db.column_id(q, 5),
 	}
+}
+
+// write_now's run takes no arguments, and runs on the caller's own thread.
+@(private, thread_local) listing: ^[dynamic]u64
+
+// On the writer's connection: a job's thread has no reader of its own.
+admin_ids :: proc(out: ^[dynamic]u64) {
+	listing = out
+	db.write_now(proc() -> bool {
+		q := db.writer_stmt(SQL_ADMIN_IDS)
+		defer db.reset(q)
+		err: m.Error
+		for db.next_row(q, &err) { append(listing, u64(db.column_id(q, 0))) }
+		return err == .None
+	})
 }
 
 count_admins :: proc() -> (n: int, err: m.Error) {

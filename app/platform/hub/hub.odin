@@ -106,6 +106,7 @@ Msg :: struct {
 	seq:     u64, // 0 for a kick, which never enters a ring
 	user:    u64, // a revoke's kick: every stream of this user, whatever its topics; 0 = by topic
 	session: u64, // with `user`: only the streams this session opened; 0 = every one
+	scoped:  bool, // with `user`: only their streams on `topic` (kick_member)
 	rowid:   i64,
 	topic:   string,
 	key:     string,
@@ -239,6 +240,15 @@ publish :: proc(topic, html: string, rowid: i64 = 0, key := "") -> u64 {
 kick :: proc(topic: string, code: u16) {
 	m := new_msg(.Kick, .Queue, topic, "", "")
 	m.code = code
+	post(m, 0)
+}
+
+// Ends one member's streams on one topic, and no others of theirs: a member out of a room who
+// keeps their session (chat's kick, a leave). Only a stream that names its viewer is found. A page's
+// #live gets `gone` with `to`, a path on this site, and goes there: `kicked` would have them sign in.
+kick_member :: proc(topic: string, user_id: u64, to: string) {
+	m := new_msg(.Kick, .Queue, topic, "", to)
+	m.code, m.user, m.scoped = stream.WS_POLICY, user_id, true
 	post(m, 0)
 }
 
@@ -433,6 +443,14 @@ wants :: proc(s: ^Sub, topic: string) -> bool {
 	return false
 }
 
+@(private)
+reaches :: proc(m: ^Msg, s: ^Sub) -> bool {
+	if m.user == 0 { return wants(s, m.topic) }
+	if s.user != m.user { return false }
+	if m.scoped { return wants(s, m.topic) }
+	return m.session == 0 || s.session == m.session
+}
+
 // Encodes once per transport, then writes to this loop's subscribers. Backwards,
 // re-checking the length: a write can end a stream, whose close unsubscribes it
 // and moves the last entry into its slot.
@@ -442,7 +460,7 @@ deliver :: proc(m: ^Msg) {
 	for i := len(local.subs) - 1; i >= 0; i -= 1 {
 		if i >= len(local.subs) { continue }
 		s := local.subs[i]
-		if m.user != 0 ? !(s.user == m.user && (m.session == 0 || s.session == m.session)) : !wants(s, m.topic) { continue }
+		if !reaches(m, s) { continue }
 		c := s.conn
 		switch m.kind {
 		case .Html:
@@ -467,7 +485,7 @@ deliver :: proc(m: ^Msg) {
 		case .Kick:
 			switch c.proto {
 			case .Sse:
-				stream.write(c, stream.sse_event("", "kicked", m.topic))
+				stream.write(c, stream.sse_event("", "gone", m.html) if m.scoped else stream.sse_event("", "kicked", m.topic))
 				stream.end(c)
 			case .Ws:
 				stream.ws_close(c, m.code)

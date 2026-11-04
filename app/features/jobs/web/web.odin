@@ -16,6 +16,7 @@ import "../../../platform/html"
 import "../../../platform/hub"
 import "../../../platform/web"
 import "../../../platform/workers"
+import notify_web "../../notify/web"
 import jobs ".."
 import m "../models"
 import jobs_views "../views"
@@ -35,6 +36,10 @@ ROUTES := [?]web.Route {
 TOPICS := [?]hub.Topic {
 	{family = TOPIC, policy = .Latest, perm = .Admin_Jobs, lan_only = true},
 }
+
+// Who hears of a failed run (§14.2): the identity's admins. Set by main, which alone reaches the
+// identity; unset, nobody does.
+admin_ids: proc(out: ^[dynamic]u64)
 
 JOBS := [?]workers.Job {
 	{"jobs.sync", time.Second, sync, nil},
@@ -122,7 +127,18 @@ sync :: proc() {
 		jobs_views.update(&b, r)
 		key := strings.concatenate({"run-", i64_text(r.boot), "-", i64_text(r.id)}, context.temp_allocator)
 		hub.publish(TOPIC, strings.to_string(b), 0, key)
+		if r.state == "failed" { tell_admins(r) }
 	}
+}
+
+// A failed run, once (a run's row comes round again only while it is live), in every admin's Inbox.
+@(private)
+tell_admins :: proc(r: m.Run_Row) {
+	if admin_ids == nil { return }
+	who := make([dynamic]u64, 0, 4, context.temp_allocator)
+	admin_ids(&who)
+	line := jobs_views.failed_line(r)
+	for id in who { notify_web.send_now(id, "jobs.failed", "/admin/jobs", line) }
 }
 
 // A row's job id as a file name: letters, digits, `.`, `-` and `_` (a header is no place for

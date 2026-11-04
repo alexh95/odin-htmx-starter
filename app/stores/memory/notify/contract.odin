@@ -8,3 +8,7 @@ _ : m.Store_Unread : unread
 _ : m.Store_Add : add
 _ : m.Store_Mark_Read : mark_read
 _ : m.Store_Prune : prune
+_ : m.Store_Add_Now : add_now
+_ : m.Store_Mute : mute
+_ : m.Store_Muted : muted
+_ : m.Store_Mutes : mutes

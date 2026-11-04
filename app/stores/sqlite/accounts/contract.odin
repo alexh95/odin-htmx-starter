@@ -12,6 +12,7 @@ _ : m.Store_User_By_Id : user_by_id
 _ : m.Store_Session : session
 _ : m.Store_Sessions_Of : sessions_of
 _ : m.Store_Count_Admins : count_admins
+_ : m.Store_Admin_Ids : admin_ids
 _ : m.Store_Bootstrap_Admin : bootstrap_admin
 _ : m.Store_Create_User : create_user
 _ : m.Store_Login_Failed : login_failed

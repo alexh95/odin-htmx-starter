@@ -38,3 +38,8 @@ Store_Unread :: proc(user: u64) -> int
 Store_Add :: proc(op: ^Add) -> bool // false: the store is busy; `done` won't run
 Store_Mark_Read :: proc(user: u64) -> Error
 Store_Prune :: proc(read_before: i64) -> int // read items older than this go; how many did
+// From a thread with no loop to answer on (a job): stored at once.
+Store_Add_Now :: proc(user: u64, kind, ref, html: string) -> (it: Item, unread: int, err: Error)
+Store_Mute :: proc(user: u64, key: string, on: bool) -> Error
+Store_Muted :: proc(user: u64, key: string) -> bool
+Store_Mutes :: proc(user: u64, out: ^[dynamic]string) -> Error // sorted

@@ -134,6 +134,9 @@ init :: proc() {
 // which says what a sign-in costs on this machine (§17.1: ≤ 100 ms wanted).
 cli :: proc() { password.cli() }
 
+// Every enabled admin, from any thread (a job's).
+admin_ids :: proc(out: ^[dynamic]u64) { accounts.admin_ids(out) }
+
 // From main, after the migrations: the first admin, while no enabled one exists. A hash that
 // isn't one of platform/password's refuses to boot; no admin and no hash warns.
 bootstrap :: proc() {

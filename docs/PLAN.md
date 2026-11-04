@@ -3395,7 +3395,8 @@ each producer, and `kind` is a namespaced string (`"chat.mention"`), so notify n
 §6.2). Producers: mentions, DMs, list assignments, calendar reminders, poll results, a bot reply that finished after you
 navigated away, moderation, the guestbook queue (moderators) and job failures (admins). `notify.user:<uid>` rides the
 page's one `#live` stream (D14): it upserts `#notify-list` and updates every `.notify-count` through hx-targets. It
-keeps 200 per user; read ones go after 30 days. Mutes per room and per kind live in `accounts_prefs`. **As built
+keeps 200 per user; read ones go after 30 days. Mutes per room and per kind live in notify's own store (M6: `send`
+asks for any member, and notify runs on builds with no accounts, so not in `accounts_prefs`). **As built
 (M2):** a push is out of band, the item `afterbegin:#notify-list` and the count `innerHTML:.notify-count`, which core
 htmx swaps into every match (none is no error), so notify needs no hx-targets; its `EXTS` is hx-sse, for the `#live` it
 puts on every page of a member's. A resync refetches the log (`GET /notify/list`); the memory store loses it all at a

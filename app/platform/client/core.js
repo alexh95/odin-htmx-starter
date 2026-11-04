@@ -25,6 +25,13 @@ document.addEventListener("kicked", function (e) {
   var live = e.target && e.target.closest ? e.target.closest("[data-revoke]") : null;
   if (live) setTimeout(function () { if (Date.now() - leftAt > 2000) location.assign(live.dataset.revoke); }, 500);
 });
+// `gone`: a member out of one room (a kick, a leave) keeps their session, so the page goes where the
+// server names, a path on this site, rather than to sign in.
+document.addEventListener("gone", function (e) {
+  var to = e.detail && e.detail.data;
+  if (typeof to !== "string" || to.charAt(0) !== "/" || to.charAt(1) === "/") return;
+  setTimeout(function () { if (Date.now() - leftAt > 2000) location.assign(to); }, 500);
+});
 // A stream the server refuses (401, 403, 404: the viewer may not have its topics any more) is
 // settled, not retried: hx-sse would back off and reconnect forever (PLAN §17.2.3 measured 5 in
 // 30 s). The element is marked, and its next connection is cancelled.

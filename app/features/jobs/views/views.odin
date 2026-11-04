@@ -107,3 +107,12 @@ stamp :: proc(ms: i64) -> string {
 	h, mi, s := time.clock(t)
 	return fmt.tprintf("%04d-%02d-%02d %02d:%02d:%02d", y, int(mo), d, h, mi, s)
 }
+
+// A failed run, for an admin's Inbox.
+failed_line :: proc(r: m.Run_Row) -> string {
+	b := strings.builder_make(context.temp_allocator)
+	html.w(&b, `The job <b>`)
+	html.esc(&b, r.job)
+	html.w(&b, `</b> failed.`)
+	return strings.to_string(b)
+}

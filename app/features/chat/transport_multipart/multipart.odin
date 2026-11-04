@@ -43,7 +43,7 @@ parts :: proc(req: ^web.Request, res: ^web.Response) {
 	c := stream.multipart_begin(res, .Mixed, nil, proc(c: ^stream.Conn) { hub.unsubscribe((^hub.Sub)(c.user)) })
 	if c == nil { return } // admission answered 503 or 429
 	// Subscribed first, as the socket is: a message between the two comes twice, never not.
-	c.user = hub.subscribe(c, {chat.room_topic(r.id)})
+	c.user = hub.subscribe(c, {chat.room_topic(r.id)}, web.viewer(req))
 	msgs := make([dynamic]m.Message, 0, chat.SNAPSHOT, context.temp_allocator)
 	reached := true
 	if resumed { reached, err = chat.after(r.id, i64(last), &msgs) } else { err = chat.recent(r.id, &msgs) }

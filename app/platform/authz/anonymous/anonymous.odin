@@ -20,3 +20,6 @@ init :: proc() {}
 
 // The identity's own CLI flags (--hash-password in the hashing identities).
 cli :: proc() {}
+
+// Nobody here is an admin.
+admin_ids :: proc(out: ^[dynamic]u64) {}

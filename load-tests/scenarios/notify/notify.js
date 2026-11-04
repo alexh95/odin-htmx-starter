@@ -20,4 +20,8 @@ export default function () {
   check(list, { 'list 200': (r) => r.status === 200 });
   const read = http.post(`${BASE}/notify/read`, null, { headers: FORM, tags: { name: 'POST /notify/read' } });
   check(read, { 'read: counts to 0': (r) => r.status === 200 && r.body.includes('notify-count') });
+  for (const on of ['1', '0']) {
+    const mute = http.post(`${BASE}/notify/mute`, { key: 'chat.mention', on }, { headers: FORM, tags: { name: 'POST /notify/mute' } });
+    check(mute, { 'mute 204': (r) => r.status === 204 });
+  }
 }

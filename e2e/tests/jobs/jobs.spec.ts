@@ -20,6 +20,29 @@ function answering(page: Page, reason: string) {
 const job = (page: Page, id: string) => page.locator('tr.job').filter({ has: page.locator('code', { hasText: new RegExp(`^${id.replace('.', '\.')}$`) }) });
 
 test.describe('jobs', T, () => {
+  // A backup dir under a file can't be made, whatever the OS: the run fails, and the admin hears.
+  test("a failed run lands in the admins' Inbox", { tag: '@notify' }, async ({ browser }) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'odin-jobs-'));
+    const file = path.join(dir, 'a-file');
+    fs.writeFileSync(file, '');
+    const s = await startServer(test.info().config, { DB_PATH: path.join(dir, 'data.db'), BACKUP_DIR: path.join(file, 'backups') });
+    try {
+      const admin = await signIn(browser, mainOrigin(s.port), '/admin/jobs');
+      answering(admin.page, 'a backup that cannot work');
+      await job(admin.page, 'store.backup').getByRole('button', { name: 'Run now' }).click();
+      await expect(admin.page.locator('#jobs-runs tr.run').filter({ hasText: 'store.backup' }).first().locator('.run-state')).toHaveText('failed', { timeout: 10_000 });
+      await expect.poll(async () => (await admin.page.request.get('/notify/list')).text()).toContain('store.backup');
+      await admin.page.goto('/notify');
+      const item = admin.page.locator('#notify-list article.notify-item').first();
+      await expect(item).toContainText('The job store.backup failed.');
+      await expect(item.locator('a')).toHaveAttribute('href', '/admin/jobs');
+      await admin.context.close();
+    } finally {
+      await stopServer(s);
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test('an admin runs a job by hand: its row arrives live, its log downloads, the reason is audited', async ({ browser, baseURL }) => {
     const admin = await signIn(browser, baseURL!, '/admin/jobs');
     try {

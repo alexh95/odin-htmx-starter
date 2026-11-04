@@ -217,7 +217,7 @@ test.describe('chat', T, () => {
     await expect(ann.page.locator('.chat-typing .typing-who')).toBeHidden(); // her own, marked and hidden
     // Typing expires after 5 s: removed under hyperscript, faded out by CSS on the vanilla client.
     await expect.poll(() => bob.page.locator('.chat-typing .typing-who').evaluateAll(
-      (els) => els.every((e) => getComputedStyle(e).opacity === '0')), { timeout: 8000 }).toBe(true);
+      (els) => els.every((e) => getComputedStyle(e).opacity === '0')), { timeout: 12_000 }).toBe(true); // a trailing ping restarts the 5 s
     await leave(ann, bob);
   });
 

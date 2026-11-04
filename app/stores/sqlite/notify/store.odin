@@ -18,6 +18,7 @@ IMPL :: "sqlite"
 
 MIGRATIONS := [?]store.Migration {
 	{1, "0001_notify.sql", #load("migrations/0001_notify.sql", string)},
+	{2, "0002_mutes.sql", #load("migrations/0002_mutes.sql", string)},
 }
 
 // notify.KEEP: the store can't import the domain, which imports it.
@@ -29,6 +30,10 @@ KEEP :: 200
 @(private) SQL_TRIM :: "DELETE FROM notify_items WHERE user_id = ?1 AND id <= (SELECT id FROM notify_items WHERE user_id = ?1 ORDER BY id DESC LIMIT 1 OFFSET ?2)"
 @(private) SQL_READ :: "UPDATE notify_items SET read = 1 WHERE user_id = ? AND read = 0"
 @(private) SQL_PRUNE :: "DELETE FROM notify_items WHERE read = 1 AND at < ?"
+@(private) SQL_MUTE :: "INSERT INTO notify_mutes(user_id, key) VALUES(?, ?) ON CONFLICT DO NOTHING"
+@(private) SQL_UNMUTE :: "DELETE FROM notify_mutes WHERE user_id = ? AND key = ?"
+@(private) SQL_MUTED :: "SELECT 1 FROM notify_mutes WHERE user_id = ? AND key = ?"
+@(private) SQL_MUTES :: "SELECT key FROM notify_mutes WHERE user_id = ? ORDER BY key"
 
 list :: proc(user: u64, limit: int, out: ^[dynamic]m.Item) -> (err: m.Error) {
 	q := db.read(SQL_LIST)
@@ -55,33 +60,91 @@ unread :: proc(user: u64) -> int {
 add :: proc(op: ^m.Add) -> bool {
 	op.run = proc(o: ^store.Op) {
 		op := (^m.Add)(o)
-		at := time.time_to_unix(time.now())
-		st := db.writer_stmt(SQL_ADD)
-		db.bind_id(st, 1, i64(op.user))
-		db.bind_text(st, 2, op.kind)
-		db.bind_text(st, 3, op.ref)
-		db.bind_text(st, 4, op.html)
-		db.bind_id(st, 5, at)
-		o.err = db.step_done(st)
-		db.reset(st)
-		if o.err != .None { return }
-		a := store.op_allocator(o)
-		op.result = {
-			id = db.last_insert_id(), user = op.user, at = at,
-			kind = strings.clone(op.kind, a), ref = strings.clone(op.ref, a), html = strings.clone(op.html, a),
-		}
-		tr := db.writer_stmt(SQL_TRIM)
-		db.bind_id(tr, 1, i64(op.user))
-		db.bind_int(tr, 2, KEEP)
-		o.err = db.step_done(tr)
-		db.reset(tr)
-		if o.err != .None { return }
-		c := db.writer_stmt(SQL_UNREAD)
-		db.bind_id(c, 1, i64(op.user))
-		op.unread = db.column_int(c, 0) if db.next_row(c, &o.err) else 0
-		db.reset(c)
+		op.result, op.unread, o.err = put(op.user, op.kind, op.ref, op.html, store.op_allocator(o))
 	}
 	return db.write(op)
+}
+
+// On the writer: the item, the member's newest KEEP, their unread count. Its strings in `a`.
+@(private)
+put :: proc(user: u64, kind, ref, html: string, a := context.temp_allocator) -> (it: m.Item, unread: int, err: m.Error) {
+	at := time.time_to_unix(time.now())
+	st := db.writer_stmt(SQL_ADD)
+	db.bind_id(st, 1, i64(user))
+	db.bind_text(st, 2, kind)
+	db.bind_text(st, 3, ref)
+	db.bind_text(st, 4, html)
+	db.bind_id(st, 5, at)
+	err = db.step_done(st)
+	db.reset(st)
+	if err != .None { return }
+	it = {
+		id = db.last_insert_id(), user = user, at = at,
+		kind = strings.clone(kind, a), ref = strings.clone(ref, a), html = strings.clone(html, a),
+	}
+	tr := db.writer_stmt(SQL_TRIM)
+	db.bind_id(tr, 1, i64(user))
+	db.bind_int(tr, 2, KEEP)
+	err = db.step_done(tr)
+	db.reset(tr)
+	if err != .None { return }
+	c := db.writer_stmt(SQL_UNREAD)
+	db.bind_id(c, 1, i64(user))
+	unread = db.column_int(c, 0) if db.next_row(c, &err) else 0
+	db.reset(c)
+	return
+}
+
+// write_now's run takes no arguments, and runs on the caller's own thread.
+@(private, thread_local) now_: struct {
+	user:       u64,
+	key:        string,
+	on:         bool,
+	kind, ref:  string,
+	html:       string,
+	item:       m.Item,
+	unread:     int,
+	err:        m.Error,
+}
+
+add_now :: proc(user: u64, kind, ref, html: string) -> (it: m.Item, unread: int, err: m.Error) {
+	now_ = {user = user, kind = kind, ref = ref, html = html}
+	ok := db.write_now(proc() -> bool {
+		now_.item, now_.unread, now_.err = put(now_.user, now_.kind, now_.ref, now_.html)
+		return now_.err == .None
+	})
+	if !ok { return {}, 0, now_.err if now_.err != .None else .Busy }
+	return now_.item, now_.unread, .None
+}
+
+mute :: proc(user: u64, key: string, on: bool) -> m.Error {
+	now_ = {user = user, key = key, on = on}
+	ok := db.write_now(proc() -> bool {
+		st := db.writer_stmt(SQL_MUTE if now_.on else SQL_UNMUTE)
+		defer db.reset(st)
+		db.bind_id(st, 1, i64(now_.user))
+		db.bind_text(st, 2, now_.key)
+		now_.err = db.step_done(st)
+		return now_.err == .None
+	})
+	return .None if ok else now_.err if now_.err != .None else .Busy
+}
+
+muted :: proc(user: u64, key: string) -> bool {
+	q := db.read(SQL_MUTED)
+	defer db.reset(q)
+	db.bind_id(q, 1, i64(user))
+	db.bind_text(q, 2, key)
+	err: m.Error
+	return db.next_row(q, &err)
+}
+
+mutes :: proc(user: u64, out: ^[dynamic]string) -> (err: m.Error) {
+	q := db.read(SQL_MUTES)
+	defer db.reset(q)
+	db.bind_id(q, 1, i64(user))
+	for db.next_row(q, &err) { append(out, db.clone_col(q, 0)) }
+	return
 }
 
 @(private) marking: u64

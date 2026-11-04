@@ -13,6 +13,9 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 - **chat on SQLite** (M6 slice 2, its store): `stores/sqlite/chat` keeps rooms and messages across restarts, ids
   the rowids (`PERSISTED`), a post or a change bumping the room's version in the writer's batch;
   `features/chat/storetest` holds both families to one contract.
+- **The Inbox's producers and mutes** (M6 slice 7): a DM lands in the other member's Inbox, a failed job in every
+  admin's, and a member mutes a kind from its item or a room from its page (`0002_mutes.sql`, in notify's store: `send`
+  asks for any member, on builds with no accounts). `notify_web.send_now` is `send` for a thread with no loop.
 - **Chat search** (M6 slice 6): `/chat/search` finds messages in the rooms a member may read: FTS5 with triggers on
   SQLite (`0005_fts.sql`), a scan in memory. Retention with the triggers on measures 3.8 to 4.5 ms per 1000 rows against
   the 6.4 ms budget (`docs/perf/CHAT-RETENTION.md`).
@@ -61,6 +64,11 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 
 ### Fixed
 
+- **An open stream can't outlive its room's rules**: a socket's frame was judged on the room as the socket found it,
+  so a lock, slow mode or a kick missed it, and a DM's or private room's post read as a public one. Each frame now
+  reads the room. A kick or a leave ends that member's streams on the room (`hub.kick_member`, `gone`), and chat's
+  socket and multipart streams name their viewer, so a sign-out or a role change ends them too, as it does `#live`. A
+  refused post's reason lands in the form's slot, not the log.
 - **A store closes cleanly with FTS5 in it**: `close` finalised every statement `sqlite3_next_stmt` returned, FTS5's
   internal ones included, and the close that followed crashed. It now finalises the connection's own cached statements.
 - **A build that streams but has no topics serves its streams** (the nightly's selections): a generated `status` or

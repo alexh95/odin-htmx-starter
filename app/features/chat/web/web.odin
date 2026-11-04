@@ -181,7 +181,7 @@ room_page :: proc(req: ^web.Request, res: ^web.Response) {
 	}
 	rv := chat_views.Room_View{
 		cannot_post = chat.why_not_post(r, v), may_invite = chat.may_invite(r, v), may_leave = chat.may_leave(r, v),
-		may_moderate = chat.may_moderate(r, v),
+		may_moderate = chat.may_moderate(r, v), mute_button = notify_web.mute_button(v.id, chat.room_topic(r.id), "this room"),
 	}
 	if r.kind == .Private || r.kind == .Dm {
 		list := make([dynamic]m.Member, context.temp_allocator)
@@ -314,8 +314,11 @@ post_message :: proc(req: ^web.Request, res: ^web.Response) {
 @(private)
 socket_post :: proc(s: ^chat_transport_ws.Socket, raw: string) {
 	if !authz.can(s.who, .Chat_Post) { return }
-	if why := chat.why_not_post(s.room, s.who); why != "" {
-		chat_transport_ws.send(s, fmt.tprintf(`<p hx-swap-oob="innerHTML:#err-%d">%s</p>`, s.room.id, escaped(why)))
+	// The room as it is now: a socket outlives a lock, slow mode, a kick and a leave.
+	r, err := chat.room_for(s.room.slug, s.who)
+	if err != .None { return }
+	if why := chat.why_not_post(r, s.who); why != "" {
+		chat_transport_ws.send(s, fmt.tprintf(`<p hx-swap-oob="innerHTML:#err-%d">%s</p>`, r.id, escaped(why)))
 		return
 	}
 	body, problem := chat.check_body(raw)
@@ -327,12 +330,12 @@ socket_post :: proc(s: ^chat_transport_ws.Socket, raw: string) {
 		chat_transport_ws.send(s, html.toast("error", SLOW_DOWN, true))
 		return
 	}
-	if chat.slow_wait(s.room, s.who) > 0 {
-		chat_transport_ws.send(s, html.toast("error", fmt.tprintf(SLOW_MODE, s.room.slow), true))
+	if chat.slow_wait(r, s.who) > 0 {
+		chat_transport_ws.send(s, html.toast("error", fmt.tprintf(SLOW_MODE, r.slow), true))
 		return
 	}
-	chat.slow_mark(s.room, s.who.id)
-	op := posting(s.who, s.room, body)
+	chat.slow_mark(r, s.who.id)
+	op := posting(s.who, r, body)
 	if !chat.post(op) {
 		store.free_op(op)
 		chat_transport_ws.send(s, html.toast("error", "Chat is busy. Try again in a moment.", true))
@@ -376,14 +379,25 @@ posted :: proc(o: ^store.Op) {
 announce :: proc(slug, room_name: string, kind: m.Room_Kind, msg: m.Message) {
 	hub.publish(chat.room_topic(msg.room), chat_views.one(msg.room, slug, msg), msg.id)
 	r := m.Room{id = msg.room, kind = kind}
+	ref := fmt.tprintf("/chat/r/%s#m-%d", slug, msg.id)
+	scope := chat.room_topic(msg.room) // what a member mutes a room by
 
 	who := make([dynamic]u64, 0, 8, context.temp_allocator)
-	chat.mentioned(msg.body, msg.author, &who)
-	if len(who) > 0 {
-		ref := fmt.tprintf("/chat/r/%s#m-%d", slug, msg.id)
-		line := chat_views.mention_line(msg.name, room_name, msg.body)
-		for id in who {
-			if chat.reads(r, id) { notify_web.send(id, "chat.mention", ref, line) }
+	if kind == .Dm {
+		// Every message of a DM is for its other member; a mention would say so twice.
+		pair := make([dynamic]m.Member, 0, 2, context.temp_allocator)
+		_ = chat.members(r, &pair)
+		line := chat_views.dm_line(msg.name, msg.body)
+		for mem in pair {
+			if mem.who != msg.author { notify_web.send(mem.who, "chat.dm", ref, line, scope) }
+		}
+	} else {
+		chat.mentioned(msg.body, msg.author, &who)
+		if len(who) > 0 {
+			line := chat_views.mention_line(msg.name, room_name, msg.body)
+			for id in who {
+				if chat.reads(r, id) { notify_web.send(id, "chat.mention", ref, line, scope) }
+			}
 		}
 	}
 
@@ -686,6 +700,7 @@ leave_room :: proc(req: ^web.Request, res: ^web.Response) {
 		web.respond_store_error(req, res, lerr)
 		return
 	}
+	out_of_room(r, v.id)
 	web.set_header(res, "hx-redirect", "/chat")
 	web.respond_status(res, .No_Content)
 }
@@ -795,9 +810,18 @@ ban_member :: proc(req: ^web.Request, res: ^web.Response, kind: m.Ban_Kind) {
 		web.respond_store_error(req, res, err)
 		return
 	}
+	if kind == .Kick && minutes > 0 { out_of_room(r, u64(who)) }
 	what := "Muted" if kind == .Mute else "Kicked"
 	if minutes == 0 { what = "Unmuted" if kind == .Mute else "Let back in" }
 	web.respond_html(res, html.toast("ok", fmt.tprintf("%s for %d minutes.", what, min(minutes, chat.MAX_BAN)) if minutes > 0 else what, true))
+}
+
+// Who no longer reads a room keeps no stream on it: whatever their transport (a socket's or
+// multipart's own, the room on #live) and their page's presence.
+@(private)
+out_of_room :: proc(r: m.Room, who: u64) {
+	hub.kick_member(chat.room_topic(r.id), who, "/chat")
+	hub.kick_member(chat.presence_topic(r.id), who, "/chat")
 }
 
 // A moderator's delete, in a room they moderate: to a tombstone, published as an edit is.

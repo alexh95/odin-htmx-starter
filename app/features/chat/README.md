@@ -56,7 +56,10 @@ the access log names the route's pattern only, so the token stays in the link. A
 the owner leaves with `POST /chat/r/<slug>/leave`; a DM isn't left (blocking is slice 4's). A DM
 starts from a message's menu, "Message <name>" (`POST /chat/dm/<id>`, `Chat_Dm`): the two members' room with an
 opaque slug (`dm-` and 16 hex digits), found again from either side, never made twice. The domain holds the rule
-once (`room_for`, `may_read`, `may_post`, `reads`), and every handler, transport and topic asks it.
+once (`room_for`, `may_read`, `may_post`, `reads`), and every handler, transport and topic asks it; a socket's frame
+asks again, as the room is now. Who stops reading a room (a kick, a leave) loses their streams on it
+(`hub.kick_member`), and their page goes to the rooms on `gone`. Every message of a DM lands in the other member's Inbox
+(`chat.dm`), and a member mutes a room from its page.
 
 **Search** (M6 slice 6, §11.8): `/chat/search?q=` finds messages holding every word (the last also as a prefix) in the
 rooms the member may read, moderators included in that rule: FTS5 over bodies on SQLite (external content, triggers),

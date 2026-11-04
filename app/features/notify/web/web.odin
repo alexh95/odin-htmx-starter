@@ -28,6 +28,7 @@ ROUTES := [?]web.Route {
 	{.Get, "/notify", page, .Account_Self, {.Private}, 0},
 	{.Get, "/notify/list", list, .Account_Self, {.Fragment}, 0},
 	{.Post, "/notify/read", read_all, .Account_Self, {.Fragment}, 0},
+	{.Post, "/notify/mute", mute, .Account_Self, {.Fragment}, 256},
 }
 
 USER :: "notify.user"
@@ -44,22 +45,45 @@ JOBS := [?]workers.Job {
 
 // Stores a notification for `user` and pushes it to them: `kind` is the producer's
 // namespaced name, `ref` a path on this site ("" for none), `html` its line, escaped
-// by the producer. A refused one (a bug in the producer) is logged and dropped.
-send :: proc(user: u64, kind, ref, line: string) {
-	if why := notify.check(user, kind, ref, line); why != "" {
-		if l, ok := obs.begin(.Warning, "notify", "refused"); ok {
-			obs.str(&l, "kind", kind)
-			obs.str(&l, "why", why)
-			obs.end(&l)
-		}
-		return
-	}
+// by the producer. `scope` is what a member may mute it by beside its kind ("chat.room:12").
+// A muted one is dropped; a refused one (a bug in the producer) is logged and dropped.
+send :: proc(user: u64, kind, ref, line: string, scope := "") {
+	if !deliverable(user, kind, ref, line, scope) { return }
 	op := store.new_op(m.Add, 2 * (len(kind) + len(ref) + len(line)))
 	a := store.op_allocator(op)
 	op.user = user
 	op.kind, op.ref, op.html = strings.clone(kind, a), strings.clone(ref, a), strings.clone(line, a)
 	op.done = sent
 	if !notify.add(op) { store.free_op(op) }
+}
+
+// `send` from a thread with no loop to answer on (a job).
+send_now :: proc(user: u64, kind, ref, line: string, scope := "") {
+	if !deliverable(user, kind, ref, line, scope) { return }
+	if it, unread, err := notify.add_now(user, kind, ref, line); err == .None {
+		hub.publish(topic(user), notify_views.pushed(it, unread))
+	}
+}
+
+@(private)
+deliverable :: proc(user: u64, kind, ref, line, scope: string) -> bool {
+	if why := notify.check(user, kind, ref, line); why != "" {
+		if l, ok := obs.begin(.Warning, "notify", "refused"); ok {
+			obs.str(&l, "kind", kind)
+			obs.str(&l, "why", why)
+			obs.end(&l)
+		}
+		return false
+	}
+	return !notify.muted(user, kind, scope)
+}
+
+// A button muting or unmuting `key` for `user`, as a producer's page offers it: "Mute <what>".
+mute_button :: proc(user: u64, key, what: string) -> string {
+	on := !notify.muted(user, key, "")
+	b := strings.builder_make(context.temp_allocator)
+	notify_views.mute_form(&b, key, on, strings.concatenate({"Mute " if on else "Unmute ", what}, context.temp_allocator))
+	return strings.to_string(b)
 }
 
 @(private)
@@ -84,7 +108,12 @@ page :: proc(req: ^web.Request, res: ^web.Response) {
 		web.respond_store_error(req, res, err)
 		return
 	}
-	web.render_page(req, res, "Inbox", "/notify", "Your notifications.", notify_views.page(items[:], notify.unread(v.id)))
+	muted_keys := make([dynamic]string, context.temp_allocator)
+	if err := notify.mutes(v.id, &muted_keys); err != .None {
+		web.respond_store_error(req, res, err)
+		return
+	}
+	web.render_page(req, res, "Inbox", "/notify", "Your notifications.", notify_views.page(items[:], notify.unread(v.id), muted_keys[:]))
 }
 
 // The log's items: what a resync refetches.
@@ -114,6 +143,23 @@ read_all :: proc(req: ^web.Request, res: ^web.Response) {
 	notify_views.items(&b, items[:])
 	html.w(&b, `<span hx-swap-oob="innerHTML:.notify-count">0</span>`)
 	web.respond_html(res, strings.to_string(b))
+}
+
+// A member mutes or unmutes a kind or a producer's scope; the page shows it on its next render.
+@(private)
+mute :: proc(req: ^web.Request, res: ^web.Response) {
+	f := web.form(req)
+	key := f["key"]
+	if !notify.valid_key(key) {
+		web.respond_html(res, html.toast("error", "That can't be muted.", true), .Unprocessable_Content)
+		return
+	}
+	if err := notify.mute(web.viewer(req).id, key, f["on"] == "1"); err != .None {
+		web.respond_store_error(req, res, err)
+		return
+	}
+	web.set_header(res, "hx-refresh", "true")
+	web.respond_status(res, .No_Content)
 }
 
 // The home page's card: a member's count and newest few; a guest's nothing.

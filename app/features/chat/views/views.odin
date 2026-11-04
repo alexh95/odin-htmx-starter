@@ -36,6 +36,7 @@ Room_View :: struct {
 	may_invite:   bool,
 	may_leave:    bool,
 	may_moderate: bool, // the room's lock and slow mode
+	mute_button:  string, // notify's: this room in the viewer's Inbox, markup of its own
 }
 
 // What a message's menu offers its viewer.
@@ -172,7 +173,7 @@ post_composer :: proc(r: m.Room) -> string {
 	b := strings.builder_make(context.temp_allocator)
 	w(&b, ` hx-post="/chat/r/`)
 	esc(&b, r.slug)
-	fmt.sbprintf(&b, `" hx-target="#log-%d" hx-swap="beforeend" hx-pending="#chat-pending" hx-status:422="target:#err-%d swap:innerHTML" hx-status:429="target:#toasts swap:beforeend"`, r.id, r.id)
+	fmt.sbprintf(&b, `" hx-target="#log-%d" hx-swap="beforeend" hx-pending="#chat-pending" hx-status:422="target:#err-%d swap:innerHTML" hx-status:403="target:#err-%d swap:innerHTML" hx-status:429="target:#toasts swap:beforeend"`, r.id, r.id, r.id)
 	return strings.to_string(b)
 }
 
@@ -225,6 +226,7 @@ room_page :: proc(r: m.Room, msgs: []m.Message, ver: i64, here: []chat.Presence_
 	for p in here { who(&b, p) }
 	w(&b, `</div>`)
 	if r.kind == .Private || r.kind == .Dm { members(&b, r, rv) }
+	w(&b, rv.mute_button)
 	// What hx-pending shows while a post is on its way; the typed text arrives as data-body.
 	w(&b, `</aside></div><template id="chat-pending"><article class="chat-msg pending"><p class="chat-body muted">Sending…</p></article></template></section>`)
 	return strings.to_string(b)
@@ -553,17 +555,33 @@ mention_line :: proc(by, room, body: string) -> string {
 	w(&b, `</b> mentioned you in <b>#`)
 	esc(&b, room)
 	w(&b, `</b>: `)
+	excerpt(&b, body)
+	return strings.to_string(b)
+}
+
+// A direct message, for the other member's Inbox.
+dm_line :: proc(by, body: string) -> string {
+	b := strings.builder_make(context.temp_allocator)
+	w(&b, `<b>`)
+	esc(&b, by)
+	w(&b, `</b> wrote to you: `)
+	excerpt(&b, body)
+	return strings.to_string(b)
+}
+
+// The first 80 runes, escaped.
+@(private)
+excerpt :: proc(b: ^strings.Builder, body: string) {
 	n := 0
 	for _, i in body {
 		if n == 80 {
-			esc(&b, body[:i])
-			w(&b, `…`)
-			return strings.to_string(b)
+			esc(b, body[:i])
+			w(b, `…`)
+			return
 		}
 		n += 1
 	}
-	esc(&b, body)
-	return strings.to_string(b)
+	esc(b, body)
 }
 
 @(private)
