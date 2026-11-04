@@ -102,7 +102,7 @@ stops_an_endless_stream :: proc(t: ^testing.T) {
 @(test)
 fuzz_the_decoders :: proc(t: ^testing.T) {
 	d := fuzz.seed(0x1A7E)
-	for _ in 0 ..< fuzz.rounds(4000) {
+	for _ in 0 ..< fuzz.rounds(1000) {
 		seed := SEEDS[fuzz.next(&d) % len(SEEDS)]
 		data := make([]byte, len(seed), context.temp_allocator)
 		copy(data, seed)

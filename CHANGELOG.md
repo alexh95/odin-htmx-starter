@@ -10,6 +10,8 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 
 ### Added
 
+- **The XSS and UGC suite** (M6 slice 11): `xss.spec` runs one injection set through every place chat, notify and uploads
+  render what a member wrote. Nothing got through.
 - **The Connection setting, with Auto** (M6 slice 9): Auto, now the default, is a WebSocket until two connects fail,
   then Streaming for the rest of the browser's session. A member's choice is kept on their account in `full`, so it
   follows them to another device, and in a cookie elsewhere. The restart spec runs on SQLite too.
