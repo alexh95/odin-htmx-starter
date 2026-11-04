@@ -79,6 +79,7 @@ st: struct {
 // At boot, from app.boot: the env rows, the lifetimes and the argon pool.
 init :: proc() {
 	authz.theme_href = "/accounts/theme"
+	authz.keep_connection = proc(user: u64, setting: string) -> bool { return accounts.set_connection(i64(user), setting) == .None }
 	// A change's audit entry goes in the change's own write (M4-04), through audit's store.
 	accounts.set_audit_writer(audit_store.append_in)
 	env.record("ACCOUNTS_", ENV[:])
@@ -211,7 +212,7 @@ load_viewer :: proc(ask: authz.Ask) -> (v: authz.Viewer, set_cookie: string) {
 	t, _ := accounts.theme_of(u.id)
 	return authz.Viewer{
 		id = u64(u.id), name = u.display, role = role, step_up_at = s.step_up_at / 1000,
-		style = t.style, scheme = t.scheme, session = session_key(s.token_hash),
+		style = t.style, scheme = t.scheme, connection = t.connection, session = session_key(s.token_hash),
 	}, ""
 }
 

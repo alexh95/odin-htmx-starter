@@ -36,3 +36,4 @@ _ : m.Store_Redeem_Reset : redeem_reset
 _ : m.Store_Set_Display : set_display
 _ : m.Store_Theme_Of : theme_of
 _ : m.Store_Set_Theme : set_theme
+_ : m.Store_Set_Pref_Now : set_pref_now

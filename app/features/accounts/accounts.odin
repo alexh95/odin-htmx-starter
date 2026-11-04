@@ -256,6 +256,7 @@ reset_live :: proc(code_hash: string, user_id, now: i64) -> (bool, m.Error) { re
 set_display :: proc(op: ^m.Set_Display) -> bool { return accounts_store.set_display(op) }
 theme_of :: proc(user_id: i64) -> (m.Theme, m.Error) { return accounts_store.theme_of(user_id) }
 set_theme :: proc(op: ^m.Set_Theme) -> bool { return accounts_store.set_theme(op) }
+set_connection :: proc(user_id: i64, setting: string) -> m.Error { return accounts_store.set_pref_now(user_id, "connection", setting) }
 
 // The writes: each queued to the writer, false when the store is busy (`done` won't run).
 login_failed :: proc(op: ^m.Login_Failed) -> bool { return accounts_store.login_failed(op) }

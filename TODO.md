@@ -125,9 +125,12 @@ go; Alex's step is the last: the 2–3 invites (Q23), only after the audit.
       load); PNG and JPEG only, not progressive JPEG (`core:image`); a finish runs one at a time on its own pool. The
       fuzz found two faults in `core:image`, both held off in `uploads.check`, so a decode's arena has a 256 MiB cap,
       which on Houston's 512 MiB is the real limit, below 40 MP for a deep PNG (§17.6 updated).
-- [ ] **9. The connection-mode setting** (§14.1): Auto / WebSocket / Streaming / Polling / Multipart in
+- [x] **9. The connection-mode setting** (§14.1): Auto / WebSocket / Streaming / Polling / Multipart in
       `accounts_prefs`, per request by `chat_web`'s switch, `x-impl` on every response; Auto as the spike says.
       *Check:* the four transports × resume specs on `full`, including across a restart (D37).
+      Done (2026-11-04): `Auto` the default, falling back by `static/chat.js` for the browser's session; the setting on
+      the account through `authz.keep_connection`, a cookie on builds with no accounts; the restart spec now runs on both
+      stores.
 - [ ] **10. Budgets** (§18, D38): the WS chat budget at 1000 sockets; the writer task ≥ 3× autocommit at 1000
       msgs/s; send → another member's DOM p95 ≤ 50 ms on the LAN through NPM. *Check:* the drills and k6
       scenarios, recorded in `docs/perf/`.

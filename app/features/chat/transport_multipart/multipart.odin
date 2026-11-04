@@ -34,6 +34,7 @@ wiring :: proc(r: m.Room) -> chat_views.Wiring {
 
 // GET /chat/r/<slug>/parts.
 parts :: proc(req: ^web.Request, res: ^web.Response) {
+	web.impl(res, "chat.transport", "multipart")
 	r, err := chat.room_for(req.url_params[0], web.viewer(req))
 	if err != .None {
 		web.respond_store_error(req, res, err)

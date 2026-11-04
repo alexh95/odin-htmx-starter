@@ -112,8 +112,10 @@ Set_Display :: struct {
 }
 
 // A member's theme, kept in accounts_prefs so every device renders it (PLAN §12): both axes at once.
+// Their chat connection is read with it, a request's one read of their prefs.
 Theme :: struct {
 	style, scheme: string,
+	connection:    string,
 }
 
 Set_Theme :: struct {
@@ -271,3 +273,4 @@ Store_Redeem_Reset :: proc(op: ^Redeem_Reset) -> bool
 Store_Set_Display :: proc(op: ^Set_Display) -> bool
 Store_Theme_Of :: proc(user_id: i64) -> (Theme, Error) // {} when the member never chose
 Store_Set_Theme :: proc(op: ^Set_Theme) -> bool
+Store_Set_Pref_Now :: proc(user_id: i64, key, value: string) -> Error

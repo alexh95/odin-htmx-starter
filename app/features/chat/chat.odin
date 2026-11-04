@@ -65,6 +65,9 @@ Transport :: enum u8 {
 	Multipart,
 }
 
+// The setting that's no one transport: a WebSocket, Streaming once two connects fail (static/chat.js).
+AUTO :: "auto"
+
 // The name a cookie, `?transport=` and CHAT_TRANSPORT use, and the setting's label.
 TRANSPORTS := [Transport]struct {
 	name, label: string,
@@ -76,7 +79,7 @@ TRANSPORTS := [Transport]struct {
 }
 
 ENV := [?]env.Row {
-	{name = "CHAT_TRANSPORT", kind = .Enum, def = "ws", choices = "ws|sse|poll|multipart", doc = "a room's connection when the viewer chose none (§14.1)"},
+	{name = "CHAT_TRANSPORT", kind = .Enum, def = "auto", choices = "auto|ws|sse|poll|multipart", doc = "a room's connection when the viewer chose none (§14.1)"},
 	{name = "CHAT_RING_BYTES", kind = .Size, def = "16MiB", doc = "bytes every room's last 100 messages hold in all; the oldest rooms' tails go first"},
 	// Retention (§14.1, Q19): whichever hits first; pinned messages exempt.
 	{name = "CHAT_ROOM_CAP", kind = .Int, def = "500", doc = "messages a public or private room keeps, the newest"},
@@ -90,7 +93,7 @@ ENV := [?]env.Row {
 @(private)
 st: struct {
 	mu:        guard.Mutex,
-	transport: Transport,
+	setting:   string,
 	names:     map[u64]string,            // member → the name they last used here, for mentions
 	read:      map[i64]map[u64]i64,       // room → member → the newest id they have seen
 	here:      map[i64]map[u64]Presence,  // room → member → their presence
@@ -101,7 +104,7 @@ st: struct {
 // At boot: the env rows, the store's ring budget, the lobby.
 init :: proc() {
 	env.record("CHAT_", ENV[:])
-	st.transport = transport_named(env.str("CHAT_TRANSPORT")) or_else .Ws
+	st.setting = env.str("CHAT_TRANSPORT")
 	secs :: proc(name: string) -> i64 { return i64(env.duration(name) / time.Second) }
 	for kind in m.Room_Kind {
 		switch kind {
@@ -127,7 +130,13 @@ sweep :: proc() -> (removed: int, err: m.Error) { return chat_store.sweep(now())
 // runs after init.
 seed :: proc() { chat_store.seed() }
 
-default_transport :: proc() -> Transport { return st.transport }
+default_setting :: proc() -> string { return st.setting }
+
+// A setting: a transport's name, or AUTO.
+known_setting :: proc(name: string) -> bool {
+	_, ok := transport_named(name)
+	return ok || name == AUTO
+}
 
 transport_named :: proc(name: string) -> (Transport, bool) {
 	for t, k in TRANSPORTS {

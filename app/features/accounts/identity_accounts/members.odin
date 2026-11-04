@@ -352,7 +352,7 @@ keep_theme :: proc(req: ^web.Request, res: ^web.Response) {
 	style, scheme := f["style"], f["scheme"]
 	if !html.theme_known(style, scheme) { refuse(res, "That isn't one of the themes."); return }
 	op := store.new_op(Theming, len(style) + len(scheme))
-	op.theme = {strings.clone(style, store.op_allocator(op)), strings.clone(scheme, store.op_allocator(op))}
+	op.theme = {style = strings.clone(style, store.op_allocator(op)), scheme = strings.clone(scheme, store.op_allocator(op))}
 	op.user_id = i64(web.ctx().viewer.id)
 	op.done = proc(o: ^store.Op) {
 		op := (^Theming)(o)

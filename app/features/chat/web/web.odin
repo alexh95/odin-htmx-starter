@@ -96,6 +96,7 @@ SLOW_DOWN :: "Slow down: at most 5 messages in 10 seconds."
 SLOW_MODE :: "Slow mode: one message every %d seconds here."
 
 COOKIE :: "chat_transport"
+FALLBACK :: "chat_fallback"
 
 // At boot, before app.check: the domain's env rows and store, and the socket's post path.
 init :: proc() {
@@ -106,12 +107,23 @@ init :: proc() {
 // From main, once the store is open: the lobby into an empty one.
 seed :: proc() { chat.seed() }
 
-// The transport a request's page uses: `?transport=` (the specs'), the member's
-// setting (a cookie), else CHAT_TRANSPORT.
-transport :: proc(req: ^web.Request) -> chat.Transport {
-	if t, ok := chat.transport_named(web.query_get(req, "transport")); ok { return t }
-	if t, ok := chat.transport_named(web.cookie(req, COOKIE)); ok { return t }
-	return chat.default_transport()
+// The viewer's setting: kept on their account, else their browser's, else CHAT_TRANSPORT.
+setting :: proc(req: ^web.Request) -> string {
+	if s := web.viewer(req).connection; chat.known_setting(s) { return s }
+	if s := web.cookie(req, COOKIE); chat.known_setting(s) { return s }
+	return chat.default_setting()
+}
+
+// The transport a request's page uses: `?transport=` (the specs'), else the setting. `auto`: the
+// page falls back by itself, and FALLBACK is what it left behind when it did.
+transport :: proc(req: ^web.Request) -> (t: chat.Transport, auto: bool) {
+	s := web.query_get(req, "transport")
+	if !chat.known_setting(s) { s = setting(req) }
+	if s == chat.AUTO {
+		return .Sse if web.cookie(req, FALLBACK) == "sse" else .Ws, true
+	}
+	t, _ = chat.transport_named(s)
+	return t, false
 }
 
 // ---- pages -------------------------------------------------------------------------------
@@ -130,7 +142,7 @@ index :: proc(req: ^web.Request, res: ^web.Response) {
 	}
 	rows := make([]chat_views.Room_Row, len(all), context.temp_allocator)
 	for r, i in all { rows[i] = {r, chat.unread(r.id, v.id)} }
-	web.render_page(req, res, "Chat", "/chat", "The rooms on the LAN.", chat_views.index_page(rows, transport(req), chat.may_create(.Public, v), chat.may_create(.Announce, v), open_reports(v)))
+	web.render_page(req, res, "Chat", "/chat", "The rooms on the LAN.", chat_views.index_page(rows, setting(req), chat.may_create(.Public, v), chat.may_create(.Announce, v), open_reports(v)))
 }
 
 // What a member finds in the rooms they may read (a plain GET form: it works with no script).
@@ -154,7 +166,7 @@ room_page :: proc(req: ^web.Request, res: ^web.Response) {
 		return
 	}
 	chat.seen(v.id, v.name)
-	t := transport(req)
+	t, auto := transport(req)
 	web.impl(res, "chat.transport", chat.TRANSPORTS[t].name)
 	msgs := make([dynamic]m.Message, 0, chat.SNAPSHOT, context.temp_allocator)
 	ver, serr := chat.snapshot(r.id, &msgs)
@@ -171,6 +183,7 @@ room_page :: proc(req: ^web.Request, res: ^web.Response) {
 	switch t {
 	case .Ws:
 		wiring = chat_transport_ws.wiring(r)
+		if auto { wiring.pane = strings.concatenate({wiring.pane, " data-auto"}, context.temp_allocator) }
 	case .Sse:
 		wiring = chat_transport_sse.wiring(r)
 		append(&live, chat_transport_sse.live_topic(r, msgs[len(msgs) - 1].id if len(msgs) > 0 else 0))
@@ -204,15 +217,19 @@ room_page :: proc(req: ^web.Request, res: ^web.Response) {
 		chat_views.room_page(r, msgs[:], ver, here[:], v.id, t, wiring, rv), live = live[:])
 }
 
-// The Connection setting: a cookie for a year, then back to the rooms.
+// The Connection setting, on the member's account where the build keeps one, else a cookie for
+// a year, then back to the rooms.
 @(private)
 set_transport :: proc(req: ^web.Request, res: ^web.Response) {
-	t, ok := chat.transport_named(web.form(req)["transport"])
-	if !ok {
+	s := web.form(req)["transport"]
+	if !chat.known_setting(s) {
 		web.respond_status(res, .Bad_Request)
 		return
 	}
-	web.set_header(res, "set-cookie", fmt.tprintf("%s=%s; Path=/chat; Max-Age=31536000; SameSite=Lax; HttpOnly%s", COOKIE, chat.TRANSPORTS[t].name, "; Secure" if web.ctx().https else ""))
+	v := web.viewer(req)
+	if authz.keep_connection == nil || v.id == 0 || !authz.keep_connection(v.id, s) {
+		web.set_header(res, "set-cookie", fmt.tprintf("%s=%s; Path=/chat; Max-Age=31536000; SameSite=Lax; HttpOnly%s", COOKIE, s, "; Secure" if web.ctx().https else ""))
+	}
 	web.set_header(res, "location", "/chat")
 	web.respond_status(res, .See_Other)
 }

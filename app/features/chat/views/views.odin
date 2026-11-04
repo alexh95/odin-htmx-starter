@@ -81,7 +81,7 @@ Wiring :: struct {
 // ---- the rooms ---------------------------------------------------------------------------
 
 // `reports`: how many wait for a moderator; -1 for anyone else.
-index_page :: proc(rows: []Room_Row, t: chat.Transport, may_create, may_announce: bool, reports: int) -> string {
+index_page :: proc(rows: []Room_Row, setting: string, may_create, may_announce: bool, reports: int) -> string {
 	b := strings.builder_make(context.temp_allocator)
 	html.page_head(&b, "Comms", "Chat", "Rooms on the LAN." if chat.PERSISTED else "Rooms on the LAN. They are kept in memory, so a restart empties them.")
 	w(&b, `<section class="block chat-index">`)
@@ -105,7 +105,7 @@ index_page :: proc(rows: []Room_Row, t: chat.Transport, may_create, may_announce
 		if may_announce { w(&b, `<option value="announce">Announcements</option>`) }
 		w(&b, `</select><button class="btn btn-primary" type="submit">Create</button></div><p class="field-msg form-error" id="room-error"></p></form>`)
 	}
-	connection(&b, t)
+	connection(&b, setting)
 	w(&b, `</section>`)
 	return strings.to_string(b)
 }
@@ -142,17 +142,19 @@ search_page :: proc(q: string, hits: []m.Hit) -> string {
 
 // The "Connection" setting (§14.1): a compatibility mode for networks whose proxies
 // kill WebSockets. A plain form, so it works with no script at all.
-connection :: proc(b: ^strings.Builder, t: chat.Transport) {
-	w(b, `<form class="chat-conn" method="post" action="/chat/transport"><label for="transport">Connection</label><select id="transport" name="transport">`)
-	for row, k in chat.TRANSPORTS {
+connection :: proc(b: ^strings.Builder, setting: string) {
+	option :: proc(b: ^strings.Builder, name, label, setting: string) {
 		w(b, `<option value="`)
-		w(b, row.name)
+		w(b, name)
 		w(b, `"`)
-		if k == t { w(b, ` selected`) }
+		if name == setting { w(b, ` selected`) }
 		w(b, `>`)
-		w(b, row.label)
+		w(b, label)
 		w(b, `</option>`)
 	}
+	w(b, `<form class="chat-conn" method="post" action="/chat/transport"><label for="transport">Connection</label><select id="transport" name="transport">`)
+	option(b, chat.AUTO, "Auto", setting)
+	for row in chat.TRANSPORTS { option(b, row.name, row.label, setting) }
 	w(b, `</select><button class="btn btn-outline" type="submit">Use</button></form>`)
 }
 

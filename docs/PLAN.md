@@ -3320,7 +3320,10 @@ Polling / Multipart" setting: a compatibility mode for networks whose proxies ki
   `x-impl: chat.transport=<t>`, log lines `impl=`.
 - "Auto" is WS, falling back to SSE after two failed connects. It reads the `htmx:ws:error` event detail, which is
   **UNVERIFIED (M6)**: a spike at the M6 start settles it. *Settled (M6.1):* the detail is a bare Event, so Auto
-  counts `htmx:ws:close` events with no connection between them.
+  counts `htmx:ws:close` events with no connection between them. **As built (M6 slice 9):** `Auto` is the default
+  (`CHAT_TRANSPORT=auto`); `static/chat.js` counts on a pane marked `data-auto`, and at two sets a session cookie and
+  reloads, so a browser stays on Streaming until it closes. The setting is `accounts_prefs`' `connection`, reached through
+  `authz.keep_connection` so chat imports no accounts, and read with the theme into the `Viewer`.
 - `Composer` (Enter sends) and `AutoScroll` behave the same over A–D (07 §1.2). Specs run per transport
   (`@chat-ws` …) and resume without duplicates, including across a server restart (D37).
 

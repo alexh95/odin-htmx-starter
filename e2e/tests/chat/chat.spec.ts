@@ -1,6 +1,9 @@
-import { test, expect } from '../../fixtures';
+import { mkdtempSync, rmSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { test, expect, has } from '../../fixtures';
 import type { Page, WebSocketRoute } from '@playwright/test';
-import { startServer, stopServer, type Server } from '../../helpers/server';
+import { mainOrigin, startServer, stopServer, type Server } from '../../helpers/server';
 import { leave, member, uid, type Member } from '../../helpers/members';
 
 // Chat (PLAN §14.1) over each of its four transports, chosen per page by ?transport=:
@@ -170,13 +173,16 @@ for (const t of TRANSPORTS) {
       await leave(ann, bob);
     });
 
-    // The memory store's restart (an empty process, ids from a new epoch); SQLite's is slice 9's.
-    test('a restart: the page keeps what it had and gets what comes next, once', { tag: '@chat-memory' }, async ({ browser }) => {
+    // On both stores (D37): memory's an empty process with ids from a new epoch, SQLite's the same
+    // file, where the row is still there to replay.
+    test('a restart: the page keeps what it had and gets what comes next, once', async ({ browser }) => {
       test.slow();
       const config = test.info().config;
-      const s1 = await startServer(config);
+      const dir = mkdtempSync(path.join(os.tmpdir(), 'odin-restart-'));
+      const env = has('@chat-sqlite') ? { DB_PATH: path.join(dir, 'data.db') } : {};
+      const s1 = await startServer(config, env);
       let s2: Server | undefined;
-      const base = `http://127.0.0.1:${s1.port}`;
+      const base = mainOrigin(s1.port);
       const ann = await member(browser, base), bob = await member(browser, base);
       try {
         await open(ann, 'lobby', t);
@@ -185,7 +191,7 @@ for (const t of TRANSPORTS) {
         await expect(message(bob, 'before the restart')).toHaveCount(1);
 
         await stopServer(s1);
-        s2 = await startServer(config, {}, s1.port);
+        s2 = await startServer(config, env, s1.port);
 
         // Ann's composer works again once her page has its connection back; a socket
         // needs it to send, so she retries until Bob has it.
@@ -200,6 +206,7 @@ for (const t of TRANSPORTS) {
         await leave(ann, bob);
         if (s2) await stopServer(s2);
         if (s1.proc.exitCode === null) s1.proc.kill();
+        try { rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
       }
     });
   });
@@ -410,6 +417,47 @@ test.describe('chat', T, () => {
     await expect(ann.page.locator('#toasts .toast')).toHaveCount(0);
     await say(ann, 'still here');
     await expect(message(ann, 'still here')).toHaveCount(1);
+    await leave(ann);
+  });
+
+  test('Auto is a socket, and Streaming once a socket can\'t connect', async ({ browser, baseURL }) => {
+    const ann = await member(browser, baseURL!);
+    await ann.page.goto('/chat');
+    await expect(ann.page.locator('#transport')).toHaveValue('auto');
+    const first = await ann.page.goto('/chat/r/lobby');
+    expect(first!.headers()['x-impl']).toContain('chat.transport=ws');
+    await expect(ann.page.locator('.chat-pane')).toHaveAttribute('data-auto', '');
+
+    // A proxy that won't pass WebSockets: the upgrade is answered 404, on every attempt.
+    await ann.page.addInitScript(() => {
+      const Real = window.WebSocket;
+      (window as any).WebSocket = class extends Real { constructor(url: string, p?: string[]) { super(String(url).replace(/\/ws$/, '/no-socket-here'), p); } };
+    });
+    const fell = ann.page.waitForResponse((r) => r.request().isNavigationRequest() && r.headers()['x-impl']?.includes('chat.transport=sse'), { timeout: 20_000 });
+    await ann.page.goto('/chat/r/lobby');
+    await fell;
+    await expect(ann.page.locator('.chat-via')).toHaveText('Streaming');
+    await say(ann, uid('over streaming '));
+    await expect((await ann.page.goto('/chat/r/lobby'))!.headers()['x-impl']).toContain('chat.transport=sse'); // it stays
+    await leave(ann);
+  });
+
+  test('the connection setting follows an account to another device', { tag: '@accounts-accounts' }, async ({ browser, baseURL }) => {
+    const ann = await member(browser, baseURL!);
+    await ann.page.goto('/chat');
+    await ann.page.locator('#transport').selectOption('multipart');
+    const landed = ann.page.waitForResponse((r) => new URL(r.url()).pathname === '/chat' && r.request().method() === 'GET');
+    await ann.page.getByRole('button', { name: 'Use' }).click();
+    await landed;
+    const phone = await browser.newContext({ baseURL });
+    const page = await phone.newPage();
+    await page.goto('/login');
+    await page.locator('#username').fill(ann.name);
+    await page.locator('#password').fill('a-long-enough-password');
+    await page.getByRole('button', { name: 'Sign in' }).click();
+    await page.waitForURL((u) => u.pathname !== '/login');
+    expect((await page.goto('/chat/r/lobby'))!.headers()['x-impl']).toContain('chat.transport=multipart');
+    await phone.close();
     await leave(ann);
   });
 

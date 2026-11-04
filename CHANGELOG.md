@@ -10,6 +10,9 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 
 ### Added
 
+- **The Connection setting, with Auto** (M6 slice 9): Auto, now the default, is a WebSocket until two connects fail,
+  then Streaming for the rest of the browser's session. A member's choice is kept on their account in `full`, so it
+  follows them to another device, and in a cookie elsewhere. The restart spec runs on SQLite too.
 - **Uploads and chat's images** (M6 slice 8): a new `uploads` feature: chunks of at most 4 MiB through a fetch shim,
   resumable from the server's offset, finished by sniff, the header's size against 40 MP, and a full decode, into a
   blob named by its sha256 and served with its own type. PNG and JPEG only. A chat message carries one, with or without

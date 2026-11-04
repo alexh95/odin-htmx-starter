@@ -71,6 +71,7 @@ Viewer :: struct {
 	step_up_at: i64, // unix seconds of the session's last password or TOTP check; 0 = never
 	style:      string, // the member's kept theme (an identity that keeps one); "" = the brand's, or the browser's
 	scheme:     string,
+	connection: string, // the member's kept chat connection (an identity that keeps one); "" = none
 	session:    u64, // the session's key, for the hub: a sign-out ends that device's streams alone; 0 = none
 }
 
@@ -79,6 +80,10 @@ GUEST :: Viewer{role = .Guest}
 // Where the theme picker posts a member's choice, set by an identity that keeps it; "" = the
 // browser keeps it (localStorage), as for every guest.
 theme_href: string
+
+// Keeps a member's chat connection on their account, set by an identity that can; nil = the
+// browser keeps it (a cookie), as for every guest. chat reaches accounts through this, not an import.
+keep_connection: proc(user: u64, setting: string) -> bool
 
 can :: proc(v: Viewer, p: Perm) -> bool {
 	return p == .Public || p in ROLE_PERMS[v.role]

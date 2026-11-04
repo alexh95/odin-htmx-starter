@@ -70,7 +70,7 @@ MIGRATIONS := [?]store.Migration {
 @(private) SQL_TOUCH :: "UPDATE sessions SET last_seen = ? WHERE token_hash = ?"
 @(private) SQL_CLOSE :: "DELETE FROM sessions WHERE token_hash = ? AND user_id = ?"
 @(private) SQL_CLOSE_ANY :: "DELETE FROM sessions WHERE token_hash = ?" // the cookie a sign-in replaces, whoever's
-@(private) SQL_THEME :: "SELECT key, value FROM accounts_prefs WHERE user_id = ? AND key IN ('style', 'scheme')"
+@(private) SQL_THEME :: "SELECT key, value FROM accounts_prefs WHERE user_id = ? AND key IN ('style', 'scheme', 'connection')"
 @(private) SQL_SET_PREF :: "INSERT INTO accounts_prefs(user_id, key, value) VALUES(?, ?, ?) ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value"
 
 user_by_name :: proc(username: string) -> (m.User, m.Error) {
@@ -178,6 +178,7 @@ theme_of :: proc(user_id: i64) -> (t: m.Theme, err: m.Error) {
 		switch db.clone_col(q, 0) {
 		case "style": t.style = db.clone_col(q, 1)
 		case "scheme": t.scheme = db.clone_col(q, 1)
+		case "connection": t.connection = db.clone_col(q, 1)
 		}
 	}
 	return
@@ -736,6 +737,27 @@ set_theme :: proc(op: ^m.Set_Theme) -> bool {
 		}
 	}
 	return db.write(op)
+}
+
+@(private, thread_local) pref: struct {
+	user_id:    i64,
+	key, value: string,
+	err:        m.Error,
+}
+
+// One pref at once, from a handler that has nothing to wait on (write_now).
+set_pref_now :: proc(user_id: i64, key, value: string) -> m.Error {
+	pref = {user_id = user_id, key = key, value = value}
+	ok := db.write_now(proc() -> bool {
+		st := db.writer_stmt(SQL_SET_PREF)
+		defer db.reset(st)
+		db.bind_id(st, 1, pref.user_id)
+		db.bind_text(st, 2, pref.key)
+		db.bind_text(st, 3, pref.value)
+		pref.err = db.step_done(st)
+		return pref.err == .None
+	})
+	return .None if ok else pref.err if pref.err != .None else .Failed
 }
 
 // On the writer: a second factor spent, or .Constraint when it already was (a replayed code, a
