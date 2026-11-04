@@ -75,10 +75,11 @@ large: struct {
 	each: map[u64]int,
 }
 
-// By its Content-Length; a body that won't say counts.
+// On a route that takes large ones, anything past an ordinary form's cap counts; a body that won't
+// say counts too. Below that, a hundred stalled sockets hold what one form does.
 declares_large :: proc(req: ^Request) -> bool {
 	n, ok := parse_digits(header(req, "content-length"))
-	return !ok || n >= LARGE_BODY
+	return !ok || n > MAX_BODY
 }
 
 large_begin :: proc(user: u64) -> bool {

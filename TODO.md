@@ -22,6 +22,7 @@ copy-and-start ergonomics and good defaults matter more than feature depth.
 - [ ] **A post in flight isn't a holder** (M6-10): a delete or the sweep in the same milliseconds costs that message its
       image; a purge racing a post can leave a message naming a blob that a later upload brings back.
 - [ ] **A session's expiry doesn't reach an open stream** (M6-12): revokes do. Give a stream its session's end.
+- [ ] **One member can hold the blob budget** (M6-R8), the 64 MiB of answers in flight, for as long as their sockets stall.
 - [ ] **Search on the query pool** (M6-13), when `find` comes (M8).
 - [ ] **Small things** (M6-16): a private room's slug can be probed by name, a moderator can mute an admin, a renamed
       member's socket keeps the old name.

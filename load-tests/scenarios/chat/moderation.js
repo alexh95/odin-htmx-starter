@@ -90,7 +90,8 @@ export default function () {
   const list = http.get(`${BASE}/chat/reports`, { tags: { name: 'GET /chat/reports' } });
   check(list, { 'reports 200': (r) => r.status === 200 && r.body.includes('chat-report-list') });
   const open = [...list.body.matchAll(/id="report-(\d+)"/g)].map((m) => m[1]);
-  ['remove', 'dismiss'].forEach((act, i) => {
+  // In turn: with few open, the first is often the only one, and both must be reached.
+  (__ITER % 2 ? ['dismiss', 'remove'] : ['remove', 'dismiss']).forEach((act, i) => {
     if (!open[i]) return;
     // Another VU may close it first: then it is no longer open, a 404.
     const r = http.post(`${BASE}/chat/reports/${open[i]}/${act}`, null, { headers: WHY, tags: { name: `POST /chat/reports/:id/${act}` }, responseCallback: ok(204, 404) });

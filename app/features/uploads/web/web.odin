@@ -4,12 +4,10 @@ package uploads_web
 //
 // JSON for static/uploads.js, the fetch shim: create, PUT each chunk, finish. Chunks, finishes
 // and blobs touch the disk, so they run on pools of their own and answer through a deferred
-// response; a pool's queue is the bound on what's held in memory (§17.6: 8 × 4 MiB), and past it
-// `submit` refuses: 503, which the shim tries again. Reads have a wider pool: a room's page asks for
+// response; a pool's queue bounds what's waiting on the disk, and past it `submit` refuses: 503, which the shim tries again. Reads have a wider pool: a room's page asks for
 // its images all at once.
 // A body is bounded before that, in `front` (its route's body_cap makes it a large one).
 
-import "core:fmt"
 import "core:strings"
 import "core:sync"
 import "core:time"
@@ -343,6 +341,6 @@ read_done :: proc(t: ^workers.Task) {
 	case:
 		web.set_header(res, "cache-control", "private, max-age=31536000, immutable")
 		web.set_header(res, "content-disposition", "inline")
-		web.respond_file(res, fmt.tprintf("%s.%s", string(r.sha256[:]), "png" if r.png else "jpg"), r.data)
+		web.respond_bytes(res, uploads.MIME[.Png] if r.png else uploads.MIME[.Jpeg], r.data)
 	}
 }

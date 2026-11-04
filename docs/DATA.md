@@ -79,7 +79,10 @@ Rehearse it once before you need it: `e2e/tests/platform/backup.spec.ts` does ex
 **Images.** A database backup doesn't hold them: a message names its image, and the bytes are files in `UPLOADS_DIR`
 (`blobs/<sha256>`). The `uploads.mirror` job copies them to `<BACKUP_DIR>/blobs/` once a day, new ones by name, and deletes
 a copy once its blob has gone, so a moderator's removal reaches the backup within a day. A failed copy fails the job, which
-reaches the admins' Inboxes like any job's. To restore, do the steps above, then copy `<BACKUP_DIR>/blobs/` to
+reaches the admins' Inboxes like any job's. It refuses to delete when the table has no rows, or when one run would remove
+most of more than 8 copies: that's more likely the wrong database than a day's removals. Then it fails each day, and removals
+stop reaching the copies, until an admin has looked: if the shrink was real, delete the listed copies from
+`<BACKUP_DIR>/blobs/` by hand. To restore, do the steps above, then copy `<BACKUP_DIR>/blobs/` to
 `<UPLOADS_DIR>/blobs/` before starting the app; `parts/` needs nothing, the app makes it. A restored database can name an
 image newer than the last copy: that message shows a broken image and nothing else fails.
 

@@ -13,6 +13,7 @@ import "core:fmt"
 import "core:strconv"
 import "core:strings"
 import "core:time"
+import "core:unicode/utf8"
 
 import "../../../platform/authz"
 import "../../../platform/env"
@@ -162,7 +163,11 @@ index :: proc(req: ^web.Request, res: ^web.Response) {
 @(private)
 search_page :: proc(req: ^web.Request, res: ^web.Response) {
 	q := web.query_get(req, "q")
-	if len(q) > chat.MAX_SEARCH_QUERY { q = strings.truncate_to_rune(q, chat.MAX_SEARCH_QUERY) }
+	if len(q) > chat.MAX_SEARCH_QUERY {
+		end := chat.MAX_SEARCH_QUERY
+		for end > 0 && !utf8.rune_start(q[end]) { end -= 1 } // not through a character
+		q = q[:end]
+	}
 	if ok, retry := web.limit_hit(&searches, web.viewer(req).id); !ok {
 		web.respond_limited(res, retry, "Too many searches: wait a moment.")
 		return
@@ -686,6 +691,7 @@ invite :: proc(req: ^web.Request, res: ^web.Response) {
 
 @(private)
 revoke_invite :: proc(req: ^web.Request, res: ^web.Response) {
+	if !write_allowed(req, res) { return }
 	r, _, ok := inviting(req, res)
 	if !ok { return }
 	id, idok := web.parse_id(req.url_params[1])
@@ -751,6 +757,7 @@ join_page :: proc(req: ^web.Request, res: ^web.Response) {
 
 @(private)
 join_room :: proc(req: ^web.Request, res: ^web.Response) {
+	if !write_allowed(req, res) { return }
 	r, inv, err := chat.invited_to(req.url_params[0])
 	web.set_header(res, "referrer-policy", "same-origin")
 	if err != .None || chat.kept_out(r, web.viewer(req).id) {
@@ -772,6 +779,7 @@ join_room :: proc(req: ^web.Request, res: ^web.Response) {
 // Leaving a private room: back to the rooms, and a new invite to come back.
 @(private)
 leave_room :: proc(req: ^web.Request, res: ^web.Response) {
+	if !write_allowed(req, res) { return }
 	v := web.viewer(req)
 	r, err := chat.room_for(req.url_params[0], v)
 	if err != .None {
@@ -836,6 +844,10 @@ remove_member :: proc(req: ^web.Request, res: ^web.Response) {
 allow_member :: proc(req: ^web.Request, res: ^web.Response) {
 	r, who, ok := owned_member(req, res)
 	if !ok { return }
+	if !chat.kept_out(r, who) {
+		web.not_found(req, res)
+		return
+	}
 	if err := chat.allow_member(r, actor(), who); err != .None {
 		web.respond_store_error(req, res, err)
 		return

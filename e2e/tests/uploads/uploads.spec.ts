@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { cpSync, mkdtempSync, rmSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -93,6 +93,17 @@ test.describe('uploads', T, () => {
     expect(blob.headers()['cache-control']).toContain('immutable');
     expect(Buffer.compare(await blob.body(), PNG)).toBe(0);
     expect((await ann.page.request.post(`/uploads/${id}/finish`)).status()).toBe(404); // it's closed
+    await leave(ann);
+  });
+
+  test('a JPEG goes out as what its row says', async ({ browser, baseURL }) => {
+    const ann = await member(browser, baseURL!);
+    await ann.page.goto('/chat');
+    const jpeg = Buffer.concat([readFileSync(path.join(__dirname, '../../../app/features/uploads/testdata/tiny.jpg')), randomBytes(16)]);
+    const sha = await uploaded(ann.page, jpeg);
+    const blob = await ann.page.request.get(`/uploads/blob/${sha}`);
+    expect(blob.headers()['content-type']).toContain('image/jpeg');
+    expect(Buffer.compare(await blob.body(), jpeg)).toBe(0);
     await leave(ann);
   });
 

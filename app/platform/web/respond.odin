@@ -43,6 +43,14 @@ respond_file :: proc(res: ^Response, name: string, content: []byte, status := St
 	http.respond_file_content(res, name, content, status)
 }
 
+// `content` as `content_type`, which the caller has from its own row: nothing is guessed.
+respond_bytes :: proc(res: ^Response, content_type: string, content: []byte, status := Status.OK) {
+	res.status = status
+	http.headers_set_content_type(&res.headers, content_type)
+	http.body_set(res, content)
+	http.respond(res)
+}
+
 // Runs once this response has gone, or failed to, when its connection's memory is given back.
 after_sent :: proc(res: ^Response, cb: proc(user: rawptr), user: rawptr) {
 	res._after_sent, res._after_sent_user = cb, user

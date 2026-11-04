@@ -681,6 +681,9 @@ use_invite :: proc(id, at: i64, who: u64, name: string) -> m.Error {
 	if i < 0 || !is_open(s.invites[i], at) { return .Not_Found }
 	r := by_id(s.invites[i].room)
 	if r == nil { return .Not_Found }
+	for b in s.bans {
+		if b.room == r.room.id && b.who == who && b.kind == .Removed && b.until > at { return .Not_Found }
+	}
 	if member_at(r, who) >= 0 { return .None }
 	if len(r.members) >= MAX_MEMBERS { return .Constraint }
 	add_member(r, who, name)

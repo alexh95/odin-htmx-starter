@@ -312,6 +312,8 @@ claimed_size :: proc(data: []byte, kind: Image_Kind) -> (width, height: int, ok:
 			if data[i] != 0xFF { return 0, 0, false }
 			marker := data[i + 1]
 			switch marker {
+			case 0x00: // stuffing, no marker: a browser's decoder scans on from here, past what a length would skip
+				return 0, 0, false
 			case 0xFF: // fill
 				i += 1
 				continue

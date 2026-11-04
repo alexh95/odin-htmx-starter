@@ -82,7 +82,7 @@ refuses_a_second_frame :: proc(t: ^testing.T) {
 // A segment whose length runs off the file, and a file with no frame at all.
 @(test)
 refuses_a_walk_that_ends_badly :: proc(t: ^testing.T) {
-	for bad in ([?]string{"\xFF\xD8\xFF\xE0\xFF\xFF\x00", "\xFF\xD8\xFF\xD9", "\xFF\xD8\xFF\x00\x00\x00"}) {
+	for bad in ([?]string{"\xFF\xD8\xFF\xE0\xFF\xFF\x00", "\xFF\xD8\xFF\xD9", "\xFF\xD8\xFF\x00\x00\x00", "\xFF\xD8\xFF\x00\x00\x13\xFF\xC0\x00\x0B\x08\x00\x01\x00\x01\x01\x01\x11\x00\xFF\xD9"}) {
 		_, why := check(transmute([]byte)bad)
 		testing.expectf(t, why == "That image can't be read.", "%q: %q", bad, why)
 	}

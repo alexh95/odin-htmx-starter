@@ -196,7 +196,7 @@ make_room :: proc() -> bool {
 	c := db.writer_stmt(SQL_ROOM_COUNT)
 	n := db.column_int(c, 0) if db.next_row(c, &making.err) else MAX_ROOMS
 	db.reset(c)
-	if n >= MAX_ROOMS {
+	if n >= MAX_ROOMS && making.kind != .Dm {
 		making.err = .Constraint
 		return false
 	}
@@ -885,6 +885,18 @@ use_invite :: proc(id, at: i64, who: u64, name: string) -> m.Error {
 			return false
 		}
 		j := making.members[0]
+		// Here and not only in the handler: a Remove between the two must win.
+		out := db.writer_stmt(SQL_BANNED)
+		db.bind_id(out, 1, room)
+		db.bind_id(out, 2, i64(j.who))
+		db.bind_int(out, 3, int(m.Ban_Kind.Removed))
+		db.bind_id(out, 4, making.now)
+		kept := db.next_row(out, &making.err)
+		db.reset(out)
+		if kept || making.err != .None {
+			if making.err == .None { making.err = .Not_Found }
+			return false
+		}
 		in_it := db.writer_stmt(SQL_IS_MEMBER)
 		db.bind_id(in_it, 1, room)
 		db.bind_id(in_it, 2, i64(j.who))
