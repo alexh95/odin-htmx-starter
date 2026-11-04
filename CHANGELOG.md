@@ -8,6 +8,12 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 
 ## [Unreleased]
 
+### Added
+
+- **The bot in Houston** (M7): `/bot` on the main host and in the nav, its conversations in SQLite, a member's newest 50,
+  each with its last 200 turns, across restarts. `storetest` holds both families to one contract. The page says who can
+  read a conversation: nobody through the site, whoever runs the server through its database.
+
 ## [2.5.0] - 2026-11-04
 
 The starter's sixth milestone, M6: Comms. Houston gets chat, on SQLite: rooms public, private and announcements, DMs, four

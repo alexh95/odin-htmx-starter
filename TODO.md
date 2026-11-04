@@ -58,10 +58,11 @@ selection without bot drops and counts `bot.ask`; a deterministic token e2e; Sto
 specs. Everything is built and tested against `tools/fakellama`; no model is needed until the last step, and Alex's apollo
 steps go through planning once the code can use them. Pushes are on the standing go.
 
-- [ ] **1. `bot` in `full`, on SQLite** (§14.3, Q20): `app/stores/sqlite/bot` with its migration, the newest 50
+- [x] **1. `bot` in `full`, on SQLite** (§14.3, Q20): `app/stores/sqlite/bot` with its migration, the newest 50
       conversations and 200 turns a conversation as the memory store keeps; `/bot` mounted on Houston's main host with
       `bot.health`, in the nav and the bundle. *Check:* a storetest over both families, a conversation surviving a restart,
       another member's id a 404, `rbac.spec`'s rows, the catalog, both suites on `full`.
+      Done (2026-11-05): bot's specs and k6 scenario now run on every identity; `/bot` says who can read a conversation.
 - [ ] **2. Server-side topic rows** (§6.2, X37): a row with `deliver` takes no subscriber and keeps no ring, so a member
       can't read a private room's question off `/events?t=bot.ask:<room>`; a publish with no row is dropped and counted;
       `tools/check topics` holds every family published by literal name to a declared row. *Check:* hub tests, a spec that

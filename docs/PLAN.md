@@ -3529,7 +3529,9 @@ streams upserts of `#m-<id>` to `chat.room:<room>` for every member → the fini
 way, so neither feature imports the other and each works alone; without bot the publish is dropped and counted (§6.2;
 LC §9; RESOLUTIONS X37).
 
-**Policy and privacy** (Q20): conversations are stored for their owner only; admins see counts and timings. Guests
+**Policy and privacy** (Q20): conversations are stored for their owner only; admins see counts and timings, and that line
+is the app's, as chat's is (§14.1): whoever runs the server can read the database, dbview included, and `/bot` says so.
+Guests
 get mock only, 5 per hour per client id; members get 1 concurrent generation and 30 per hour. No tools and no
 function calling, so a prompt injection has nothing to act on (07 §2.6). M7's checks (Stop ≤ 100 ms, the queue spec
 with `BOT_CONCURRENCY=1`, 1000 concurrent mock generations ≤ 1 core and ≤ +30 MB, **NEW**) are in §18 and §22.

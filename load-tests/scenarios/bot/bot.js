@@ -1,10 +1,10 @@
 import http from 'k6/http';
 import { check } from 'k6';
-import { BASE } from '../../lib/config.js';
-import { FORM, signIn } from '../../lib/nick.js';
+import { MAIN as BASE } from '../../lib/config.js'; // the bot is the main host's
+import { FORM, signIn } from '../../lib/member.js';
 import { options as build, summarize } from '../../lib/options.js';
 
-// tags: @bot @accounts-nick
+// tags: @bot
 //
 // A member's questions to the mock, whole answers (run.sh sets BOT_DELAY_MS=0 and lifts
 // the hourly limits): the pages, a conversation of the VU's own, an answer over each
@@ -13,7 +13,7 @@ import { options as build, summarize } from '../../lib/options.js';
 // e2e suite's: under 100 ms on either delivery). Every iteration is a generation or two,
 // so a quick run makes thousands.
 export const options = build();
-options.noCookiesReset = true; // the nickname picked on a VU's first iteration stays (k6 empties the jar each one)
+options.noCookiesReset = true; // the member signed in on a VU's first iteration stays (k6 empties the jar each one)
 export const handleSummary = summarize('bot');
 
 let conv = '';

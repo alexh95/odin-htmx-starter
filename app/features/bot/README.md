@@ -4,8 +4,8 @@ The house assistant (PLAN §14.3, D31; Q20, Q32), on its mock at M2. Packages: `
 4,000 runes, titles, what a backend is asked, the answer's markdown render), `models` (D31's backend contract:
 `Bot_Request`, `Bot_Event`, `Bot_Done` with llama's stats shape, `Bot_Health`, `Bot_Sink`; conversations, turns and the
 store contract), `backend_mock` (the default and, until M7's llama binding, the only backend), `views` and `web` (the
-routes, the backend switch, both deliveries, Stop and the limits). Its store at M2: memory (`app/stores/memory/bot/`);
-SQLite joins at M7.
+routes, the backend switch, both deliveries, Stop and the limits). Its stores: memory (`app/stores/memory/bot/`, `streams`) and
+SQLite (`app/stores/sqlite/bot/`, Houston, from M7), held to one contract by `storetest`.
 
 **An answer** is a stream on the asker's own connection, in four frames: the question and the answer's shell with Stop;
 the answer's text into `#mb-<mid>` a piece at a time (an SSE answer adds `event: hx:release` after the first, so the

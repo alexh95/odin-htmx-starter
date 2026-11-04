@@ -24,10 +24,11 @@ esc :: html.esc
 // A member's: their conversations and a new one.
 index_page :: proc(convs: []m.Conversation, health: m.Bot_Health) -> string {
 	b := strings.builder_make(context.temp_allocator)
-	html.page_head(&b, "Capcom", "Bot", "Ask the house assistant. Your conversations are yours alone.")
+	html.page_head(&b, "Capcom", "Bot", "Ask the house assistant.")
 	w(&b, `<section class="block bot-index"><p>`)
 	health_badge(&b, health)
-	w(&b, `</p><form class="bot-new" hx-post="/bot/c"><button class="btn btn-primary" type="submit">New conversation</button></form><ul class="bot-convs">`)
+	w(&b, `</p><p class="muted">Nobody reads your conversations through this site. Whoever runs the server can read its database, and with a model behind the bot, what you ask goes to that model's machine.</p>`)
+	w(&b, `<form class="bot-new" hx-post="/bot/c"><button class="btn btn-primary" type="submit">New conversation</button></form><ul class="bot-convs">`)
 	for c in convs {
 		fmt.sbprintf(&b, `<li><a href="/bot/c/%d">`, c.id)
 		esc(&b, c.title)
@@ -46,7 +47,7 @@ guest_page :: proc(health: m.Bot_Health, per_hour: int) -> string {
 	html.page_head(&b, "Capcom", "Bot", "Ask the house assistant.")
 	w(&b, `<section class="block bot-room"><p>`)
 	health_badge(&b, health)
-	fmt.sbprintf(&b, ` <span class="muted">As a guest you get the mock, %d questions an hour, and nothing is kept. <a href="/login?next=/bot">Pick a nickname</a> on the LAN to keep conversations.</span></p>`, per_hour)
+	fmt.sbprintf(&b, ` <span class="muted">As a guest you get the mock, %d questions an hour, and nothing is kept. <a href="/login?next=/bot">Sign in</a> to keep conversations.</span></p>`, per_hour)
 	w(&b, `<div id="c-log" class="bot-log" role="log" aria-label="Answers"></div>`)
 	ask_form(&b, "/bot/ask")
 	w(&b, `</section>`)

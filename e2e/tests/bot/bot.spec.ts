@@ -1,13 +1,16 @@
 import { test, expect } from '../../fixtures';
+import { mkdtempSync, rmSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import type { Page } from '@playwright/test';
-import { startServer, stopServer } from '../../helpers/server';
+import { mainHost, mainOrigin, startServer, stopServer, type Server } from '../../helpers/server';
 import { leave, member, uid, type Member } from '../../helpers/members';
 
 // The bot on its mock (PLAN §14.3, D31): an answer in four frames over either delivery
 // (an SSE answer to the form's POST, or a multipart one), Stop, the member's kept
 // conversations, and the limits. The harness seeds the mock (BOT_SEED), so the same
 // question gets the same answer.
-const T = { tag: ['@bot', '@accounts-nick'] };
+const T = { tag: ['@bot'] };
 
 async function conversation(m: Member): Promise<string> {
   await m.page.goto('/bot');
@@ -101,7 +104,7 @@ test.describe('the bot', T, () => {
   test('a member asks one at a time; past the hour\'s questions a toast says when', async ({ browser }) => {
     const config = test.info().config;
     const s = await startServer(config, { BOT_DELAY_MS: '150', BOT_MEMBER_PER_HOUR: '2' });
-    const ann = await member(browser, `http://127.0.0.1:${s.port}`);
+    const ann = await member(browser, `http://${mainHost(s.port)}`);
     try {
       await conversation(ann);
       await ask(ann.page, 'first', 'sse');
@@ -120,15 +123,42 @@ test.describe('the bot', T, () => {
     }
   });
 
+  test('a conversation outlives a restart', { tag: '@bot-sqlite' }, async ({ browser }) => {
+    test.slow(); // two servers' boots
+    const config = test.info().config;
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'odin-bot-'));
+    const env = { DB_PATH: path.join(dir, 'data.db') };
+    let s: Server | undefined;
+    try {
+      s = await startServer(config, env);
+      const ann = await member(browser, mainOrigin(s.port));
+      const where = await conversation(ann);
+      await ask(ann.page, 'Still there?', 'sse');
+      await expect(answers(ann.page).locator('.bot-stats')).toBeVisible();
+      const said = await answers(ann.page).locator('.bot-body').innerText();
+      await stopServer(s);
+      s = await startServer(config, env); // a fresh port: the old one's teardown can race (persistence.spec)
+      await ann.page.goto(`${mainOrigin(s.port)}${where}`);
+      await expect(ann.page.locator('#conv-title')).toHaveText('Still there?');
+      await expect(ann.page.locator('#c-log article.bot-q')).toHaveText('Still there?');
+      await expect(answers(ann.page).locator('.bot-body')).toHaveText(said);
+      await expect(answers(ann.page).locator('.bot-stats')).toContainText(/\d+ tokens/);
+      await leave(ann);
+    } finally {
+      if (s) await stopServer(s);
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test('a guest gets the mock, keeps nothing, and is limited per hour', async ({ browser }) => {
     const config = test.info().config;
     const s = await startServer(config, { BOT_GUEST_PER_HOUR: '1' });
-    const context = await browser.newContext({ baseURL: `http://127.0.0.1:${s.port}` });
+    const context = await browser.newContext({ baseURL: `http://${mainHost(s.port)}` });
     const page = await context.newPage();
     try {
       const res = await page.goto('/bot');
       expect(res!.headers()['x-impl']).toBe('bot.backend=mock');
-      await expect(page.getByRole('link', { name: 'Pick a nickname' })).toBeVisible();
+      await expect(page.getByRole('link', { name: 'Sign in' }).last()).toBeVisible();
       await expect(page.getByRole('button', { name: 'New conversation' })).toHaveCount(0);
       await ask(page, 'a guest asks', 'multipart');
       await expect(answers(page).locator('.bot-stats')).toBeVisible();
