@@ -33,6 +33,7 @@ const PASSING: [string, Buffer][] = [
 const REFUSED: [string, Buffer][] = [
   ['stuffing where a marker belongs', Buffer.concat([SOI, Buffer.from([0xff, 0x00, 0, 4, 0, 0]), noSoi(HIDDEN), noSoi(SMALL)])],
   ['a reserved marker', Buffer.concat([SOI, Buffer.from([0xff, 0x02, 0, 4, 0, 0]), noSoi(HIDDEN), noSoi(SMALL)])],
+  ['a hierarchical marker', Buffer.concat([SOI, Buffer.from([0xff, 0xde, 0, 4, 0, 0]), noSoi(HIDDEN), noSoi(SMALL)])],
   ['a second frame', Buffer.concat([SMALL.subarray(0, SMALL.length - 2), noSoi(HIDDEN)])],
 ];
 

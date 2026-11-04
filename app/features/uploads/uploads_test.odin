@@ -100,7 +100,7 @@ refuses_stuffing_where_a_marker_belongs :: proc(t: ^testing.T) {
 
 @(test)
 refuses_a_reserved_marker :: proc(t: ^testing.T) {
-	for bad in ([?]string{"\xFF\xD8\xFF\x02\x00\x02", "\xFF\xD8\xFF\xC8\x00\x02", "\xFF\xD8\xFF\xF0\x00\x02"}) {
+	for bad in ([?]string{"\xFF\xD8\xFF\x02\x00\x02", "\xFF\xD8\xFF\xC8\x00\x02", "\xFF\xD8\xFF\xF0\x00\x02", "\xFF\xD8\xFF\xDE\x00\x02", "\xFF\xD8\xFF\xDF\x00\x02"}) {
 		_, why := check(transmute([]byte)bad)
 		testing.expectf(t, why == "That image can't be read.", "%q: %q", bad, why)
 	}

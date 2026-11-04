@@ -331,7 +331,7 @@ claimed_size :: proc(data: []byte, kind: Image_Kind) -> (width, height: int, ok:
 				continue
 			case 0xD9:
 				return width, height, framed
-			case 0xC0 ..= 0xC7, 0xC9 ..= 0xCF, 0xDA ..= 0xDF, 0xE0 ..= 0xEF, 0xFE: // what has a length
+			case 0xC0 ..= 0xC7, 0xC9 ..= 0xCF, 0xDA ..= 0xDD, 0xE0 ..= 0xEF, 0xFE: // what has a length
 			case: // stuffing, or reserved: a decoder may scan on from here, past what a length would skip
 				return 0, 0, false
 			}
