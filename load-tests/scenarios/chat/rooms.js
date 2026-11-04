@@ -20,6 +20,7 @@ export const handleSummary = summarize('rooms');
 const ok = (...codes) => http.expectedStatuses(...codes);
 const guest = new http.CookieJar(); // this VU's guest
 let ready = false; // the owner in, their room made, the guest in
+let guestId;
 
 // A member for every VU's DM: their id from a room page's data-me, and known to chat from it.
 export function setup() {
@@ -48,6 +49,8 @@ export default function (data) {
       { headers: FORM, redirects: 0, tags: { name: 'POST /chat/rooms' }, responseCallback: ok(204, 422) });
     ready = !!made && (made.status === 204 || made.status === 422) && enter(`rooms ${__VU} guest`, { jar: guest });
     if (!ready) return;
+    const lobby = http.get(`${BASE}/chat/r/lobby?transport=poll`, { jar: guest, tags: { name: 'GET /chat/r/:slug' } });
+    guestId = (lobby.body.match(/data-me="(\d+)"/) || [])[1];
   }
   const as = { headers: FORM, jar: guest };
   const invite = http.post(`${BASE}/chat/r/${slug}/invite`, null, { headers: FORM, tags: { name: 'POST /chat/r/:slug/invite' } });
@@ -58,6 +61,13 @@ export default function (data) {
     check(page, { 'join page 200': (r) => r.status === 200 && r.body.includes('chat-join') });
     const join = http.post(`${BASE}${href[1]}`, null, { ...as, redirects: 0, tags: { name: 'POST /chat/join/:token' }, responseCallback: ok(303) });
     check(join, { 'joined 303': (r) => r.status === 303 && r.headers['Location'] === `/chat/r/${slug}` });
+    if (guestId) {
+      const removed = http.post(`${BASE}/chat/r/${slug}/remove/${guestId}`, null, { headers: FORM, tags: { name: 'POST /chat/r/:slug/remove/:id' } });
+      check(removed, { 'removed 204': (r) => r.status === 204 });
+      const allowed = http.post(`${BASE}/chat/r/${slug}/allow/${guestId}`, null, { headers: FORM, tags: { name: 'POST /chat/r/:slug/allow/:id' } });
+      check(allowed, { 'allowed 204': (r) => r.status === 204 });
+      http.post(`${BASE}${href[1]}`, null, { ...as, redirects: 0, tags: { name: 'POST /chat/join/:token' }, responseCallback: ok(303) });
+    }
     const out = http.post(`${BASE}/chat/r/${slug}/leave`, null, { ...as, tags: { name: 'POST /chat/r/:slug/leave' } });
     check(out, { 'left 204': (r) => r.status === 204 && r.headers['Hx-Redirect'] === '/chat' });
     const revoke = http.post(`${BASE}/chat/r/${slug}/invites/${href[2]}/revoke`, null, { headers: FORM, tags: { name: 'POST /chat/r/:slug/invites/:id/revoke' } });

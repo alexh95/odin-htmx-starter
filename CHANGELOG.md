@@ -10,6 +10,8 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 
 ### Added
 
+- **An owner's Remove**: a private room's owner removes a member from its list. Their streams end, no invite lets them back
+  until the owner allows it, and it's audited with no message content (`0009_removed.sql`).
 - **Limits a member can't talk past** (M6's audit): reports (5 a minute, once a message, 20 open each), rooms, DMs,
   invites and blocks (30 a minute), rooms owned (20), searches (10 a second), mutes (200), and uploads' bytes (256 MiB a
   day, 16 GiB overall). Large bodies are counted before they're read, 8 at once and 2 a member. Each has an env row.
@@ -27,8 +29,9 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
   then Streaming for the rest of the browser's session. A member's choice is kept on their account in `full`, so it
   follows them to another device, and in a cookie elsewhere. The restart spec runs on SQLite too.
 - **Uploads and chat's images** (M6 slice 8): a new `uploads` feature: chunks of at most 4 MiB through a fetch shim,
-  resumable from the server's offset, finished by sniff, the header's size against 40 MP, and a full decode, into a
-  blob named by its sha256 and served with its own type. PNG and JPEG only. A chat message carries one, with or without
+  resumable from the server's offset, finished by sniff and the header's size against 40 MP, into a blob named by its
+  sha256 and served with its own type. PNG and JPEG only, progressive included. The server decodes nothing, so an image
+  corrupt past its header is stored and shows as broken in the viewer's browser (PLAN §17.6 says why). A chat message carries one, with or without
   text (`0006_images.sql`). Twenty an hour and two at once per member. `UPLOADS_DIR` holds the bytes; compose sets it
   to `/data/uploads`.
 - **chat on SQLite** (M6 slice 2, its store): `stores/sqlite/chat` keeps rooms and messages across restarts, ids
@@ -85,10 +88,10 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 
 ### Fixed
 
-- **A hostile JPEG reached a decode loop with no bounds checks**, and a trap there leaked what it had touched: `platform/jpeg`
-  is `core:image/jpeg` patched for what strangers send, and a finish's memory now goes whatever happens. A decode has 30 s.
 - **An edit passed none of a post's rules**: a muted member could keep changing their messages. A deleted message's Inbox
   lines go with it, and a closed report keeps its record, not its copy.
+- **A report's removal closed the report first**, so a failure could leave the message live and the report closed. It now
+  removes, then closes. The blob mirror refuses to delete with an empty table, or most of its copies at once, and fails.
 - **A chat message over a WebSocket on a store with a writer thread waited for the next timer**, up to 1 s: the writer's
   answer queued the hub's drain, and the loop went to sleep past it. F-23 now counts work posted from other threads.
 - **An open stream can't outlive its room's rules**: a socket's frame was judged on the room as the socket found it,

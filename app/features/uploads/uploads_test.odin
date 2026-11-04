@@ -1,10 +1,9 @@
 package uploads
 
-// ---- what an upload's bytes are: the sniff, the claimed size, the decode bomb (§17.6) ---------
+// ---- what an upload's bytes are: the sniff, the header's claim, the walk to a JPEG's end (§17.6) ----
 
 import "base:runtime"
 import "core:fmt"
-import "core:hash"
 import "core:os"
 import "core:strings"
 import "core:testing"
@@ -20,7 +19,7 @@ import uploads_store "store:uploads"
 TINY_PNG := #load("testdata/tiny.png")
 @(private = "file")
 TINY_JPEG := #load("testdata/tiny.jpg")
-// 32×32: for the fuzz, where a 1×1 file stops short of most of a decoder.
+// 32×32, for the walk: a progressive JPEG and one with restart markers among them.
 @(private = "file")
 SEEDS := [?][]byte {
 	TINY_PNG, TINY_JPEG, #load("testdata/gradient.png"), #load("testdata/palette.png"), #load("testdata/gradient.jpg"),
@@ -43,17 +42,18 @@ reads_what_a_header_claims :: proc(t: ^testing.T) {
 	testing.expect(t, ok && w == 1 && h == 1)
 }
 
+// What phones and editors make, a progressive JPEG among them: the header says, and the bytes stay.
 @(test)
-checks_a_real_image :: proc(t: ^testing.T) {
-	for data in ([?][]byte{TINY_PNG, TINY_JPEG}) {
-		c, why := check(data)
-		testing.expectf(t, why == "" && c.width == 1 && c.height == 1 && valid_sha(string(c.sha256[:])), "%q %v", why, c)
+reads_each_seed :: proc(t: ^testing.T) {
+	for seed, i in SEEDS {
+		c, why := check(seed)
+		testing.expectf(t, why == "" && c.width > 0 && c.height > 0 && valid_sha(string(c.sha256[:])), "%d: %q %v", i, why, c)
 	}
 }
 
-// A file whose header claims 60 000 × 60 000 is refused from the header: no pixel is allocated.
+// A file whose header claims 60 000 × 60 000 goes at the header.
 @(test)
-refuses_a_bomb_before_decoding :: proc(t: ^testing.T) {
+refuses_a_bomb_by_its_header :: proc(t: ^testing.T) {
 	bomb := make([]byte, len(TINY_PNG), context.temp_allocator)
 	copy(bomb, TINY_PNG)
 	bomb[16], bomb[17], bomb[18], bomb[19] = 0, 0, 0xEA, 0x60
@@ -66,6 +66,35 @@ refuses_a_bomb_before_decoding :: proc(t: ^testing.T) {
 	testing.expect_value(t, why, "That image is too large: at most 40 megapixels.")
 }
 
+// A frame and then another, larger: this would judge the first and a browser might draw the second.
+@(test)
+refuses_a_second_frame :: proc(t: ^testing.T) {
+	SOF :: "\xFF\xC0\x00\x11\x08\x00\x10\x00\x10\x03\x01\x11\x00\x02\x11\x00\x03\x11\x00"
+	HUGE :: "\xFF\xC2\x00\x11\x08\xFF\xFF\xFF\xFF\x03\x01\x11\x00\x02\x11\x00\x03\x11\x00"
+	one := strings.concatenate({"\xFF\xD8", SOF, "\xFF\xD9"}, context.temp_allocator)
+	_, why := check(transmute([]byte)one)
+	testing.expect_value(t, why, "")
+	two := strings.concatenate({"\xFF\xD8", SOF, HUGE, "\xFF\xD9"}, context.temp_allocator)
+	_, why = check(transmute([]byte)two)
+	testing.expect_value(t, why, "That image can't be read.")
+}
+
+// A segment whose length runs off the file, and a file with no frame at all.
+@(test)
+refuses_a_walk_that_ends_badly :: proc(t: ^testing.T) {
+	for bad in ([?]string{"\xFF\xD8\xFF\xE0\xFF\xFF\x00", "\xFF\xD8\xFF\xD9", "\xFF\xD8\xFF\x00\x00\x00"}) {
+		_, why := check(transmute([]byte)bad)
+		testing.expectf(t, why == "That image can't be read.", "%q: %q", bad, why)
+	}
+}
+
+// Corrupt past its header: stored, and a broken image in a browser. Nothing here reads that far.
+@(test)
+keeps_what_its_header_vouches_for :: proc(t: ^testing.T) {
+	_, why := check(TINY_PNG[:40])
+	testing.expect_value(t, why, "")
+}
+
 @(test)
 addresses_are_hex :: proc(t: ^testing.T) {
 	testing.expect(t, valid_sha("aa00000000000000000000000000000000000000000000000000000000000000"))
@@ -73,76 +102,12 @@ addresses_are_hex :: proc(t: ^testing.T) {
 	testing.expect(t, !valid_sha("AA00000000000000000000000000000000000000000000000000000000000000"))
 }
 
-// More symbols than the decoder's arrays hold, the sum wrapping a u8: refused before it.
+// Flipped bytes of real files, cut short at any length: the header walk answers, never traps, and
+// nothing past the pixel cap gets through.
 @(test)
-refuses_an_oversized_huffman_table :: proc(t: ^testing.T) {
-	segment := make([]byte, 17 + 300, context.temp_allocator)
-	for i in 1 ..< 17 { segment[i] = 20 }
-	testing.expect(t, !huffman_fits(segment))
-	for i in 1 ..< 17 { segment[i] = 2 }
-	testing.expect(t, huffman_fits(segment[:17 + 32]))
-}
-
-// The CRC each chunk ends with made right again, so a flipped byte reaches the inflate and the
-// filters instead of stopping at the checksum.
-@(private = "file")
-fix_png_crcs :: proc(data: []byte) {
-	i := 8
-	for i + 12 <= len(data) {
-		n := int(data[i]) << 24 | int(data[i + 1]) << 16 | int(data[i + 2]) << 8 | int(data[i + 3])
-		if n < 0 || i + 12 + n > len(data) { return }
-		sum := hash.crc32(data[i + 4:i + 8 + n])
-		for k in 0 ..< 4 { data[i + 8 + n + k] = byte(sum >> uint(24 - 8 * k)) }
-		i += 12 + n
-	}
-}
-
-// A deflate stream that never ends, in a small file: core:image's inflate would run until the
-// machine had no memory left. Found by the fuzz below; the arena's cap is what ends it.
-@(test)
-stops_an_endless_stream :: proc(t: ^testing.T) {
-	_, why := check(#load("testdata/endless.png"))
-	testing.expect(t, why != "")
-}
-
-// The audit's files (M6-01, M6-03), height 6400 and width 6250, all nothing but headers. Each is refused
-// at the frame, before `blocks` is made: no trap, no pages touched.
-@(private = "file")
-FRAME :: "\xFF\xD8\xFF\xC0\x00\x11\x08\x19\x00\x18\x6A\x03"
-@(private = "file")
-SCAN :: "\xFF\xDA\x00\x0C\x03\x01\x00\x02\x00\x03\x00\x00\x3F\x00\xFF\xD9"
-
-@(test)
-refuses_a_frame_the_decoder_cant_scan :: proc(t: ^testing.T) {
-	Case :: struct { name, components: string }
-	cases := [?]Case{
-		{"Cb sampled finer than Y", "\x01\x11\x00\x02\x12\x00\x03\x11\x00"},
-		{"no Y at all", "\x02\x11\x00\x02\x11\x00\x02\x11\x00"},
-		{"Cb twice", "\x01\x11\x00\x02\x11\x00\x02\x11\x00"},
-	}
-	for c in cases {
-		data := transmute([]byte)strings.concatenate({FRAME, c.components, SCAN}, context.temp_allocator)
-		_, why := check(data)
-		testing.expectf(t, why == "That image can't be read.", "%s: %q", c.name, why)
-	}
-}
-
-// A JFXX segment naming a thumbnail larger than itself: the decoder goes by the segment's length,
-// as the header read does, so what a COM hides stays hidden from both.
-@(test)
-walks_a_file_as_the_header_read_does :: proc(t: ^testing.T) {
-	JFXX :: "\xFF\xE0\x00\x08JFXX\x00\x13\xFF\xD9"
-	data := transmute([]byte)strings.concatenate({"\xFF\xD8", JFXX}, context.temp_allocator)
-	_, why := check(data)
-	testing.expect_value(t, why, "That image can't be read.")
-}
-
-// Flipped bytes of real files, cut short at any length: an answer, never a trap, and nothing past
-// the pixel cap gets through.
-@(test)
-fuzz_the_decoders :: proc(t: ^testing.T) {
+fuzz_the_header_walk :: proc(t: ^testing.T) {
 	d := fuzz.seed(0x1A7E)
-	for _ in 0 ..< fuzz.rounds(1000) {
+	for _ in 0 ..< fuzz.rounds(20000) {
 		seed := SEEDS[fuzz.next(&d) % len(SEEDS)]
 		data := make([]byte, len(seed), context.temp_allocator)
 		copy(data, seed)
@@ -150,25 +115,10 @@ fuzz_the_decoders :: proc(t: ^testing.T) {
 			r := fuzz.next(&d)
 			data[r % u64(len(data))] = byte(r >> 32)
 		}
-		if sniff(data) == .Png { fix_png_crcs(data) }
 		n := len(data) if fuzz.next(&d) & 3 != 0 else int(fuzz.next(&d) % u64(len(data))) + 1
 		c, why := check(data[:n])
 		if why == "" { testing.expectf(t, c.width * c.height <= MAX_PIXELS, "%v", c) }
 		free_all(context.temp_allocator)
-	}
-}
-
-// What phones and editors make, with what can't be read refused in the member's words.
-@(test)
-reads_each_seed :: proc(t: ^testing.T) {
-	for seed, i in SEEDS {
-		c, why := check(seed)
-		if i == 6 { // core:image doesn't read those, and the member hears why
-			testing.expectf(t, strings.contains(why, "progressive"), "%q", why)
-			continue
-		}
-		testing.expectf(t, why == "", "%d: %q", i, why)
-		testing.expect(t, c.width > 0 && c.height > 0)
 	}
 }
 
@@ -231,5 +181,9 @@ sweep_and_mirror :: proc(t: ^testing.T) {
 	st.n_holders = 0
 	release(SHA_A)
 	testing.expect(t, !os.exists(blob_path(SHA_A)))
+
+	// No rows at all: however few the copies, none goes, and the run fails.
+	_, removed, ok = mirror(dest)
+	testing.expect(t, !ok && removed == 0 && os.exists(fmt.tprintf("%s/%s", dest, SHA_A)))
 	free_all(context.temp_allocator)
 }

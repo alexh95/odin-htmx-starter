@@ -293,6 +293,30 @@ set_ban :: proc(r: m.Room, a: Actor, who: u64, kind: m.Ban_Kind, minutes: int, r
 	return chat_store.ban(b, audit(a, name, "user", i64(who), reason, fmt.tprintf("room=%d minutes=%d", r.id, mins)))
 }
 
+// ---- an owner's Remove --------------------------------------------------------------------------
+
+// Moderators don't act in private rooms, so this is how someone added by mistake leaves one.
+may_remove :: proc(r: m.Room, v: authz.Viewer) -> bool { return r.kind == .Private && v.id != 0 && r.owner == v.id }
+
+// As long as there's a room: only its owner lifts it.
+REMOVED_UNTIL :: i64(1) << 62
+
+// Out of the room, and kept out by the row, whatever invite they hold. The caller ends their streams.
+remove_member :: proc(r: m.Room, a: Actor, who: u64, name: string) -> m.Error {
+	b := m.Ban{room = r.id, who = who, kind = .Removed, until = REMOVED_UNTIL, by = a.id, name = name}
+	if err := chat_store.ban(b, audit(a, "chat.member_removed", "user", i64(who), "", fmt.tprintf("room=%d", r.id))); err != .None { return err }
+	return chat_store.leave(r.id, who)
+}
+
+// They may come back by an invite; it doesn't put them back.
+allow_member :: proc(r: m.Room, a: Actor, who: u64) -> m.Error {
+	b := m.Ban{room = r.id, who = who, kind = .Removed, until = 0, by = a.id}
+	return chat_store.ban(b, audit(a, "chat.member_allowed", "user", i64(who), "", fmt.tprintf("room=%d", r.id)))
+}
+
+removed_members :: proc(r: m.Room, out: ^[dynamic]m.Ban) -> m.Error { return chat_store.removed(r.id, now(), out) }
+kept_out :: proc(r: m.Room, who: u64) -> bool { return who != 0 && chat_store.banned(r.id, who, .Removed, now()) != 0 }
+
 // A moderator's delete of `msg` to a tombstone, audited; op.done runs once it is stored. The op
 // can outlive its connection, so what its audit entry names is in the op's own memory.
 remove :: proc(op: ^m.Change, a: Actor, reason, action: string) -> bool {
@@ -312,6 +336,13 @@ report :: proc(msg: m.Message, v: authz.Viewer, reason: string) -> (i64, m.Error
 		room = msg.room, msg = msg.id, author = msg.author, author_name = msg.name, body = msg.body, blob = msg.blob,
 		by = v.id, by_name = v.name, reason = reason, at = now(),
 	})
+}
+
+// A report closed by the removal `removal` audited: its actor and reason, its own action.
+close_report :: proc(id: i64, removal: m.Audit) -> m.Error {
+	entry := removal
+	entry.action, entry.target_kind, entry.target_id = "chat.report_removed", "report", id
+	return chat_store.resolve(id, now(), "removed", entry)
 }
 
 reports :: proc(out: ^[dynamic]m.Report) -> m.Error { return chat_store.reports(REPORTS_SHOWN, out) }

@@ -364,7 +364,6 @@ Below L4, platform imports a feature only through a family collection: `platform
 | `platform/sys` | 1 | glibc `_setjmp`, sigaction and sigaltstack, the Windows VEH and `_resetstkoflw`, setrlimit, the vDSO clock; the thread-local counters the guard classifies by (here because `platform/sqlite`, L1, raises `in_sqlite`) |
 | `platform/sqlite` | 1 | the SQLite binding (core only); raises `in_sqlite` around every call |
 | `platform/escape` | 1 | the injection boundary, `w esc url_encode json_esc`: a leaf, so `platform/markdown` (L2) escapes with it and `platform/html` re-exports it (M1, **NEW**) |
-| `platform/jpeg` | 1 | `core:image/jpeg`, patched for hostile files (M6-01): what `uploads` decodes a JPEG with; its README lists each patch |
 | `platform/signed` | 1 | `<body>.<MAC>` text the server hands out and reads back (a pending sign-in, envadmin's cookie): `sign` and `open`, the one parser of it, fuzzed (M5, M4-13, **NEW**) |
 | `platform/fuzz` | 1 | the parsers' tests' seeded random input, `FUZZ_SCALE`/`FUZZ_SEED` for the nightly; only tests import it (M5, M4-13, **NEW**) |
 | `platform/ext` | 1 | the closed `Ext` enum of htmx extensions with its registration-name and file tables; imports nothing; re-exported as `web.Ext` (RESOLUTIONS X33) |
@@ -819,7 +818,7 @@ app/cmd/<p>/   brand.odin main.odin routes.odin routes_test.odin   (all hand-wri
 platform  L4 app      ─► identity:., store:., L1–L3             (only cmd/* imports it; it holds front)
           L3 web html hub stream stream/client client/* theme/*   (html ─► client:., theme:.)
           L2 store store/sqlite store/memory env authz authz/anonymous obs guard workers markdown password totp
-          L1 sys sqlite ext escape signed fuzz jpeg
+          L1 sys sqlite ext escape signed fuzz
 ```
 
 Each feature `f` is a set of packages (D4, with RESOLUTIONS X30 applied to the web row and LC §5's models and stores):
@@ -3257,7 +3256,11 @@ This section specifies the two features Alex named first, chat and the bot, and 
   moderators delete any message (to a tombstone), mute, kick, lock a room and set slow mode, each with an hx-prompt
   reason for the audit log. They don't read private rooms or DMs: those are moderated through reports, which any
   member files on a message and which carry a copy of it, and from which a moderator removes the original (planning,
-  2026-11-01).
+  2026-11-01). That line is the app's: moderators can't read private rooms or DMs through it, but whoever runs the server
+  can read the database, dbview included, and the invite text says so (planning, 2026-11-04).
+- A private room's owner removes a member from its member list: the membership ends, their streams close through the
+  revoke path, and no invite lets them back until the owner allows it from the same list; audited, with no message
+  content (planning, 2026-11-04). Hand-over and delete wait for the room settings page.
 - Mentions go to `notify_web.send` (a direct import, so notify comes with chat), `@bot` to `bot.ask:<room>` on the
   hub (§6.2, §14.3), images through `uploads` (§14.2). Moderation actions go to `store:audit`. Bodies are at most
   2,000 runes, cut by rune (the skeleton's rule).
@@ -3416,7 +3419,7 @@ from M1 (in `minimal`); Houston's Today with cards arrives at M4 with `cmd/full`
 **`uploads`** (`/uploads`; M6; shared by chat images, avatars and video; D35):
 1. Create an upload, which returns its id.
 2. `PUT /uploads/<id>?off=<n>` for each chunk of at most 4 MiB, under the route's own body cap.
-3. Finish, `POST /uploads/<id>/finish`: sniff, decode and sha256; the file becomes a content-addressed blob.
+3. Finish, `POST /uploads/<id>/finish`: sniff, the header against the pixel cap, and sha256; the file becomes a content-addressed blob.
 
 The chunks go through app.js's chunked-upload shim (`features/uploads/static/uploads.js`, fetch), so no htmx timeout
 applies to them, and neither to the finish, which goes the same way (D21; X14). **As built (M6 slice 8):** progress
@@ -4259,18 +4262,27 @@ would have refused. Chat's posts and typing and `/csp-report` use it (stream con
 ### 17.6 Uploads
 
 Chunked (D35; the flow is in §14.2): chunks of at most 4 MiB under a per-route body cap (the default stays 64 KiB).
-Images up to 10 MiB; video up to 4 GiB, for holders of `Video_Upload` only. Magic-byte sniffing, then a full decode
-with `core:image` under a 40 MP pixel cap; blobs are content-addressed; responses carry `nosniff` and
+Images up to 10 MiB; video up to 4 GiB, for holders of `Video_Upload` only. Magic-byte sniffing, then a header read
+under a 40 MP pixel cap, with no decode on the server (below); blobs are content-addressed; responses carry `nosniff` and
 `Content-Disposition: attachment` for anything that isn't an image; SVG and HTML are never served inline. At most 8
 concurrent uploads × 4 MiB are in flight, counted by `front` before a body is read (2 a member), and blob answers
 are counted to 64 MiB until they're sent. NPM streams bodies through (`proxy_request_buffering off`,
-`client_max_body_size 16m`, D41). M6 adds a decode-bomb fuzz.
+`client_max_body_size 16m`, D41). M6 fuzzes the header walk.
 
-**As built (M6 slice 8):** PNG and JPEG (baseline), which is what `core:image` reads; a decode runs alone, in an arena
-with a hard cap (room for its pixels, at most 256 MiB), which ends the unbounded inflate the fuzz found. Measured, that cap
-is the real limit, below 40 MP: about 31 MP for a JPEG, 23 MP for an RGB PNG, 17 MP RGBA, 8.8 MP at 16 bits; the peak with
-1000 sockets held is 247 MiB of Houston's 512 (`docs/perf/CHAT-BUDGETS.md`). Every stored type is an image, so nothing is an attachment yet. A blob's
-address is its sha256, and a progressive JPEG is refused by name.
+**Decision: the server doesn't decode images (planning, 2026-11-04).** Slice 8 decoded each with `core:image`. The check
+used nothing of that but the width and height, which the header already gives, and the server serves the original bytes,
+never pixels. So a decode bought one thing, that `core:image` had accepted the file. That doesn't protect members, since a
+file it accepts can still be malicious to a browser's decoder, and it doesn't stop polyglots, since bytes after EOI are kept
+either way. What keeps a blob safe is the fixed type from its row, `nosniff`, the CSP and the pixel cap. Against that, the
+decode was the audit's M6-01 and M6-03 and the reason for a 256 MiB arena. So a finish is size, magic bytes, the header,
+the pixel cap and sha256. A JPEG is walked to its end by each segment's length, as a browser's decoder goes, and a second
+frame is refused, so a decoy can't get past the cap in a browser; that walk is what the fuzz covers. Progressive JPEG is
+accepted, and an image corrupt past its header is stored and shows as broken in the viewer's browser. **A later feature that
+needs pixels on the server (an avatar resize, say) brings a decoder back, and then it runs in a child process with
+`RLIMIT_AS` and a CPU limit, as the audit suggested.**
+
+**As built (M6 slice 8):** PNG and JPEG. Every stored type is an image, so nothing is an attachment yet. A blob's address is
+its sha256.
 
 **A blob's lifetime (decided by planning, M6 slices 8a-8b).** A blob lives while something holds it: uploads keeps a
 small table of holder procs, chat registers its own (a live message, an open report; avatars and video add a row later),
@@ -4285,8 +4297,7 @@ keeps its own `blob`, so a moderator keeps the image if the author deletes first
 people who saw the image is a capability, and it now leaves with the message. Its limit: `private, immutable` can't reach
 a copy already in a browser's cache, so a removal takes the image from the server, not from those who already have it.
 
-**Quotas (M6's audit).** 256 MiB a member a day and 16 GiB overall (`UPLOADS_BYTES_PER_DAY`, `UPLOADS_MAX_BYTES`). A JPEG
-goes through `platform/jpeg`, a patched `core:image/jpeg`, and a decode has 30 s before the watchdog ends the process.
+**Quotas (M6's audit).** 256 MiB a member a day and 16 GiB overall (`UPLOADS_BYTES_PER_DAY`, `UPLOADS_MAX_BYTES`).
 
 **Backups.** `store.backup` takes only the database, so `uploads.mirror` copies blobs to `<BACKUP_DIR>/blobs/` once a
 day: by name, what's new, through a part file and a rename; a copy whose row has gone is deleted, so a removal reaches the
@@ -4661,7 +4672,7 @@ Three tiers (02 §2.4):
 2. **Table-driven random-bytes unit tests** over the pure parsers.
 3. **libFuzzer, nightly**, through `-build-mode:obj`, on the HTTP scanner, WS decoder, SSE client, multipart round
    trip, Range header, form decode, markdown, the stream cursor, the term grid decoder and the agent's VT parser.
-   Milestone campaigns (D44): upload decode bombs at M6, wiki markdown at M8, 24 h of VT at M11, 8 h on all before M12.
+   Milestone campaigns (D44): the upload header walk at M6, wiki markdown at M8, 24 h of VT at M11, 8 h on all before M12.
 
 Beside the three tiers, from M2, a **nightly Autobahn|Testsuite run** points its fuzzing client at the lab's WS echo
 (RESOLUTIONS X24, **NEW**). It is a dev-time Docker image, exempt like Playwright and k6.

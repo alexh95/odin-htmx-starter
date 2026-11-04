@@ -16,7 +16,6 @@ import "core:thread"
 import "core:time"
 
 import "../obs"
-import "../sys"
 
 STALL :: 10 * time.Second
 LOCK_LIMIT :: 5 * time.Second
@@ -32,22 +31,12 @@ Watched :: struct {
 	name: string,
 }
 
-// A piece of work on a pool thread that nothing can cancel: past `limit` it's a hang, as a loop's
-// stall is. The thread sets `began` around it (`work_began`, `work_ended`).
-Work :: struct {
-	name:  string,
-	limit: time.Duration,
-	began: i64, // atomic: mono ns; 0 = idle
-}
-
 @(private)
 wd: struct {
 	on_fatal: On_Fatal,
 	stall:    time.Duration,
 	locks:    [8]Watched,
 	nlocks:   int,
-	works:    [4]^Work,
-	nworks:   int,
 	stop:     bool, // atomic
 }
 
@@ -57,16 +46,6 @@ watch_lock :: proc(m: ^Mutex, name: string) {
 	wd.locks[wd.nlocks] = {m, name}
 	wd.nlocks += 1
 }
-
-// At boot, before the watchdog starts.
-watch_work :: proc(w: ^Work) {
-	assert(wd.nworks < len(wd.works))
-	wd.works[wd.nworks] = w
-	wd.nworks += 1
-}
-
-work_began :: proc(w: ^Work) { sync.atomic_store(&w.began, sys.mono_ns()) }
-work_ended :: proc(w: ^Work) { sync.atomic_store(&w.began, 0) }
 
 watchdog_start :: proc(on_fatal: On_Fatal, stall := STALL) {
 	wd.on_fatal = on_fatal
@@ -93,13 +72,6 @@ _watchdog_run :: proc() {
 		for w in wd.locks[:wd.nlocks] {
 			if held := held_ns(w.m); time.Duration(held) > LOCK_LIMIT {
 				_fatal(w.name, -1, held, "", "")
-				return
-			}
-		}
-		for w in wd.works[:wd.nworks] {
-			began := sync.atomic_load(&w.began)
-			if ran := sys.mono_ns() - began; began != 0 && time.Duration(ran) > w.limit {
-				_fatal(w.name, -1, ran, "", "")
 				return
 			}
 		}

@@ -18,14 +18,13 @@ copy-and-start ergonomics and good defaults matter more than feature depth.
 
 ## M6's audit: what stays open (docs/audit/M6.md)
 
-- [ ] **Rooms can't be deleted** (M6-07), and nobody can remove a member from a private room (M6-16): with the room
-      settings page (3a).
+- [ ] **Rooms can't be deleted, or handed over** (M6-07): with the room settings page (3a).
 - [ ] **A post in flight isn't a holder** (M6-10): a delete or the sweep in the same milliseconds costs that message its
       image; a purge racing a post can leave a message naming a blob that a later upload brings back.
 - [ ] **A session's expiry doesn't reach an open stream** (M6-12): revokes do. Give a stream its session's end.
 - [ ] **Search on the query pool** (M6-13), when `find` comes (M8).
 - [ ] **Small things** (M6-16): a private room's slug can be probed by name, a moderator can mute an admin, a renamed
-      member's socket keeps the old name, `report_remove` closes before it removes.
+      member's socket keeps the old name.
 
 ## Known flakes (seen once, passed on a rerun: not fixed)
 
@@ -48,7 +47,7 @@ The starter's sixth milestone ([`docs/PLAN.md`](docs/PLAN.md) §22.3, M6's row; 
 §17.5 limits, §17.6 uploads' caps and headers; Q19 retention, Q23 the beta). Its exit gate: the slice gate; four
 transports × resume specs, including across a restart; the retention spec (`CHAT_ROOM_CAP=5`, send 7 → 5 + the
 marker); the WS chat budget at 1000 sockets; the writer task ≥ 3× autocommit at 1000 msgs/s; the XSS/UGC suite; an
-upload decode-bomb fuzz; D22's core flows on the oldest-browser device with no client behaviours; and a focused
+upload header-walk fuzz; D22's core flows on the oldest-browser device with no client behaviours; and a focused
 security audit of accounts, sessions, chat and uploads with 0 CRITICAL/HIGH **before the first invite**. Chat is
 M2's (`streams`, the memory store, all four transports); M6 puts it in `full` on SQLite. Pushes are on the standing
 go; Alex's step is the last: the 2–3 invites (Q23), only after the audit.
@@ -136,9 +135,8 @@ go; Alex's step is the last: the 2–3 invites (Q23), only after the audit.
       images through it (`Chat_Attach`). *Check:* e2e of a chunked upload, a resume, a refused type; the upload
       decode-bomb fuzz (platform/fuzz) in the unit job and the nightly.
       Done (2026-11-04): progress comes from each chunk's answer, not the topic (a page's `#live` topics are fixed at
-      load); PNG and JPEG only, not progressive JPEG (`core:image`); a finish runs one at a time on its own pool. The
-      fuzz found two faults in `core:image`, both held off in `uploads.check`, so a decode's arena has a 256 MiB cap,
-      which on Houston's 512 MiB is the real limit, below 40 MP for a deep PNG (§17.6 updated).
+      load). There's no decode on the server, by planning's decision after the audit (§17.6), so the fuzz is of the header
+      walk, and progressive JPEG is accepted.
 - [x] **8a. Blob lifetime** (planning, 2026-11-04): holders, not counters; the sweep past 24 h, a member's delete at once,
       a moderator's removal everywhere, audited; a report's own `blob`; reads stay member-wide, written in §17.6 as a
       decision. *Check:* `uploads.spec`, storetests over both families, the domain's `sweep_and_mirror`.
@@ -1295,10 +1293,10 @@ what still applies lives here.
       still kills the server. Report it upstream with the chunked path's `size < 0` guard (#117) as
       the fix. Fixed in the vendored fork (F-6, `app/vendor/odin-http/UPSTREAM.md`); the issue is
       drafted, still to post upstream.
-- [ ] **Upstream (Odin `core:image`, `core:nbio`, Alex's go to file).** The JPEG reader: a Huffman table's counts wrap a
-      `u8`, a frame's sampling factors and a missing Y reach an unchecked scan, and JFXX walks past its segment
-      (`platform/jpeg`'s README lists each; drop that copy once fixed). PNG's inflate doesn't stop at the declared size
-      (`app/features/uploads/testdata/endless.png`). core:nbio's Linux tick waits while work is queued (F-23).
+- [ ] **Upstream (Odin, Alex's go to file).** core:nbio's Linux tick waits while work is queued (F-23), which we carry a fix
+      for. `core:image`, which nothing here uses any more, so these guard nothing of ours: the JPEG reader's Huffman counts
+      wrap a `u8`, a frame's sampling factors and a missing Y reach an unchecked scan, JFXX walks past its segment, and PNG's
+      inflate doesn't stop at the declared size (`docs/audit/M6.md`, M6-01, M6-03).
 - [ ] **Upstream (_hyperscript 0.9.94): its bootstrap's fetch has no catch.** At load it fetches every
       `<script type="text/hyperscript" src>` (`Promise.all(… await fetch(r.src) …)`, the bundle's line 22), and a
       navigation that cuts the fetch rejects it in Firefox (AbortError, or a TypeError NetworkError; Chromium stays

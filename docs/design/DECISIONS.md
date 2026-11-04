@@ -1956,8 +1956,9 @@ overridden); Q9, Q30: default (not yet raised). The M11 hardware steps are Alex'
   and the memory family, in profiles without SQLite, writes one `mod=audit` log line; the page is mounted only in
   SQLite profiles.
 - **Uploads** (`features/uploads`): chunked (create → `PUT /uploads/<id>?off=` with chunks of at most 4 MiB under a
-  per-route body cap → finish with sniff, decode and sha256), images up to 10 MiB, video up to 4 GiB (uploaders only),
-  magic-byte sniffing, full decode with `core:image` and a 40 MP pixel cap, content-addressed blobs, `nosniff`,
+  per-route body cap → finish with sniff, the header and sha256), images up to 10 MiB, video up to 4 GiB (uploaders only),
+  magic-byte sniffing, a header read and a 40 MP pixel cap with no decode on the server (M6: PLAN §17.6 says why, and what a
+  feature needing pixels must do), content-addressed blobs, `nosniff`,
   `Content-Disposition: attachment` for anything that isn't an image, never SVG or HTML inline, at most 8 concurrent
   uploads × 4 MiB in flight. The chunks go through the app.js shim (fetch), so no htmx timeout applies to them;
   `hx-config` `timeout:0` sits only on the finish request (`POST /uploads/<id>/finish`), which can run long while the

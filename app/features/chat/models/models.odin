@@ -36,6 +36,7 @@ Room :: struct {
 Ban_Kind :: enum u8 {
 	Mute,
 	Kick,
+	Removed, // from a private room by its owner: no invite lets them in until it's lifted
 }
 
 Ban :: struct {
@@ -44,6 +45,7 @@ Ban :: struct {
 	kind:  Ban_Kind,
 	until: i64, // unix seconds; at or before now: lifted
 	by:    u64,
+	name:  string, // a removed member's, for the owner's list
 }
 
 // A member's report of a message, with a copy of it: what a moderator sees, private rooms and DMs
@@ -195,6 +197,7 @@ Store_Banned :: proc(room: i64, who: u64, kind: Ban_Kind, now: i64) -> (until: i
 Store_Report :: proc(r: Report) -> (id: i64, err: Error)
 Store_Reports :: proc(limit: int, out: ^[dynamic]Report) -> Error // the oldest open ones
 Store_Open_Reports :: proc(by: u64) -> (theirs, all: int)
+Store_Removed :: proc(room: i64, at: i64, out: ^[dynamic]Ban) -> Error // who's kept out of it at `at`
 Store_Room_Of :: proc(id: i64) -> (Room, Error)
 Store_Rooms_Owned :: proc(owner: u64) -> int // DMs aside
 Store_Report_Of :: proc(id: i64) -> (Report, Error)

@@ -65,25 +65,5 @@ while [ "$i" -lt "$n" ]; do
 done
 app/bin/streamload fanout --base "$BASE" --ws "$SOCKETS" --publish "$MESSAGES" --every 0 --room lobby --cookies "$WORK/cookies"
 
-# The worst finish there is (planning, 2026-11-04): an image whose decode fills the whole arena,
-# during a hold of the same sockets, against Houston's mem_limit of 512m.
-echo "== the worst decode, during a hold of $SOCKETS sockets"
-app/bin/streamload hold --base "$BASE" --ws "$SOCKETS" --for 25 --room lobby --cookies "$WORK/cookies" >"$WORK/hold.log" &
-HOLD=$!
-sleep 4
-rss() { awk -v k="$1" '$1 == k":" { printf "%.1f MiB", $2 / 1024 }' "/proc/$SRV/status"; }
-echo "before: VmRSS $(rss VmRSS), VmHWM $(rss VmHWM)"
-for spec in "4400 4400" "5000 4400 rgb"; do # past the cap, then about the most that fits under it
-  # shellcheck disable=SC2086
-  node tools/drills/bomb-png.mjs "$WORK/bomb.png" $spec
-  size=$(wc -c <"$WORK/bomb.png")
-  id=$(curl -s -b "$WORK/jar1" -X POST "$BASE/uploads?size=$size" | grep -o '"id":[0-9]*' | cut -d: -f2)
-  curl -s -o /dev/null -b "$WORK/jar1" -X PUT --data-binary @"$WORK/bomb.png" "$BASE/uploads/$id?off=0"
-  curl -s -w " finish of $spec: %{http_code} in %{time_total} s
-" -b "$WORK/jar1" -X POST "$BASE/uploads/$id/finish"
-  echo "after:  VmRSS $(rss VmRSS), VmHWM $(rss VmHWM) (Houston's mem_limit: 512 MiB)"
-done
-wait "$HOLD" || true
-
 echo "== send to another member's DOM, direct"
 node tools/drills/chat-latency.mjs "$BASE" || true

@@ -114,7 +114,7 @@ test.describe('uploads', T, () => {
     await leave(ann);
   });
 
-  test('a decode bomb goes before a pixel is allocated', async ({ browser, baseURL }) => {
+  test('an image past the pixel cap is refused by its header', async ({ browser, baseURL }) => {
     const ann = await member(browser, baseURL!);
     await ann.page.goto('/chat');
     const bomb = Buffer.from(PNG);
@@ -125,6 +125,24 @@ test.describe('uploads', T, () => {
     const r = await ann.page.request.post(`/uploads/${id}/finish`);
     expect(r.status()).toBe(422);
     expect((await r.json()).error).toContain('too large');
+    await leave(ann);
+  });
+
+  // Nothing here decodes: what its header vouches for is kept, and the viewer's browser shows it
+  // broken, as it would any bad file. `nosniff` and the type from its row are what make that safe.
+  test('an image corrupt past its header is stored, and shows as broken', async ({ browser, baseURL }) => {
+    const ann = await member(browser, baseURL!);
+    const slug = await room(ann.page, 'sse');
+    const data = Buffer.concat([PNG.subarray(0, 33), randomBytes(16)]);
+    const id = await made(ann.page, data.length);
+    expect((await put(ann.page, id, 0, data)).status()).toBe(200);
+    const done = await ann.page.request.post(`/uploads/${id}/finish`);
+    expect(done.status()).toBe(200);
+    const sha = (await done.json()).sha256;
+    expect((await ann.page.request.post(`/chat/r/${slug}`, { form: { body: 'broken', attachment: sha } })).status()).toBe(200);
+    const img = ann.page.locator('.chat-log .chat-img img');
+    await expect(img).toHaveCount(1);
+    await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth)).toBe(0);
     await leave(ann);
   });
 

@@ -38,6 +38,8 @@ Room_View :: struct {
 	may_moderate: bool, // the room's lock and slow mode
 	may_attach:   bool, // the composer's image
 	peer:         Dm_Peer, // a DM's other member
+	may_remove:   bool, // the owner of a private room: its members' Remove
+	removed:      []m.Ban, // who they've kept out
 	mute_button:  string, // notify's: this room in the viewer's Inbox, markup of its own
 }
 
@@ -304,9 +306,20 @@ members :: proc(b: ^strings.Builder, r: m.Room, rv: Room_View) {
 		fmt.sbprintf(b, `<li data-member="%d">`, mem.who)
 		esc(b, mem.name)
 		if mem.who == r.owner && r.kind == .Private { w(b, ` <small class="muted">owner</small>`) }
+		if rv.may_remove && mem.who != r.owner { member_button(b, r, mem.who, "remove", "Remove") }
 		w(b, `</li>`)
 	}
 	w(b, `</ul>`)
+	if len(rv.removed) > 0 {
+		w(b, `<h3>Removed</h3><ul class="chat-removed">`)
+		for row in rv.removed {
+			w(b, `<li>`)
+			esc(b, row.name)
+			member_button(b, r, row.who, "allow", "Allow back")
+			w(b, `</li>`)
+		}
+		w(b, `</ul>`)
+	}
 	if rv.may_invite {
 		for once in ([]bool{false, true}) {
 			w(b, `<form class="chat-invite-new" hx-post="/chat/r/`)
@@ -323,6 +336,13 @@ members :: proc(b: ^strings.Builder, r: m.Room, rv: Room_View) {
 		esc(b, r.slug)
 		w(b, `/leave"><button class="btn btn-ghost" type="submit">Leave the room</button></form>`)
 	}
+}
+
+@(private)
+member_button :: proc(b: ^strings.Builder, r: m.Room, who: u64, action, label: string) {
+	w(b, ` <button class="btn btn-ghost" type="button" hx-post="/chat/r/`)
+	esc(b, r.slug)
+	fmt.sbprintf(b, `/%s/%d" hx-swap="none">%s</button>`, action, who, label)
 }
 
 // A private room's open invites, and a new one's link (`token`), shown this once: the store keeps

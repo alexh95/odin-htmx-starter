@@ -145,6 +145,46 @@ test.describe('chat rooms', T, () => {
   });
 
   // An invite is a row: a restart, as a deploy is, leaves it working.
+  test("an owner's Remove: out at once, kept out by any invite, until they allow it", { tag: '@chat' }, async ({ browser, baseURL }) => {
+    const ann = await member(browser, baseURL!), bob = await member(browser, baseURL!), cat = await member(browser, baseURL!);
+    const slug = await newRoom(ann.page, 'private');
+    await open(ann.page, slug);
+    const href = await inviteLink(ann.page);
+    for (const m of [bob, cat]) {
+      await m.page.goto(href);
+      await m.page.getByRole('button', { name: 'Join the room' }).click();
+      await m.page.waitForURL(`**/chat/r/${slug}`);
+    }
+    // Only the owner has it, on anyone but themselves.
+    await bob.page.goto(`/chat/r/${slug}?transport=ws`);
+    await expect(bob.page.locator('.chat-members button', { hasText: 'Remove' })).toHaveCount(0);
+    const catId = await cat.page.locator('.chat-log').getAttribute('data-me');
+    expect((await bob.page.request.post(`/chat/r/${slug}/remove/${catId}`)).status()).toBe(403);
+    await expect.poll(() => bob.page.locator('.chat-pane').evaluate((el: any) => el._htmx?.ws?.connection?.socket?.readyState)).toBe(1);
+
+    // Bob's open page goes as he's removed.
+    await open(ann.page, slug);
+    await ann.page.locator('.chat-members li').filter({ hasText: bob.name }).getByRole('button', { name: 'Remove' }).click();
+    await bob.page.waitForURL('**/chat');
+    await expect(ann.page.locator('.chat-removed li').filter({ hasText: bob.name })).toHaveCount(1);
+    await expect(ann.page.locator('.chat-members li').filter({ hasText: bob.name })).toHaveCount(0);
+
+    // Not back by the link he kept.
+    expect((await bob.page.goto(`/chat/r/${slug}`))!.status()).toBe(404);
+    expect((await bob.page.goto(href))!.status()).toBe(404);
+    expect((await bob.page.request.post(href)).status()).toBe(404);
+    expect((await bob.page.request.post(`/chat/r/${slug}`, { form: { body: 'still here' } })).status()).toBe(404);
+
+    // Allowed, he may use it again; nothing put him back.
+    await ann.page.locator('.chat-removed li').filter({ hasText: bob.name }).getByRole('button', { name: 'Allow back' }).click();
+    await expect(ann.page.locator('.chat-removed li')).toHaveCount(0);
+    expect((await bob.page.goto(`/chat/r/${slug}`))!.status()).toBe(404);
+    await bob.page.goto(href);
+    await bob.page.getByRole('button', { name: 'Join the room' }).click();
+    await bob.page.waitForURL(`**/chat/r/${slug}`);
+    await leave(ann, bob, cat);
+  });
+
   test('a live invite outlives a restart', { tag: '@chat-sqlite' }, async ({ browser }) => {
     test.slow(); // two servers' boots and two registrations: past 30 s on CI's webkit
     const config = test.info().config;

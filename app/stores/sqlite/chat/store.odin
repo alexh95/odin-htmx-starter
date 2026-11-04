@@ -38,6 +38,7 @@ MIGRATIONS := [?]store.Migration {
 	{6, "0006_images.sql", #load("migrations/0006_images.sql", string)},
 	{7, "0007_blocks.sql", #load("migrations/0007_blocks.sql", string)},
 	{8, "0008_reports.sql", #load("migrations/0008_reports.sql", string)},
+	{9, "0009_removed.sql", #load("migrations/0009_removed.sql", string)},
 }
 
 @(private) ROOM_COLS :: "id, slug, name, at, kind, owner, dropped, locked, slow"
@@ -86,7 +87,8 @@ MIGRATIONS := [?]store.Migration {
 @(private) SQL_UNDO :: "ROLLBACK TO op"
 @(private) SQL_RELEASE :: "RELEASE op"
 @(private) SQL_SET_ROOM :: "UPDATE chat_rooms SET locked = ?, slow = ? WHERE id = ?"
-@(private) SQL_BAN :: "INSERT INTO chat_bans(room, who, kind, until, made_by) VALUES(?, ?, ?, ?, ?) ON CONFLICT(room, who, kind) DO UPDATE SET until = excluded.until, made_by = excluded.made_by"
+@(private) SQL_BAN :: "INSERT INTO chat_bans(room, who, kind, until, made_by, name) VALUES(?, ?, ?, ?, ?, ?) ON CONFLICT(room, who, kind) DO UPDATE SET until = excluded.until, made_by = excluded.made_by, name = excluded.name"
+@(private) SQL_REMOVED :: "SELECT who, until, made_by, name FROM chat_bans WHERE room = ? AND kind = 2 AND until > ? ORDER BY who"
 @(private) SQL_BANNED :: "SELECT until FROM chat_bans WHERE room = ? AND who = ? AND kind = ? AND until > ?"
 @(private) REPORT_COLS :: "id, room, msg, author, author_name, body, made_by, by_name, reason, at, resolved, outcome, blob"
 @(private) SQL_REPORT :: "INSERT INTO chat_reports(room, msg, author, author_name, body, made_by, by_name, reason, at, blob) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING"
@@ -592,12 +594,24 @@ ban :: proc(b: m.Ban, audit: m.Audit) -> m.Error {
 		db.bind_int(st, 3, int(b.kind))
 		db.bind_id(st, 4, b.until)
 		db.bind_id(st, 5, i64(b.by))
+		db.bind_text(st, 6, b.name)
 		making.err = db.step_done(st)
 		db.reset(st)
 		if making.err == .None { making.err = note(making.audit) }
 		return making.err == .None
 	})
 	return .None if ok else making.err if making.err != .None else .Failed
+}
+
+removed :: proc(room: i64, at: i64, out: ^[dynamic]m.Ban) -> (err: m.Error) {
+	q := db.read(SQL_REMOVED)
+	defer db.reset(q)
+	db.bind_id(q, 1, room)
+	db.bind_id(q, 2, at)
+	for db.next_row(q, &err) {
+		append(out, m.Ban{room = room, who = u64(db.column_id(q, 0)), kind = .Removed, until = db.column_id(q, 1), by = u64(db.column_id(q, 2)), name = db.clone_col(q, 3)})
+	}
+	return
 }
 
 banned :: proc(room_id: i64, who: u64, kind: m.Ban_Kind, at: i64) -> (until: i64) {

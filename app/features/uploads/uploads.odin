@@ -5,9 +5,9 @@ package uploads
 // Chunks land in a part file; finishing one checks it and moves it to a blob named by its
 // sha256, so the same image twice is one file. What it may be is decided by its bytes alone:
 // magic bytes first, then the size its header claims against MAX_PIXELS, before anything
-// allocates for it (a decode bomb is small on the wire), then a full decode. SVG and HTML never
-// get in: only what decodes here, PNG and JPEG, the latter through platform/jpeg, a patched
-// core:image/jpeg. The disk work runs on web's pool.
+// walks a JPEG to its end so that a decoy frame can't pass it. SVG and HTML never get in. Nothing
+// decodes an image here: the server keeps the bytes and serves them, so pixels would buy it nothing
+// but a decoder's bugs (§17.6). The disk work runs on web's pool.
 //
 // A blob lives while something holds it (§17.6). Whoever uses blobs registers a Holder, asked
 // each time, so nothing counts and nothing drifts: the sweep takes what's a day old and unheld,
@@ -17,16 +17,11 @@ import "base:runtime"
 import "core:crypto/hash"
 import "core:encoding/hex"
 import "core:fmt"
-import "core:image"
-import "core:image/png"
-import "core:mem/virtual"
 import "core:os"
 import "core:strings"
 import "core:time"
 
 import "../../platform/env"
-import "../../platform/guard"
-import "../../platform/jpeg"
 import "../../platform/obs"
 import m "models"
 import uploads_store "store:uploads"
@@ -36,10 +31,6 @@ IMPL :: uploads_store.IMPL
 MAX_IMAGE :: 10 << 20 // bytes (§17.6)
 MAX_CHUNK :: 4 << 20
 MAX_PIXELS :: 40_000_000
-DECODE_LIMIT :: 256 << 20 // what one decode may hold; past it an image is refused, whatever its pixels
-
-// A decode has no way to stop but this: past it the process restarts (D15's rule for a hang).
-DECODE_LIMIT_TIME :: 30 * time.Second
 
 // §17.5. An upload nobody finished stops counting after ABANDONED, and the sweep takes it.
 AT_ONCE :: 2
@@ -72,8 +63,6 @@ init :: proc() {
 	st.parts = strings.concatenate({dir, "/parts"})
 	st.blobs = strings.concatenate({dir, "/blobs"})
 }
-
-decoding := guard.Work{name = "image decode", limit = DECODE_LIMIT_TIME}
 
 // At boot, by whatever keeps blobs in its rows.
 holds :: proc(h: Holder) {
@@ -189,29 +178,15 @@ write_chunk :: proc(id: i64, off: int, data: []byte) -> m.Error {
 	return uploads_store.advance(id, off + n)
 }
 
-// What a finish holds while it decodes, in the task so that a trap frees it too: the guard's
-// longjmp skips a `defer`, and here that would be every page the decode touched.
-Decoding :: struct {
-	arena: virtual.Arena,
-	live:  bool,
-	data:  []byte,
-}
-
-free_decoding :: proc(d: ^Decoding) {
-	if d.live { virtual.arena_destroy(&d.arena) }
-	delete(d.data, runtime.heap_allocator())
-	d^ = {}
-}
-
 // A complete upload, checked and made a blob; refused, its part file goes. `problem` is the
 // member's to read, `err` the store's or the disk's. The blob is written from the bytes that were
-// checked, not the part file, which a chunk still queued could change under the decode.
-conclude :: proc(u: m.Upload, d: ^Decoding) -> (b: m.Blob, problem: string, err: m.Error) {
+// checked, not the part file, which a chunk still queued could change under the hash.
+conclude :: proc(u: m.Upload) -> (b: m.Blob, problem: string, err: m.Error) {
 	path := part_path(u.id)
-	rerr: os.Error
-	d.data, rerr = os.read_entire_file(path, runtime.heap_allocator())
+	data, rerr := os.read_entire_file(path, runtime.heap_allocator())
 	if rerr != nil { return {}, "", .Failed }
-	c, why := decode(d.data, d)
+	defer delete(data, runtime.heap_allocator())
+	c, why := check(data)
 	if why != "" {
 		drop(u.id)
 		return {}, why, .None
@@ -220,13 +195,13 @@ conclude :: proc(u: m.Upload, d: ^Decoding) -> (b: m.Blob, problem: string, err:
 	to := blob_path(sha)
 	if !os.exists(to) {
 		part := fmt.tprintf("%s.%d", to, u.id)
-		if os.write_entire_file(part, d.data) != nil || os.rename(part, to) != nil {
+		if os.write_entire_file(part, data) != nil || os.rename(part, to) != nil {
 			_ = os.remove(part)
 			return {}, "", .Failed
 		}
 	}
 	_ = os.remove(path)
-	b = {sha256 = strings.clone(sha, context.temp_allocator), mime = MIME[c.kind], bytes = len(d.data), width = c.width, height = c.height, user = u.user, at = now()}
+	b = {sha256 = strings.clone(sha, context.temp_allocator), mime = MIME[c.kind], bytes = len(data), width = c.width, height = c.height, user = u.user, at = now()}
 	if err = uploads_store.add_blob(b); err != .None { return }
 	err = uploads_store.close(u.id, .Done)
 	return
@@ -286,8 +261,10 @@ mirror :: proc(dest: string) -> (copied, removed: int, ok: bool) {
 	for f in there {
 		if !alive[strings.trim_suffix(f.name, ".part")] || strings.has_suffix(f.name, ".part") { append(&going, f.fullpath) }
 	}
-	// Most of the copies gone at once isn't a day's removals: it's the wrong database, a volume
-	// not mounted. The copies stay, and the failed run tells an admin.
+	// No rows at all, or most of the copies going at once, isn't a day's removals: it's the wrong
+	// database, a volume not mounted. The copies stay, and the failed run tells an admin. The floor
+	// lets a store of a few images lose most of them in a day.
+	if len(going) > 0 && len(live) == 0 { return copied, 0, false }
 	if len(going) > 8 && len(going) * 2 > len(there) { return copied, 0, false }
 	for path in going {
 		if os.remove(path) == nil { removed += 1 } else { ok = false }
@@ -317,18 +294,10 @@ sniff :: proc(data: []byte) -> Image_Kind {
 	return .None
 }
 
-// The width and height a file's header claims, read before anything is decoded. ok false: it
-// names none, or isn't one the decoder may be given. A JPEG is walked to its end for that: its
-// frame header can't be taken from the first SOF alone (a second one would size the decode), and
-// core:image's JPEG reader sums a Huffman table's counts in a u8, so a table past 256 symbols
-// wraps and indexes out of bounds: `huffman_fits` keeps those from it.
+// The width and height a file's header claims. ok false: it names none. A JPEG is walked to its end
+// by each segment's length, as a browser's decoder goes: a second frame is refused, or one could
+// show this check a small image and a browser a huge one, past the pixel cap.
 claimed_size :: proc(data: []byte, kind: Image_Kind) -> (width, height: int, ok: bool) {
-	width, height, _, ok = read_header(data, kind)
-	return
-}
-
-@(private)
-read_header :: proc(data: []byte, kind: Image_Kind) -> (width, height: int, progressive, ok: bool) {
 	be16 :: proc(b: []byte) -> int { return int(b[0]) << 8 | int(b[1]) }
 	be32 :: proc(b: []byte) -> int { return int(b[0]) << 24 | int(b[1]) << 16 | int(b[2]) << 8 | int(b[3]) }
 	switch kind {
@@ -336,11 +305,11 @@ read_header :: proc(data: []byte, kind: Image_Kind) -> (width, height: int, prog
 	case .Png:
 		// The signature, then IHDR: its length, its type, width, height.
 		if len(data) < 24 || string(data[12:16]) != "IHDR" { return }
-		return be32(data[16:20]), be32(data[20:24]), false, true
+		return be32(data[16:20]), be32(data[20:24]), true
 	case .Jpeg:
 		i := 2
 		for i + 4 <= len(data) {
-			if data[i] != 0xFF { return 0, 0, false, false }
+			if data[i] != 0xFF { return 0, 0, false }
 			marker := data[i + 1]
 			switch marker {
 			case 0xFF: // fill
@@ -350,44 +319,23 @@ read_header :: proc(data: []byte, kind: Image_Kind) -> (width, height: int, prog
 				i += 2
 				continue
 			case 0xD9:
-				return width, height, progressive, width > 0
+				return width, height, width > 0
 			}
 			n := be16(data[i + 2:])
-			if n < 2 || i + 2 + n > len(data) { return 0, 0, false, false }
+			if n < 2 || i + 2 + n > len(data) { return 0, 0, false }
 			segment := data[i + 4:i + 2 + n]
 			i += 2 + n
 			switch marker {
-			case 0xC4:
-				if !huffman_fits(segment) { return 0, 0, false, false }
 			case 0xC0 ..= 0xC3, 0xC5 ..= 0xC7, 0xC9 ..= 0xCB, 0xCD ..= 0xCF: // SOFn
-				if width != 0 || len(segment) < 5 { return 0, 0, false, false }
+				if width != 0 || len(segment) < 5 { return 0, 0, false }
 				width, height = be16(segment[3:]), be16(segment[1:])
-				progressive = marker == 0xC2
-			case 0xDA: // the scan: its data runs to the next marker that isn't stuffing or a restart
+			case 0xDA: // a scan: its data runs to the next marker that isn't stuffing or a restart
 				for i + 1 < len(data) && (data[i] != 0xFF || data[i + 1] == 0 || data[i + 1] & 0xF8 == 0xD0) { i += 1 }
 			}
 		}
-		return width, height, progressive, width > 0
+		return width, height, width > 0
 	}
 	return
-}
-
-// A DHT segment's tables, each within the 176 symbols the decoder's arrays hold, at every step.
-@(private)
-huffman_fits :: proc(segment: []byte) -> bool {
-	HUFFMAN_MAX_SYMBOLS :: 176
-	rest := segment
-	for len(rest) > 0 {
-		if len(rest) < 17 { return false }
-		symbols := 0
-		for count in rest[1:17] {
-			symbols += int(count)
-			if symbols > HUFFMAN_MAX_SYMBOLS { return false }
-		}
-		if len(rest) < 17 + symbols { return false }
-		rest = rest[17 + symbols:]
-	}
-	return true
 }
 
 Checked :: struct {
@@ -396,55 +344,22 @@ Checked :: struct {
 	sha256:        [64]byte,
 }
 
-// What an upload's bytes are, or why they're refused, in the member's words.
-check :: proc(data: []byte) -> (Checked, string) {
-	d: Decoding
-	defer free_decoding(&d)
-	return decode(data, &d)
-}
-
-// The same, in `d`'s arena, which the caller frees, trap or not. Nothing a file claims sizes an
-// allocation until MAX_PIXELS has judged it.
-decode :: proc(data: []byte, d: ^Decoding) -> (c: Checked, problem: string) {
-	UNREADABLE :: "That image can't be read."
-	TOO_LARGE :: "That image is too large: at most 40 megapixels."
-	TOO_DEEP :: "That image is too large to read here: try a smaller one, or a JPEG."
-	PROGRESSIVE :: "That's a progressive JPEG, which can't be read here. Save it as a regular JPEG or a PNG." // as images saved from the web often are
+// What an upload's bytes are, or why they're refused, in the member's words. A file that passes and
+// is corrupt past its header is stored, and shows as a broken image: what keeps a blob safe is the
+// type from its row, `nosniff`, the CSP and the pixel cap, which a decode here wouldn't add to.
+check :: proc(data: []byte) -> (c: Checked, problem: string) {
 	if len(data) == 0 || len(data) > MAX_IMAGE { return c, "An image is at most 10 MiB." }
 	c.kind = sniff(data)
 	if c.kind == .None { return c, "Only PNG and JPEG images." }
-	w, h, progressive, ok := read_header(data, c.kind)
-	if !ok || w <= 0 || h <= 0 { return c, UNREADABLE }
-	if progressive { return c, PROGRESSIVE }
-	if w > MAX_PIXELS || h > MAX_PIXELS || w * h > MAX_PIXELS { return c, TOO_LARGE }
-
-	// A hard cap: core:image's inflate doesn't stop at the size a PNG declares, and a 282-byte
-	// stream that never ends grows its output until the allocator says no. It takes that no as
-	// an error, so the arena is what ends it. Room for what a decode takes at its deepest, 31
-	// bytes a pixel at 16 bits and four channels, never more than a small container's share.
-	limit := uint(min(w * h * 32 + 16 << 20, DECODE_LIMIT))
-	if virtual.arena_init_static(&d.arena, limit) != nil { return c, UNREADABLE }
-	d.live = true
-	a := virtual.arena_allocator(&d.arena)
-	context.allocator = a
-	img: ^image.Image
-	err: image.Error
-	guard.work_began(&decoding)
-	defer guard.work_ended(&decoding)
-	switch c.kind {
-	case .None:
-	case .Png:
-		img, err = png.load_from_bytes(data, {}, a)
-	case .Jpeg:
-		img, err = jpeg.load_from_bytes(data, {}, a)
+	ok: bool
+	c.width, c.height, ok = claimed_size(data, c.kind)
+	if !ok || c.width <= 0 || c.height <= 0 { return c, "That image can't be read." }
+	if c.width > MAX_PIXELS || c.height > MAX_PIXELS || c.width * c.height > MAX_PIXELS {
+		return c, "That image is too large: at most 40 megapixels."
 	}
-	if err != nil || img == nil { return c, TOO_DEEP if d.arena.total_used >= limit / 3 else UNREADABLE }
-	c.width, c.height = img.width, img.height
-	if c.width * c.height > MAX_PIXELS { return c, TOO_LARGE }
-
 	sum: [32]byte
 	hash.hash_bytes_to_buffer(.SHA256, data, sum[:])
-	copy(c.sha256[:], hex.encode(sum[:], a))
+	copy(c.sha256[:], hex.encode(sum[:], context.temp_allocator))
 	return c, ""
 }
 

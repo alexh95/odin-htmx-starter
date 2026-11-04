@@ -13,16 +13,11 @@ at once per member (`UPLOADS_PER_HOUR`); an upload nobody finished stops countin
 Progress comes from each chunk's answer, not from `uploads.upload:<id>`: the page's `#live` topics are fixed when it
 loads, and the shim holds the answer already.
 
-**What the bytes are** is decided by the bytes: magic bytes, then the header's size against 40 MP before anything is
-allocated for it, then a full decode. Only PNG and JPEG get through, so SVG and HTML never do, and no progressive JPEG,
-which `core:image` doesn't read. `core:image` isn't written for hostile input (the upstream reports wait in `TODO.md`), so:
-
-- a JPEG goes through `platform/jpeg`, `core:image/jpeg` patched for it (its README lists how), and `read_header` still
-  refuses the worst before it gets there;
-- a decode runs in an arena with a hard cap, room for its declared pixels and never more than 256 MiB: the inflate
-  behind PNG doesn't stop at the declared size, and a 282-byte file would take all the memory there is. The allocator's
-  refusal is what ends it. That cap is the real limit, below 40 MP: about 31 MP for a JPEG, 23 MP for an RGB PNG
-  (`docs/perf/CHAT-BUDGETS.md`).
+**What the bytes are** is decided by the bytes: magic bytes, then the size the header claims against 40 MP, with a JPEG walked
+to its end by each segment's length and a second frame refused, so a decoy can't pass the cap in a browser. Only PNG and JPEG
+get through, so SVG and HTML never do. Nothing decodes an image here: the server keeps the bytes and serves them, so an image
+corrupt past its header is stored and shows as broken in the viewer's browser. PLAN §17.6 says why, and what a feature that
+needs pixels must do (a child process with `RLIMIT_AS` and a CPU limit).
 
 **Serving**: the type from the row, `nosniff` as on every response, `inline` (every blob is an image), immutable: an
 address is its content. Blobs are for members, not for a room: an address held only by those who saw the image is the
@@ -36,11 +31,10 @@ true: a file goes only on a no.
 **Backups**: `uploads.mirror`, daily, keeps `<BACKUP_DIR>/blobs/` as the rows say (`docs/DATA.md`): a build with no backups
 calls no `backs_up_to` and the job does nothing.
 
-**Limits**: 256 MiB a member a day and 16 GiB overall (`UPLOADS_BYTES_PER_DAY`, `UPLOADS_MAX_BYTES`); a decode has 30 s, then
-the watchdog exits 70; a body of 1 MiB or more is counted before it's read, 8 at once and 2 a member (`web.large_begin`);
+**Limits**: 256 MiB a member a day and 16 GiB overall (`UPLOADS_BYTES_PER_DAY`, `UPLOADS_MAX_BYTES`); a body of 1 MiB or more is counted before it's read, 8 at once and 2 a member (`web.large_begin`);
 blob answers are counted to 64 MiB until they've gone.
 
-**Pools**: chunks on `uploads` (2 threads, queue 8: §17.6's 8 × 4 MiB), finishes on `decodes` (1, queue 8), reads on
+**Pools**: chunks on `uploads` (2 threads, queue 8: §17.6's 8 × 4 MiB), finishes on `finishes` (1, queue 8: each reads and hashes up to 10 MiB), reads on
 `blobs` (2, queue 32); past a queue, 503.
 
 It owns `/uploads`, its own prefix.

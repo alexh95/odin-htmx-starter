@@ -356,9 +356,26 @@ ban :: proc(b: m.Ban, audit: m.Audit) -> m.Error {
 			break
 		}
 	}
-	if !found { append(&s.bans, b) }
+	if !found {
+		row := b
+		row.name = strings.clone(b.name) // for as long as the process, as a ban's row is
+		append(&s.bans, row)
+	}
 	mem_store.unlock(&s.lock)
 	note(audit)
+	return .None
+}
+
+removed :: proc(room: i64, at: i64, out: ^[dynamic]m.Ban) -> m.Error {
+	mem_store.lock(&s.lock)
+	defer mem_store.unlock(&s.lock)
+	for b in s.bans {
+		if b.room == room && b.kind == .Removed && b.until > at {
+			row := b
+			row.name = strings.clone(b.name, context.temp_allocator)
+			append(out, row)
+		}
+	}
 	return .None
 }
 

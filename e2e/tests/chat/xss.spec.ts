@@ -107,7 +107,7 @@ test.describe('what members write stays text', T, () => {
 
   test("a room's name, wherever it shows", async ({ browser, baseURL }) => {
     const ann = await member(browser, baseURL!);
-    const name = `<img src=x data-xss onerror=window.__xss=1>${uid('')}`;
+    const name = `${uid('r')} <img src=x data-xss onerror=window.__xss=1>`; // the id first: a slug is cut short
     const slug = await room(ann.page, name);
     await clean(ann.page, 'its page');
     await expect(ann.page.locator('.chat-head h1')).toContainText('<img');
@@ -198,7 +198,7 @@ test.describe('what a moderator reads stays text', { tag: ['@chat', '@notify', '
 
 test('an invite page names its room as text', { tag: ['@chat', '@notify'] }, async ({ browser, baseURL }) => {
   const ann = await member(browser, baseURL!), bob = await member(browser, baseURL!);
-  const name = `<img src=x data-xss onerror=window.__xss=1>${uid('')}`;
+  const name = `${uid('r')} <img src=x data-xss onerror=window.__xss=1>`; // the id first: a slug is cut short
   await room(ann.page, name, 'private');
   await ann.page.getByRole('button', { name: 'Invite link' }).click();
   const href = (await ann.page.locator('.chat-invite-link').getAttribute('href'))!;

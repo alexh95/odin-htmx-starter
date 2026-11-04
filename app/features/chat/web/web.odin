@@ -67,6 +67,8 @@ ROUTES := [?]web.Route {
 	{.Post, "/chat/m/(%d+)/report", report_message, .Chat_Read, {.Fragment}, 0},
 	{.Post, "/chat/m/(%d+)/block", block_author, .Chat_Read, {.Fragment}, 0},
 	{.Post, "/chat/r/([%w%-]+)/block", block_peer, .Chat_Read, {.Fragment}, 0},
+	{.Post, "/chat/r/([%w%-]+)/remove/(%d+)", remove_member, .Chat_Read, {.Fragment}, 0},
+	{.Post, "/chat/r/([%w%-]+)/allow/(%d+)", allow_member, .Chat_Read, {.Fragment}, 0},
 	{.Post, "/chat/unblock/(%d+)", unblock, .Chat_Read, {.Fragment}, 0},
 	{.Get, "/chat/blocks", blocks_page, .Chat_Read, {.Private}, 0},
 	{.Get, "/chat/m/(%d+)/edit", edit_form, .Chat_Post, {.Fragment}, 0},
@@ -213,8 +215,10 @@ room_page :: proc(req: ^web.Request, res: ^web.Response) {
 		peer.id = chat.dm_peer(r, v.id)
 		peer.blocked = chat.blocking(v.id, peer.id)
 	}
+	kept_out := make([dynamic]m.Ban, context.temp_allocator)
+	if chat.may_remove(r, v) { _ = chat.removed_members(r, &kept_out) }
 	rv := chat_views.Room_View{
-		peer = peer,
+		peer = peer, removed = kept_out[:], may_remove = chat.may_remove(r, v),
 		cannot_post = chat.why_not_post(r, v), may_invite = chat.may_invite(r, v), may_leave = chat.may_leave(r, v),
 		may_moderate = chat.may_moderate(r, v), may_attach = authz.can(v, .Chat_Attach), mute_button = notify_web.mute_button(v.id, chat.room_topic(r.id), "this room"),
 	}
@@ -512,6 +516,7 @@ Changing :: struct {
 	room_name:    string,
 	typed:        string,
 	refresh:      bool, // answered by reloading the page (a report's removal), not with the message
+	closes:       i64,  // the report this removal closes, once it's stored
 }
 
 @(private)
@@ -582,6 +587,7 @@ changed :: proc(o: ^store.Op) {
 	if op.err == .None {
 		hub.publish(chat.room_topic(op.result.room), chat_views.one(op.result.room, op.slug, op.result), op.result.id)
 		chat.released(op.released)
+		if op.closes != 0 { op.err = chat.close_report(op.closes, op.audit) }
 		if op.delete { notify_web.retract(fmt.tprintf("/chat/r/%s#m-%d", op.slug, op.result.id)) }
 	}
 	if res == nil { return }
@@ -735,11 +741,11 @@ join_page :: proc(req: ^web.Request, res: ^web.Response) {
 	token := req.url_params[0]
 	r, _, err := chat.invited_to(token)
 	web.set_header(res, "referrer-policy", "same-origin")
-	if err != .None {
-		web.not_found(req, res) // forged, revoked, expired or spent: no room to name
+	v := web.viewer(req)
+	if err != .None || chat.kept_out(r, v.id) {
+		web.not_found(req, res) // forged, revoked, expired or spent, or not for them: no room to name
 		return
 	}
-	v := web.viewer(req)
 	web.render_page(req, res, "Join a room", "/chat", "An invite to a private room.", chat_views.join_page(r, token, chat.may_read(r, v)))
 }
 
@@ -747,7 +753,7 @@ join_page :: proc(req: ^web.Request, res: ^web.Response) {
 join_room :: proc(req: ^web.Request, res: ^web.Response) {
 	r, inv, err := chat.invited_to(req.url_params[0])
 	web.set_header(res, "referrer-policy", "same-origin")
-	if err != .None {
+	if err != .None || chat.kept_out(r, web.viewer(req).id) {
 		web.not_found(req, res)
 		return
 	}
@@ -783,6 +789,58 @@ leave_room :: proc(req: ^web.Request, res: ^web.Response) {
 	out_of_room(r, v.id)
 	web.set_header(res, "hx-redirect", "/chat")
 	web.respond_status(res, .No_Content)
+}
+
+// The room an owner's Remove or Allow names, and the member: an owner's alone, private rooms' alone.
+@(private)
+owned_member :: proc(req: ^web.Request, res: ^web.Response) -> (r: m.Room, who: u64, ok: bool) {
+	if !write_allowed(req, res) { return }
+	v := web.viewer(req)
+	err: m.Error
+	if r, err = chat.room_for(req.url_params[0], v); err != .None {
+		web.respond_store_error(req, res, err)
+		return
+	}
+	if !chat.may_remove(r, v) {
+		web.respond_status(res, .Forbidden)
+		return
+	}
+	id, idok := web.parse_id(req.url_params[1])
+	if !idok || u64(id) == v.id {
+		web.not_found(req, res)
+		return
+	}
+	return r, u64(id), true
+}
+
+@(private)
+remove_member :: proc(req: ^web.Request, res: ^web.Response) {
+	r, who, ok := owned_member(req, res)
+	if !ok { return }
+	list := make([dynamic]m.Member, 0, 8, context.temp_allocator)
+	_ = chat.members(r, &list)
+	for mem in list {
+		if mem.who != who { continue }
+		if err := chat.remove_member(r, actor(), who, mem.name); err != .None {
+			web.respond_store_error(req, res, err)
+			return
+		}
+		out_of_room(r, who)
+		refresh(res)
+		return
+	}
+	web.not_found(req, res)
+}
+
+@(private)
+allow_member :: proc(req: ^web.Request, res: ^web.Response) {
+	r, who, ok := owned_member(req, res)
+	if !ok { return }
+	if err := chat.allow_member(r, actor(), who); err != .None {
+		web.respond_store_error(req, res, err)
+		return
+	}
+	refresh(res)
 }
 
 // A DM with a message's author (the menu's "Message <name>"): theirs, made when there is none.
@@ -1076,22 +1134,23 @@ report_remove :: proc(req: ^web.Request, res: ^web.Response) {
 	rep, reason, ok := resolving(req, res)
 	if !ok { return }
 	a := actor()
-	if err := chat.resolve(rep, a, "removed", reason); err != .None {
-		web.respond_store_error(req, res, err)
-		return
-	}
 	if err := purge(rep.blob, a, reason); err != .None {
 		web.respond_store_error(req, res, err)
 		return
 	}
 	msg, merr := chat.message(rep.msg)
-	if merr != .None || msg.gone { // already gone: the report is closed all the same
+	if merr != .None || msg.gone { // already gone: there's only the report to close
+		if err := chat.resolve(rep, a, "removed", reason); err != .None {
+			web.respond_store_error(req, res, err)
+			return
+		}
 		refresh(res)
 		return
 	}
 	r, _ := chat.room_by_id(msg.room)
 	op := changing(req, res, msg, r, "", true)
 	op.refresh = true
+	op.closes = rep.id // once it's gone, so a failure can't leave it live and the report closed
 	if !chat.remove(op, a, reason, "chat.remove") { unqueued(req, op) }
 }
 

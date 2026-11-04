@@ -5,8 +5,8 @@ package uploads_web
 // JSON for static/uploads.js, the fetch shim: create, PUT each chunk, finish. Chunks, finishes
 // and blobs touch the disk, so they run on pools of their own and answer through a deferred
 // response; a pool's queue is the bound on what's held in memory (§17.6: 8 × 4 MiB), and past it
-// `submit` refuses: 503, which the shim tries again. One decode at a time: a 40 MP image is a few
-// hundred MiB of pixels. Reads have a wider pool: a room's page asks for its images all at once.
+// `submit` refuses: 503, which the shim tries again. Reads have a wider pool: a room's page asks for
+// its images all at once.
 // A body is bounded before that, in `front` (its route's body_cap makes it a large one).
 
 import "core:fmt"
@@ -14,7 +14,6 @@ import "core:strings"
 import "core:sync"
 import "core:time"
 
-import "../../../platform/guard"
 import "../../../platform/web"
 import "../../../platform/workers"
 import uploads ".."
@@ -37,7 +36,7 @@ JOBS := [?]workers.Job {
 
 @(private) starts := web.Limit{window = time.Hour} // n: UPLOADS_PER_HOUR
 @(private) writes: workers.Pool
-@(private) decodes: workers.Pool
+@(private) finishes: workers.Pool
 @(private) answering: int // atomic: bytes of blobs in answers not yet sent
 @(private) MAX_ANSWERING :: 64 << 20
 @(private) reads: workers.Pool
@@ -45,10 +44,9 @@ JOBS := [?]workers.Job {
 // At boot.
 init :: proc() {
 	uploads.init()
-	guard.watch_work(&uploads.decoding)
 	starts.n = uploads.per_hour()
 	workers.start(&writes, "uploads", 2, 8)
-	workers.start(&decodes, "decodes", 1, 8)
+	workers.start(&finishes, "finishes", 1, 8)
 	workers.start(&reads, "blobs", 2, 32)
 }
 
@@ -221,7 +219,6 @@ Finish :: struct {
 	using task: workers.Task,
 	deferred:   web.Deferred,
 	upload:     m.Upload,
-	holding:    uploads.Decoding, // freed here, on the loop, trap or not
 	sha256:     [64]byte,
 	problem:    string, // a constant of the domain's
 	err:        m.Error,
@@ -239,14 +236,14 @@ finish :: proc(req: ^web.Request, res: ^web.Response) {
 	t.upload = u
 	t.run, t.done = run_finish, finish_done
 	web.defer_response(req, res, &t.deferred)
-	if !workers.submit(&decodes, &t.task) { finish_done(&t.task) }
+	if !workers.submit(&finishes, &t.task) { finish_done(&t.task) }
 }
 
 @(private)
 run_finish :: proc(t: ^workers.Task) {
 	f := (^Finish)(t)
 	b: m.Blob
-	b, f.problem, f.err = uploads.conclude(f.upload, &f.holding)
+	b, f.problem, f.err = uploads.conclude(f.upload)
 	copy(f.sha256[:], b.sha256)
 }
 
@@ -254,8 +251,6 @@ run_finish :: proc(t: ^workers.Task) {
 finish_done :: proc(t: ^workers.Task) {
 	f := (^Finish)(t)
 	defer free(f)
-	defer uploads.free_decoding(&f.holding)
-	if f.crashed { uploads.drop(f.upload.id) } // a client that left doesn't get to try these bytes again
 	res := web.resume(&f.deferred)
 	if res == nil { return }
 	defer web.finish(&f.deferred, res)
@@ -263,9 +258,7 @@ finish_done :: proc(t: ^workers.Task) {
 		sha256: string `json:"sha256"`,
 	}
 	switch {
-	case f.crashed: // the decoder trapped on these bytes
-		refuse(res, "That image can't be read.", .Unprocessable_Content)
-	case !f.ran:
+	case f.crashed, !f.ran:
 		refuse(res, "Busy: try again in a moment.", .Service_Unavailable)
 	case f.err != .None:
 		web.respond_store_error(web.request(&f.deferred), res, f.err)
