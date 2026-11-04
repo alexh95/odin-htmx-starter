@@ -86,10 +86,16 @@ go; Alex's step is the last: the 2–3 invites (Q23), only after the audit.
       out of a private room, which they can't leave (they'd leave it to no one). *Check:* e2e for each: the caps (a
       room keeping more than its kind), a handover (the new owner's invite panel, the old one's Leave), a delete (its
       members' 404, its rows gone); k6 for the routes.
-- [ ] **4. Edits, deletes, moderation** (§14.1): own edits within 10 min and deletes; moderators delete to a
+- [x] **4. Edits, deletes, moderation** (§14.1): own edits within 10 min and deletes; moderators delete to a
       tombstone, mute, kick, lock and slow mode, each with an hx-prompt reason, audited (in the change's transaction,
       as M4-04); the per-message menu `GET /chat/m/<id>/menu` by the viewer's perms. *Check:* e2e per action, the
       tombstone as an upsert, the audit rows.
+      Done (2026-11-01): remove, mute, kick, lock and slow mode in public rooms and announcements; reports (with a
+      copy) for every room, closed from `/chat/reports`; each audited in the change's transaction through the chat
+      store's Audit_Writer; the menu by the viewer's perms (Report, Remove, Mute, Kick, Message <name>).
+      `moderation.spec` (each act, the tombstone, the audit rows without the body; a private room's report),
+      the storetest's moderation case, the `moderation` scenario. Open: chat.spec's "an open edit form outlives…"
+      lost its typed text once over poll in streams webkit locally (1 of 4 suite runs, never in 60 runs alone).
 - [ ] **5. Presence, typing, receipts, unread** (§14.1, D14): presence debounced 10 s, typing ≤ 1 per 2 s expiring
       after 5 s (memory only), read receipts by `POST /chat/r/<slug>/read?upto=` on `intersect once`, unread counts
       on `notify.user:<uid>`. *Check:* e2e across two members; a receipt never from a GET.

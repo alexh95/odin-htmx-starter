@@ -23,6 +23,7 @@ import "../../platform/env"
 import "../../platform/guard"
 import "../../platform/sys"
 import m "models"
+import audit_store "store:audit"
 import chat_store "store:chat"
 
 IMPL :: chat_store.IMPL
@@ -93,6 +94,7 @@ st: struct {
 	read:      map[i64]map[u64]i64,       // room → member → the newest id they have seen
 	here:      map[i64]map[u64]Presence,  // room → member → their presence
 	keep:      m.Retention,
+	posted:    map[i64]map[u64]i64, // room → member → when they last posted there: slow mode's clock
 }
 
 // At boot: the env rows, the store's ring budget, the lobby.
@@ -111,6 +113,7 @@ init :: proc() {
 		}
 	}
 	chat_store.init(env.size("CHAT_RING_BYTES"), st.keep)
+	chat_store.set_audit_writer(audit_store.append_in)
 }
 
 // What a room of `kind` keeps: its newest `cap` messages, none older than `days`.
@@ -159,11 +162,12 @@ room_for :: proc(slug: string, v: authz.Viewer) -> (m.Room, m.Error) {
 
 may_read :: proc(r: m.Room, v: authz.Viewer) -> bool { return reads(r, v.id) }
 
-// Whether member `who` may read `r`: whose mentions and unread counts a message moves.
+// Whether member `who` may read `r`: whose mentions and unread counts a message moves. A member a
+// moderator kicked doesn't, until the kick ends.
 reads :: proc(r: m.Room, who: u64) -> bool {
 	switch r.kind {
 	case .Public, .Announce:
-		return true
+		return who == 0 || chat_store.banned(r.id, who, .Kick, now()) == 0
 	case .Private, .Dm:
 		return who != 0 && chat_store.is_member(r.id, who)
 	}
@@ -171,17 +175,128 @@ reads :: proc(r: m.Room, who: u64) -> bool {
 }
 
 // Announcements are their owner's and the moderators' to post; a private room and a DM their
-// members'. The route's perm (Chat_Post) comes first.
-may_post :: proc(r: m.Room, v: authz.Viewer) -> bool {
+// members'. A locked room is the moderators' alone, and a muted member posts nothing until the
+// mute ends. The route's perm (Chat_Post) comes first.
+may_post :: proc(r: m.Room, v: authz.Viewer) -> bool { return why_not_post(r, v) == "" }
+
+// Why `v` may not post in `r`, for the room page and a refused post; "" when they may.
+why_not_post :: proc(r: m.Room, v: authz.Viewer) -> string {
+	mod := authz.can(v, .Chat_Moderate)
 	switch r.kind {
 	case .Public:
-		return true
 	case .Announce:
-		return v.id != 0 && (v.id == r.owner || authz.can(v, .Chat_Moderate))
+		if v.id == 0 || (v.id != r.owner && !mod) { return "Only its owner and the moderators post here." }
 	case .Private, .Dm:
-		return reads(r, v.id)
+		if !reads(r, v.id) { return "Only its members post here." }
 	}
-	return false
+	if r.locked && !mod { return "A moderator locked this room: only moderators post for now." }
+	if until := chat_store.banned(r.id, v.id, .Mute, now()); until != 0 {
+		return fmt.tprintf("A moderator muted you here until %s.", clock(until))
+	}
+	return ""
+}
+
+// Slow mode (§14.1): the seconds `who` waits before posting in `r` again; 0 when they needn't.
+// Moderators never wait. A post that goes ahead starts the clock (`slow_mark`).
+slow_wait :: proc(r: m.Room, v: authz.Viewer) -> int {
+	if r.slow <= 0 || authz.can(v, .Chat_Moderate) { return 0 }
+	guard.lock(&st.mu)
+	defer guard.unlock(&st.mu)
+	last := (st.posted[r.id] or_else nil)[v.id]
+	return max(0, int(last + i64(r.slow) - now()))
+}
+
+slow_mark :: proc(r: m.Room, who: u64) {
+	if r.slow <= 0 { return }
+	guard.lock(&st.mu)
+	defer guard.unlock(&st.mu)
+	if st.posted == nil { st.posted = make(map[i64]map[u64]i64, heap()) }
+	p, ok := &st.posted[r.id]
+	if !ok {
+		st.posted[r.id] = make(map[u64]i64, heap())
+		p = &st.posted[r.id]
+	}
+	if who not_in p && len(p) >= MAX_READERS {
+		for k in p {
+			delete_key(p, k)
+			break
+		}
+	}
+	p[who] = now()
+}
+
+// HH:MM UTC, for a ban's end.
+@(private)
+clock :: proc(at: i64) -> string {
+	h, mi, _ := time.clock(time.unix(at, 0))
+	return fmt.tprintf("%02d:%02d UTC", h, mi)
+}
+
+// ---- moderation (§14.1, planning 2026-11-01) ---------------------------------------------------
+//
+// A moderator acts directly in public rooms and announcements; a private room or a DM, which they
+// don't read, only through a report on one of its messages. Each act is audited, with the
+// moderator's reason, in its own transaction; a message's body never goes in the audit log.
+
+// Bounds on what a moderator sets.
+MAX_SLOW :: 3600     // seconds between posts
+MAX_BAN :: 7 * 1440  // minutes a mute or a kick lasts
+
+may_moderate :: proc(r: m.Room, v: authz.Viewer) -> bool {
+	return authz.can(v, .Chat_Moderate) && (r.kind == .Public || r.kind == .Announce)
+}
+
+// Who did it, for the audit entry.
+Actor :: struct {
+	id:     u64,
+	name:   string,
+	client: string,
+}
+
+@(private)
+audit :: proc(a: Actor, action, target_kind: string, target_id: i64, reason, meta: string) -> m.Audit {
+	return {i64(a.id), a.name, a.client, action, target_kind, target_id, reason, meta}
+}
+
+set_lock :: proc(r: m.Room, a: Actor, locked: bool, reason: string) -> m.Error {
+	return chat_store.set_room(r.id, locked, r.slow, audit(a, "chat.lock" if locked else "chat.unlock", "room", r.id, reason, ""))
+}
+
+set_slow :: proc(r: m.Room, a: Actor, seconds: int, reason: string) -> m.Error {
+	s := clamp(seconds, 0, MAX_SLOW)
+	return chat_store.set_room(r.id, r.locked, s, audit(a, "chat.slow", "room", r.id, reason, fmt.tprintf("seconds=%d", s)))
+}
+
+// Mutes or kicks `who` in `r` for `minutes`; 0 lifts it.
+set_ban :: proc(r: m.Room, a: Actor, who: u64, kind: m.Ban_Kind, minutes: int, reason: string) -> m.Error {
+	mins := clamp(minutes, 0, MAX_BAN)
+	name := "chat.mute" if kind == .Mute else "chat.kick"
+	if mins == 0 { name = "chat.unmute" if kind == .Mute else "chat.unkick" }
+	b := m.Ban{room = r.id, who = who, kind = kind, until = now() + i64(mins) * 60, by = a.id}
+	return chat_store.ban(b, audit(a, name, "user", i64(who), reason, fmt.tprintf("room=%d minutes=%d", r.id, mins)))
+}
+
+// A moderator's delete of `msg` to a tombstone, audited; op.done runs once it is stored.
+remove :: proc(op: ^m.Change, a: Actor, reason, action: string) -> bool {
+	op.delete, op.moderated = true, true
+	op.audit = audit(a, action, "message", op.id, reason, "")
+	return chat_store.change(op)
+}
+
+// A member's report of `msg` in `r` (any kind of room), with a copy of it for the moderators.
+report :: proc(msg: m.Message, v: authz.Viewer, reason: string) -> (i64, m.Error) {
+	return chat_store.report({
+		room = msg.room, msg = msg.id, author = msg.author, author_name = msg.name, body = msg.body,
+		by = v.id, by_name = v.name, reason = reason, at = now(),
+	})
+}
+
+reports :: proc(out: ^[dynamic]m.Report) -> m.Error { return chat_store.reports(out) }
+report_of :: proc(id: i64) -> (m.Report, m.Error) { return chat_store.report_of(id) }
+
+// A report closed as `outcome` ("removed" or "dismissed"), audited.
+resolve :: proc(rep: m.Report, a: Actor, outcome, reason: string) -> m.Error {
+	return chat_store.resolve(rep.id, now(), outcome, audit(a, fmt.tprintf("chat.report_%s", outcome), "report", rep.id, reason, fmt.tprintf("message=%d", rep.msg)))
 }
 
 // A private room's owner, or a moderator among its members (no one else reads it to get there),

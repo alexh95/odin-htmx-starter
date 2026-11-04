@@ -31,7 +31,7 @@ import chat_views "../views"
 
 // Every transport's extensions, whichever a page uses (RESOLUTIONS X29; §12.1), and
 // upsert, which every message swaps by.
-EXTS :: chat_transport_ws.EXTS + chat_transport_sse.EXTS + chat_transport_poll.EXTS + chat_transport_multipart.EXTS + web.Exts{.Upsert}
+EXTS :: chat_transport_ws.EXTS + chat_transport_sse.EXTS + chat_transport_poll.EXTS + chat_transport_multipart.EXTS + web.Exts{.Upsert, .Prompt}
 
 // A message's body is 2,000 runes; URL-encoded, a rune can take 12 bytes.
 POST_CAP :: 32 * 1024
@@ -53,7 +53,16 @@ ROUTES := [?]web.Route {
 	{.Post, "/chat/dm/(%d+)", start_dm, .Chat_Dm, {.Fragment}, 0},
 	{.Get, "/chat/join/([%w%-_%.]+)", join_page, .Chat_Read, {.Private}, 0},
 	{.Post, "/chat/join/([%w%-_%.]+)", join_room, .Chat_Read, {.Fragment}, 0},
+	{.Post, "/chat/r/([%w%-]+)/lock", lock_room, .Chat_Moderate, {.Fragment}, 64},
+	{.Post, "/chat/r/([%w%-]+)/slow", slow_room, .Chat_Moderate, {.Fragment}, 64},
+	{.Post, "/chat/r/([%w%-]+)/mute/(%d+)", mute_member, .Chat_Moderate, {.Fragment}, 64},
+	{.Post, "/chat/r/([%w%-]+)/kick/(%d+)", kick_member, .Chat_Moderate, {.Fragment}, 64},
+	{.Get, "/chat/reports", reports_page, .Chat_Moderate, {.Private}, 0},
+	{.Post, "/chat/reports/(%d+)/remove", report_remove, .Chat_Moderate, {.Fragment}, 0},
+	{.Post, "/chat/reports/(%d+)/dismiss", report_dismiss, .Chat_Moderate, {.Fragment}, 0},
 	{.Get, "/chat/m/(%d+)/menu", menu, .Chat_Read, {.Fragment}, 0},
+	{.Post, "/chat/m/(%d+)/remove", remove_message, .Chat_Moderate, {.Fragment}, 0},
+	{.Post, "/chat/m/(%d+)/report", report_message, .Chat_Read, {.Fragment}, 0},
 	{.Get, "/chat/m/(%d+)/edit", edit_form, .Chat_Post, {.Fragment}, 0},
 	{.Post, "/chat/m/(%d+)/edit", edit, .Chat_Post, {.Fragment}, POST_CAP},
 	{.Post, "/chat/m/(%d+)/delete", delete_message, .Chat_Post, {.Fragment}, 0},
@@ -83,7 +92,7 @@ JOBS := [?]workers.Job {
 SLOW_DOWN :: "Slow down: at most 5 messages in 10 seconds."
 
 @(private)
-READ_ONLY :: "Only its owner and the moderators post here."
+SLOW_MODE :: "Slow mode: one message every %d seconds here."
 
 COOKIE :: "chat_transport"
 
@@ -120,7 +129,7 @@ index :: proc(req: ^web.Request, res: ^web.Response) {
 	}
 	rows := make([]chat_views.Room_Row, len(all), context.temp_allocator)
 	for r, i in all { rows[i] = {r, chat.unread(r.id, v.id)} }
-	web.render_page(req, res, "Chat", "/chat", "The rooms on the LAN.", chat_views.index_page(rows, transport(req), chat.may_create(.Public, v), chat.may_create(.Announce, v)))
+	web.render_page(req, res, "Chat", "/chat", "The rooms on the LAN.", chat_views.index_page(rows, transport(req), chat.may_create(.Public, v), chat.may_create(.Announce, v), open_reports(v)))
 }
 
 @(private)
@@ -157,7 +166,10 @@ room_page :: proc(req: ^web.Request, res: ^web.Response) {
 	case .Multipart:
 		wiring = chat_transport_multipart.wiring(r)
 	}
-	rv := chat_views.Room_View{may_post = chat.may_post(r, v), may_invite = chat.may_invite(r, v), may_leave = chat.may_leave(r, v)}
+	rv := chat_views.Room_View{
+		cannot_post = chat.why_not_post(r, v), may_invite = chat.may_invite(r, v), may_leave = chat.may_leave(r, v),
+		may_moderate = chat.may_moderate(r, v),
+	}
 	if r.kind == .Private || r.kind == .Dm {
 		list := make([dynamic]m.Member, context.temp_allocator)
 		if merr := chat.members(r, &list); merr != .None {
@@ -255,8 +267,8 @@ post_message :: proc(req: ^web.Request, res: ^web.Response) {
 		web.respond_store_error(req, res, err)
 		return
 	}
-	if !chat.may_post(r, v) {
-		web.respond_html(res, html.field_msg(false, READ_ONLY), .Forbidden)
+	if why := chat.why_not_post(r, v); why != "" {
+		web.respond_html(res, html.field_msg(false, why), .Forbidden)
 		return
 	}
 	body, problem := chat.check_body(web.form(req)["body"])
@@ -268,6 +280,11 @@ post_message :: proc(req: ^web.Request, res: ^web.Response) {
 		web.respond_limited(res, retry, html.toast("error", SLOW_DOWN, false))
 		return
 	}
+	if wait := chat.slow_wait(r, v); wait > 0 {
+		web.respond_limited(res, time.Duration(wait) * time.Second, html.toast("error", fmt.tprintf(SLOW_MODE, r.slow), false))
+		return
+	}
+	chat.slow_mark(r, v.id)
 	op := posting(v, r, body)
 	op.http = true
 	web.defer_response(req, res, &op.deferred)
@@ -283,7 +300,11 @@ post_message :: proc(req: ^web.Request, res: ^web.Response) {
 // A socket's frame takes the form's path; what it refuses goes back down the socket.
 @(private)
 socket_post :: proc(s: ^chat_transport_ws.Socket, raw: string) {
-	if !authz.can(s.who, .Chat_Post) || !chat.may_post(s.room, s.who) { return }
+	if !authz.can(s.who, .Chat_Post) { return }
+	if why := chat.why_not_post(s.room, s.who); why != "" {
+		chat_transport_ws.send(s, fmt.tprintf(`<p hx-swap-oob="innerHTML:#err-%d">%s</p>`, s.room.id, escaped(why)))
+		return
+	}
 	body, problem := chat.check_body(raw)
 	if problem != "" {
 		chat_transport_ws.send(s, fmt.tprintf(`<p hx-swap-oob="innerHTML:#err-%d">%s</p>`, s.room.id, escaped(problem)))
@@ -293,6 +314,11 @@ socket_post :: proc(s: ^chat_transport_ws.Socket, raw: string) {
 		chat_transport_ws.send(s, html.toast("error", SLOW_DOWN, true))
 		return
 	}
+	if chat.slow_wait(s.room, s.who) > 0 {
+		chat_transport_ws.send(s, html.toast("error", fmt.tprintf(SLOW_MODE, s.room.slow), true))
+		return
+	}
+	chat.slow_mark(s.room, s.who.id)
 	op := posting(s.who, s.room, body)
 	if !chat.post(op) {
 		store.free_op(op)
@@ -365,8 +391,12 @@ menu :: proc(req: ^web.Request, res: ^web.Response) {
 	msg, r, ok := message_of(req, res)
 	if !ok { return }
 	v := web.viewer(req)
-	may_dm := authz.can(v, .Chat_Dm) && msg.author != 0 && msg.author != v.id
-	web.respond_html(res, chat_views.menu(msg, r.slug, chat.may_change(msg, v.id), may_dm))
+	other := msg.author != 0 && msg.author != v.id
+	acts := chat_views.Menu{
+		may_change = chat.may_change(msg, v.id), may_dm = authz.can(v, .Chat_Dm) && other,
+		may_moderate = chat.may_moderate(r, v) && other, may_report = other && v.id != 0,
+	}
+	web.respond_html(res, chat_views.menu(msg, r.slug, acts))
 }
 
 @(private)
@@ -387,6 +417,7 @@ Changing :: struct {
 	slug:         string,
 	room_name:    string,
 	typed:        string,
+	refresh:      bool, // answered by reloading the page (a report's removal), not with the message
 }
 
 @(private)
@@ -411,6 +442,13 @@ delete_message :: proc(req: ^web.Request, res: ^web.Response) {
 
 @(private)
 change :: proc(req: ^web.Request, res: ^web.Response, msg: m.Message, r: m.Room, body: string, del: bool) {
+	op := changing(req, res, msg, r, body, del)
+	if !chat.change(op) { unqueued(req, op) }
+}
+
+// A Changing op for `msg`, its response deferred.
+@(private)
+changing :: proc(req: ^web.Request, res: ^web.Response, msg: m.Message, r: m.Room, body: string, del: bool) -> ^Changing {
 	v := web.viewer(req)
 	op := store.new_op(Changing, 3 * len(body) + 2 * len(msg.name) + len(r.slug) + len(r.name))
 	a := store.op_allocator(op)
@@ -419,13 +457,17 @@ change :: proc(req: ^web.Request, res: ^web.Response, msg: m.Message, r: m.Room,
 	op.slug, op.room_name = strings.clone(r.slug, a), strings.clone(r.name, a)
 	op.done = changed
 	web.defer_response(req, res, &op.deferred)
-	if !chat.change(op) {
-		if rr := web.resume(&op.deferred); rr != nil {
-			web.respond_store_error(req, rr, .Busy)
-			web.finish(&op.deferred, rr)
-		}
-		store.free_op(op)
+	return op
+}
+
+// The store was busy: the deferred response answers 503, and the op goes.
+@(private)
+unqueued :: proc(req: ^web.Request, op: ^Changing) {
+	if rr := web.resume(&op.deferred); rr != nil {
+		web.respond_store_error(req, rr, .Busy)
+		web.finish(&op.deferred, rr)
 	}
+	store.free_op(op)
 }
 
 @(private)
@@ -439,7 +481,12 @@ changed :: proc(o: ^store.Op) {
 	if res == nil { return }
 	switch op.err {
 	case .None:
-		web.respond_html(res, chat_views.one(op.result.room, op.slug, op.result))
+		if op.refresh {
+			web.set_header(res, "hx-refresh", "true")
+			web.respond_status(res, .No_Content)
+		} else {
+			web.respond_html(res, chat_views.one(op.result.room, op.slug, op.result))
+		}
 	case .Constraint:
 		web.respond_html(res, chat_views.edit_form(op.id, op.typed, "Only your own messages, for 10 minutes."), .Unprocessable_Content)
 	case .Not_Found, .Busy, .Failed:
@@ -645,6 +692,205 @@ start_dm :: proc(req: ^web.Request, res: ^web.Response) {
 	}
 	web.set_header(res, "hx-redirect", fmt.tprintf("/chat/r/%s", r.slug))
 	web.respond_status(res, .No_Content)
+}
+
+// ---- moderation (§14.1) -------------------------------------------------------------------------
+//
+// A moderator's acts in a public room or announcements, each with its reason (hx-prompt) and
+// audited; private rooms and DMs only through a member's report.
+
+@(private)
+actor :: proc() -> chat.Actor {
+	c := web.ctx()
+	buf := make([]byte, 16, context.temp_allocator)
+	return {c.viewer.id, c.viewer.name, web.client_id(c.client, buf)}
+}
+
+// The room, when the viewer moderates it, and their reason; otherwise answered here.
+@(private)
+moderating :: proc(req: ^web.Request, res: ^web.Response) -> (r: m.Room, reason: string, ok: bool) {
+	v := web.viewer(req)
+	err: m.Error
+	if r, err = chat.room_for(req.url_params[0], v); err != .None {
+		web.respond_store_error(req, res, err)
+		return
+	}
+	if !chat.may_moderate(r, v) {
+		web.respond_html(res, html.toast("error", "Private rooms and DMs are moderated through reports.", true), .Forbidden)
+		return
+	}
+	reason, ok = web.prompt_reason(req, res)
+	return
+}
+
+// A change to the room's state shows on the next page: reload this one.
+@(private)
+refresh :: proc(res: ^web.Response) {
+	web.set_header(res, "hx-refresh", "true")
+	web.respond_status(res, .No_Content)
+}
+
+@(private)
+lock_room :: proc(req: ^web.Request, res: ^web.Response) {
+	r, reason, ok := moderating(req, res)
+	if !ok { return }
+	if err := chat.set_lock(r, actor(), web.form(req)["locked"] == "1", reason); err != .None {
+		web.respond_store_error(req, res, err)
+		return
+	}
+	refresh(res)
+}
+
+@(private)
+slow_room :: proc(req: ^web.Request, res: ^web.Response) {
+	r, reason, ok := moderating(req, res)
+	if !ok { return }
+	seconds, sok := strconv.parse_int(web.form(req)["seconds"], 10)
+	if !sok || seconds < 0 {
+		web.respond_html(res, html.toast("error", "Slow mode is a number of seconds.", true), .Unprocessable_Content)
+		return
+	}
+	if err := chat.set_slow(r, actor(), seconds, reason); err != .None {
+		web.respond_store_error(req, res, err)
+		return
+	}
+	refresh(res)
+}
+
+@(private)
+mute_member :: proc(req: ^web.Request, res: ^web.Response) { ban_member(req, res, .Mute) }
+
+@(private)
+kick_member :: proc(req: ^web.Request, res: ^web.Response) { ban_member(req, res, .Kick) }
+
+// A mute or a kick of a room's member for `minutes` (0 lifts it).
+@(private)
+ban_member :: proc(req: ^web.Request, res: ^web.Response, kind: m.Ban_Kind) {
+	r, reason, ok := moderating(req, res)
+	if !ok { return }
+	who, wok := web.parse_id(req.url_params[1])
+	minutes, mok := strconv.parse_int(web.form(req)["minutes"], 10)
+	if !wok || !mok || minutes < 0 {
+		web.respond_html(res, html.toast("error", "Name a member and the minutes.", true), .Unprocessable_Content)
+		return
+	}
+	if u64(who) == web.viewer(req).id {
+		web.respond_html(res, html.toast("error", "Not yourself.", true), .Unprocessable_Content)
+		return
+	}
+	if err := chat.set_ban(r, actor(), u64(who), kind, minutes, reason); err != .None {
+		web.respond_store_error(req, res, err)
+		return
+	}
+	what := "Muted" if kind == .Mute else "Kicked"
+	if minutes == 0 { what = "Unmuted" if kind == .Mute else "Let back in" }
+	web.respond_html(res, html.toast("ok", fmt.tprintf("%s for %d minutes.", what, min(minutes, chat.MAX_BAN)) if minutes > 0 else what, true))
+}
+
+// A moderator's delete, in a room they moderate: to a tombstone, published as an edit is.
+@(private)
+remove_message :: proc(req: ^web.Request, res: ^web.Response) {
+	msg, r, ok := message_of(req, res)
+	if !ok { return }
+	if !chat.may_moderate(r, web.viewer(req)) {
+		web.respond_html(res, html.toast("error", "Private rooms and DMs are moderated through reports.", true), .Forbidden)
+		return
+	}
+	reason, rok := web.prompt_reason(req, res)
+	if !rok { return }
+	op := changing(req, res, msg, r, "", true)
+	if !chat.remove(op, actor(), reason, "chat.remove") { unqueued(req, op) }
+}
+
+// Any reader's report of someone else's message, with a copy of it for the moderators.
+@(private)
+report_message :: proc(req: ^web.Request, res: ^web.Response) {
+	msg, _, ok := message_of(req, res)
+	if !ok { return }
+	v := web.viewer(req)
+	if msg.author == v.id || msg.gone {
+		web.respond_html(res, html.toast("error", "There is nothing to report there.", true), .Unprocessable_Content)
+		return
+	}
+	reason, rok := web.prompt_reason(req, res)
+	if !rok { return }
+	if _, err := chat.report(msg, v, reason); err != .None {
+		web.respond_store_error(req, res, err)
+		return
+	}
+	web.respond_html(res, html.toast("ok", "Reported: a moderator will look at it.", true))
+}
+
+@(private)
+reports_page :: proc(req: ^web.Request, res: ^web.Response) {
+	list := make([dynamic]m.Report, context.temp_allocator)
+	if err := chat.reports(&list); err != .None {
+		web.respond_store_error(req, res, err)
+		return
+	}
+	rows := make([]chat_views.Report_Row, len(list), context.temp_allocator)
+	for rep, i in list {
+		rows[i].report = rep
+		rows[i].room, _ = chat.room_by_id(rep.room)
+	}
+	web.render_page(req, res, "Reports", "/chat", "Reported messages, for the moderators.", chat_views.reports_page(rows))
+}
+
+// An open report, and the moderator's reason for closing it.
+@(private)
+resolving :: proc(req: ^web.Request, res: ^web.Response) -> (rep: m.Report, reason: string, ok: bool) {
+	id, idok := web.parse_id(req.url_params[0])
+	err: m.Error
+	if !idok { err = .Not_Found } else { rep, err = chat.report_of(id) }
+	if err == .None && rep.resolved != 0 { err = .Not_Found }
+	if err != .None {
+		web.respond_store_error(req, res, err)
+		return
+	}
+	reason, ok = web.prompt_reason(req, res)
+	return
+}
+
+// Removes the reported message, whatever its room (a moderator acts on a private room's or a DM's
+// through its report alone), and closes the report.
+@(private)
+report_remove :: proc(req: ^web.Request, res: ^web.Response) {
+	rep, reason, ok := resolving(req, res)
+	if !ok { return }
+	a := actor()
+	if err := chat.resolve(rep, a, "removed", reason); err != .None {
+		web.respond_store_error(req, res, err)
+		return
+	}
+	msg, merr := chat.message(rep.msg)
+	if merr != .None || msg.gone { // already gone: the report is closed all the same
+		refresh(res)
+		return
+	}
+	r, _ := chat.room_by_id(msg.room)
+	op := changing(req, res, msg, r, "", true)
+	op.refresh = true
+	if !chat.remove(op, a, reason, "chat.remove") { unqueued(req, op) }
+}
+
+@(private)
+report_dismiss :: proc(req: ^web.Request, res: ^web.Response) {
+	rep, reason, ok := resolving(req, res)
+	if !ok { return }
+	if err := chat.resolve(rep, actor(), "dismissed", reason); err != .None {
+		web.respond_store_error(req, res, err)
+		return
+	}
+	refresh(res)
+}
+
+// How many reports wait, for a moderator's rooms page; -1 for anyone else.
+@(private)
+open_reports :: proc(v: authz.Viewer) -> int {
+	if !authz.can(v, .Chat_Moderate) { return -1 }
+	list := make([dynamic]m.Report, context.temp_allocator)
+	_ = chat.reports(&list)
+	return len(list)
 }
 
 // ---- the hub's hooks ---------------------------------------------------------------------------

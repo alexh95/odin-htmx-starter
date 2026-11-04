@@ -30,11 +30,25 @@ Room_Row :: struct {
 // What a room page shows its viewer beyond the log: a private room's and a DM's members, and
 // what they may do there.
 Room_View :: struct {
-	members:    []m.Member, // a private room's or a DM's; empty for the rest
-	invites:    []m.Invite, // a private room's open invites, for whoever may hand them out
-	may_post:   bool,
-	may_invite: bool,
-	may_leave:  bool,
+	members:      []m.Member, // a private room's or a DM's; empty for the rest
+	invites:      []m.Invite, // a private room's open invites, for whoever may hand them out
+	cannot_post:  string, // why the viewer may not post; "": they may
+	may_invite:   bool,
+	may_leave:    bool,
+	may_moderate: bool, // the room's lock and slow mode
+}
+
+// What a message's menu offers its viewer.
+Menu :: struct {
+	may_change:   bool, // their own, in the edit window
+	may_dm:       bool, // a DM with its author
+	may_moderate: bool, // remove it, mute or kick its author
+	may_report:   bool, // someone else's
+}
+
+Report_Row :: struct {
+	report: m.Report,
+	room:   m.Room, // zero when the room is gone
 }
 
 // A room's name as its lists and its page say it: `#name`, or a DM's two names.
@@ -64,10 +78,13 @@ Wiring :: struct {
 
 // ---- the rooms ---------------------------------------------------------------------------
 
-index_page :: proc(rows: []Room_Row, t: chat.Transport, may_create, may_announce: bool) -> string {
+// `reports`: how many wait for a moderator; -1 for anyone else.
+index_page :: proc(rows: []Room_Row, t: chat.Transport, may_create, may_announce: bool, reports: int) -> string {
 	b := strings.builder_make(context.temp_allocator)
 	html.page_head(&b, "Comms", "Chat", "Rooms on the LAN." if chat.PERSISTED else "Rooms on the LAN. They are kept in memory, so a restart empties them.")
-	w(&b, `<section class="block chat-index"><ul class="chat-rooms">`)
+	w(&b, `<section class="block chat-index">`)
+	if reports >= 0 { fmt.sbprintf(&b, `<p class="chat-reports-link"><a href="/chat/reports">Reports</a> <span class="badge">%d</span></p>`, reports) }
+	w(&b, `<ul class="chat-rooms">`)
 	for r in rows {
 		w(&b, `<li><a class="chat-room-link" href="/chat/r/`)
 		esc(&b, r.room.slug)
@@ -138,7 +155,9 @@ room_page :: proc(r: m.Room, msgs: []m.Message, ver: i64, here: []chat.Presence_
 	if !chat.PERSISTED { w(&b, `<span class="badge" title="Kept in memory: a restart empties it">ephemeral</span>`) }
 	w(&b, `<span class="chat-via muted">`)
 	w(&b, chat.TRANSPORTS[t].label)
-	w(&b, `</span><a class="chat-back" href="/chat">All rooms</a></header><div class="chat-main">`)
+	w(&b, `</span><a class="chat-back" href="/chat">All rooms</a></header>`)
+	if rv.may_moderate { room_controls(&b, r) }
+	w(&b, `<div class="chat-main">`)
 
 	fmt.sbprintf(&b, `<div class="chat-pane" id="pane-%d"%s>`, r.id, wiring.pane)
 	// The marker (§14.1): what the log starts with is all the room still has, and it let older go.
@@ -157,7 +176,7 @@ room_page :: proc(r: m.Room, msgs: []m.Message, ver: i64, here: []chat.Presence_
 	version(&b, r.id, ver)
 	w(&b, `</form>`)
 
-	if rv.may_post {
+	if rv.cannot_post == "" {
 		fmt.sbprintf(&b, `<form class="chat-composer" id="say-%d"%s`, r.id, wiring.composer)
 		html.behave(&b, .Composer)
 		fmt.sbprintf(&b, `><textarea id="body-%d" name="body" rows="1" maxlength="%d" required aria-label="Message" placeholder="Message #`, r.id, chat.MAX_BODY)
@@ -166,7 +185,9 @@ room_page :: proc(r: m.Room, msgs: []m.Message, ver: i64, here: []chat.Presence_
 		esc(&b, r.slug)
 		fmt.sbprintf(&b, `/typing" hx-trigger="input changed throttle:2s" hx-swap="none"></textarea><button class="btn btn-primary" type="submit">Send</button><p class="field-msg form-error" id="err-%d"></p></form></div>`, r.id)
 	} else {
-		w(&b, `<p class="chat-readonly muted">Only its owner and the moderators post here.</p></div>`)
+		w(&b, `<p class="chat-readonly muted">`)
+		esc(&b, rv.cannot_post)
+		w(&b, `</p></div>`)
 	}
 
 	fmt.sbprintf(&b, `<aside class="chat-side"><h2>Here</h2><div id="who-%d" class="chat-who">`, r.id)
@@ -176,6 +197,22 @@ room_page :: proc(r: m.Room, msgs: []m.Message, ver: i64, here: []chat.Presence_
 	// What hx-pending shows while a post is on its way; the typed text arrives as data-body.
 	w(&b, `</aside></div><template id="chat-pending"><article class="chat-msg pending"><p class="chat-body muted">Sending…</p></article></template></section>`)
 	return strings.to_string(b)
+}
+
+// A moderator's controls for a room: its lock and its slow mode, each asking why (the audit log's).
+@(private)
+room_controls :: proc(b: ^strings.Builder, r: m.Room) {
+	w(b, `<div class="chat-mod"><form hx-post="/chat/r/`)
+	esc(b, r.slug)
+	fmt.sbprintf(b, `/lock" hx-prompt="Why %s the room?" hx-swap="none"><input type="hidden" name="locked" value="%s"><button class="btn btn-outline" type="submit">%s</button></form>`,
+		"unlock" if r.locked else "lock", "0" if r.locked else "1", "Unlock" if r.locked else "Lock")
+	w(b, `<form hx-post="/chat/r/`)
+	esc(b, r.slug)
+	w(b, `/slow" hx-prompt="Why change slow mode?" hx-swap="none"><select name="seconds" aria-label="Slow mode">`)
+	for s in ([]int{0, 10, 30, 60, 300}) {
+		fmt.sbprintf(b, `<option value="%d"%s>%s</option>`, s, " selected" if s == r.slow else "", "Slow mode off" if s == 0 else fmt.tprintf("One message every %d s", s))
+	}
+	w(b, `</select><button class="btn btn-outline" type="submit">Set</button></form></div>`)
 }
 
 // A private room's or a DM's members, with the invite link and Leave where the viewer has them.
@@ -354,13 +391,13 @@ one :: proc(room: i64, slug: string, msg: m.Message) -> string {
 //
 // Asked for when wanted (GET /chat/m/<id>/menu), so it is rendered for its viewer.
 
-// `may_dm`: the viewer may start a DM with the message's author (another member, Chat_Dm).
-menu :: proc(msg: m.Message, slug: string, may_change, may_dm: bool) -> string {
+menu :: proc(msg: m.Message, slug: string, acts: Menu) -> string {
 	b := strings.builder_make(context.temp_allocator)
 	w(&b, `<div class="chat-actions"><a href="/chat/r/`)
 	esc(&b, slug)
 	fmt.sbprintf(&b, `#m-%d">Link</a>`, msg.id)
-	if may_dm {
+	may_change := acts.may_change
+	if acts.may_dm {
 		fmt.sbprintf(&b, `<button class="btn btn-ghost" type="button" hx-post="/chat/dm/%d">Message `, msg.author)
 		esc(&b, msg.name)
 		w(&b, `</button>`)
@@ -369,7 +406,50 @@ menu :: proc(msg: m.Message, slug: string, may_change, may_dm: bool) -> string {
 		fmt.sbprintf(&b, `<button class="btn btn-ghost" type="button" hx-get="/chat/m/%d/edit" hx-target="#mm-%d">Edit</button>`, msg.id, msg.id)
 		fmt.sbprintf(&b, `<button class="btn btn-ghost" type="button" hx-post="/chat/m/%d/delete" hx-target="#mm-%d">Delete</button>`, msg.id, msg.id)
 	}
+	if acts.may_report {
+		fmt.sbprintf(&b, `<button class="btn btn-ghost" type="button" hx-post="/chat/m/%d/report" hx-prompt="What is wrong with this message?" hx-swap="none">Report</button>`, msg.id)
+	}
+	if acts.may_moderate {
+		fmt.sbprintf(&b, `<button class="btn btn-ghost" type="button" hx-post="/chat/m/%d/remove" hx-prompt="Why remove it?" hx-target="#mm-%d">Remove</button>`, msg.id, msg.id)
+		for kind in ([]string{"mute", "kick"}) {
+			w(&b, `<form hx-post="/chat/r/`)
+			esc(&b, slug)
+			fmt.sbprintf(&b, `/%s/%d" hx-prompt="Why %s `, kind, msg.author, kind)
+			esc(&b, msg.name)
+			fmt.sbprintf(&b, `?" hx-swap="none"><input type="hidden" name="minutes" value="60"><button class="btn btn-ghost" type="submit">%s for an hour</button></form>`, "Mute" if kind == "mute" else "Kick")
+		}
+	}
 	w(&b, `</div>`)
+	return strings.to_string(b)
+}
+
+// The open reports, oldest first, each with its copy of the message (a moderator reads a private
+// room's or a DM's message here only), and Remove or Dismiss, each asking why.
+reports_page :: proc(rows: []Report_Row) -> string {
+	b := strings.builder_make(context.temp_allocator)
+	html.page_head(&b, "Comms", "Reports", "Reported messages. Removing one deletes it from its room; either way the report closes.")
+	w(&b, `<section class="block"><ul class="chat-report-list">`)
+	if len(rows) == 0 { w(&b, `<li class="muted">Nothing is reported.</li>`) }
+	for row in rows {
+		rep := row.report
+		fmt.sbprintf(&b, `<li class="card chat-report" id="report-%d"><p><b>`, rep.id)
+		esc(&b, rep.author_name)
+		w(&b, `</b> in `)
+		if row.room.id != 0 { room_title(&b, row.room) } else { w(&b, `a room that is gone`) }
+		w(&b, `</p><blockquote class="chat-report-body">`)
+		esc(&b, rep.body)
+		w(&b, `</blockquote><p class="muted">Reported by `)
+		esc(&b, rep.by_name)
+		w(&b, `: `)
+		esc(&b, rep.reason)
+		w(&b, `</p>`)
+		for act in ([]string{"remove", "dismiss"}) {
+			fmt.sbprintf(&b, `<button class="btn %s" type="button" hx-post="/chat/reports/%d/%s" hx-prompt="Why %s it?" hx-swap="none">%s</button> `,
+				"btn-primary" if act == "remove" else "btn-outline", rep.id, act, act, "Remove the message" if act == "remove" else "Dismiss")
+		}
+		w(&b, `</li>`)
+	}
+	w(&b, `</ul></section>`)
 	return strings.to_string(b)
 }
 

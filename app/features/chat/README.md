@@ -58,6 +58,16 @@ starts from a message's menu, "Message <name>" (`POST /chat/dm/<id>`, `Chat_Dm`)
 opaque slug (`dm-` and 16 hex digits), found again from either side, never made twice. The domain holds the rule
 once (`room_for`, `may_read`, `may_post`, `reads`), and every handler, transport and topic asks it.
 
+**Moderation** (§14.1, planning 2026-11-01). In a public room or announcements a moderator (`Chat_Moderate`) removes a
+message to a tombstone (`POST /chat/m/<id>/remove`), mutes or kicks its author for a while (`/chat/r/<slug>/mute/<id>`,
+`/kick/<id>`, `minutes`, 0 lifts it), locks the room (`/lock`: only moderators post) and sets slow mode (`/slow`: one
+message every N seconds per member, moderators exempt), each from the message's menu or the room's header and each with
+a reason asked by hx-prompt. A moderator doesn't read a private room or a DM: any reader reports someone else's message
+(`POST /chat/m/<id>/report`), the report keeps a copy of it, and a moderator removes the original or dismisses the
+report from `/chat/reports`. Every act is audited in its own transaction (on SQLite one statement of the change's
+unit, so a failed entry undoes it), with the reason and never the body. A muted member's page says until when; a
+kicked one gets the 404 a missing room gets.
+
 **Retention** (§14.1, Q19, D16): a public or private room keeps its newest `CHAT_ROOM_CAP` (500) messages and none older
 than `CHAT_ROOM_MAX_AGE` (7 d), a DM 1000 or 30 d (`CHAT_DM_*`), announcements 100 or 365 d (`CHAT_ANNOUNCE_*`);
 pinned messages are exempt. On SQLite the writer trims a room in the post's own batch every tenth of its cap (1 to

@@ -2,9 +2,9 @@
   "features": [
     {"name": "about", "lines": 100, "stores": [], "sqlite": "none", "deps": [], "switched": [], "declares": ["ROUTES", "EXTS", "init"], "profiles": ["minimal", "skeleton", "lab", "streams", "full"]},
     {"name": "accounts", "lines": 4300, "stores": ["sqlite"], "sqlite": "none", "deps": [], "switched": [], "declares": [], "profiles": ["streams", "full"]},
-    {"name": "audit", "lines": 500, "stores": ["memory", "sqlite"], "sqlite": "any", "deps": [], "switched": [], "declares": ["ROUTES", "EXTS"], "profiles": ["full"]},
+    {"name": "audit", "lines": 500, "stores": ["memory", "sqlite"], "sqlite": "any", "deps": [], "switched": [], "declares": ["ROUTES", "EXTS"], "profiles": ["streams", "full"]},
     {"name": "bot", "lines": 1100, "stores": ["memory"], "sqlite": "never", "deps": [], "switched": ["backend_mock"], "declares": ["ROUTES", "EXTS", "TOPICS", "init"], "profiles": ["streams"]},
-    {"name": "chat", "lines": 3500, "stores": ["memory", "sqlite"], "sqlite": "any", "deps": ["notify"], "switched": ["transport_multipart", "transport_poll", "transport_sse", "transport_ws"], "declares": ["ROUTES", "EXTS", "TOPICS", "JOBS", "init"], "profiles": ["streams", "full"]},
+    {"name": "chat", "lines": 4300, "stores": ["memory", "sqlite"], "sqlite": "any", "deps": ["notify", "audit"], "switched": ["transport_multipart", "transport_poll", "transport_sse", "transport_ws"], "declares": ["ROUTES", "EXTS", "TOPICS", "JOBS", "init"], "profiles": ["streams", "full"]},
     {"name": "compat", "lines": 100, "stores": [], "sqlite": "none", "deps": [], "switched": [], "declares": ["ROUTES", "EXTS", "BUNDLES"], "profiles": ["lab"]},
     {"name": "contacts", "lines": 1600, "stores": ["sqlite"], "sqlite": "required", "deps": [], "switched": [], "declares": ["ROUTES", "EXTS"], "profiles": ["skeleton"]},
     {"name": "dashboard", "lines": 200, "stores": [], "sqlite": "none", "deps": ["contacts"], "switched": [], "declares": ["ROUTES", "EXTS"], "profiles": ["skeleton"]},
@@ -31,7 +31,7 @@
     {"name": "minimal", "store": "memory", "identity": "anonymous", "client": "vanilla", "theme": "lite", "features": ["home", "notes", "about"]},
     {"name": "skeleton", "store": "sqlite", "identity": "anonymous", "client": "vanilla", "theme": "full", "features": ["dashboard", "gallery", "contacts", "about"]},
     {"name": "lab", "store": "memory", "identity": "anonymous", "client": "hyperscript", "theme": "full", "features": ["landing", "lab", "scripting", "compat", "status", "about"]},
-    {"name": "streams", "store": "memory", "identity": "nick", "client": "vanilla", "theme": "lite", "features": ["home", "notes", "chat", "notify", "bot", "ops", "status", "accounts", "about"]},
+    {"name": "streams", "store": "memory", "identity": "nick", "client": "vanilla", "theme": "lite", "features": ["home", "notes", "chat", "notify", "bot", "ops", "status", "accounts", "about", "audit"]},
     {"name": "full", "store": "sqlite", "identity": "accounts", "client": "hyperscript", "theme": "full", "features": ["home", "accounts", "chat", "notify", "audit", "modules", "ops", "jobs", "dbview", "status", "about"]}
   ]
 }

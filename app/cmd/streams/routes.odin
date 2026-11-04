@@ -7,6 +7,7 @@ import "../../platform/hub"
 import "../../platform/web"
 import "../../platform/workers"
 import about_web "../../features/about/web"
+import audit_web "../../features/audit/web"
 import bot_web "../../features/bot/web"
 import chat_web "../../features/chat/web"
 import home_web "../../features/home/web"
@@ -30,6 +31,7 @@ ROUTES := [?]app.Mount {
 	{"status", status_web.ROUTES[:]},   // /status: is everything up
 	{"accounts", identity.ROUTES[:]},   // /login /logout: the nickname form
 	{"about", about_web.ROUTES[:]},     // /about
+	{"audit", audit_web.ROUTES[:]},     // /admin/audit: chat's moderation (the memory store's log has no rows)
 }
 
 // Mounted by main with hub.mount("main", ..TOPICS[:]).

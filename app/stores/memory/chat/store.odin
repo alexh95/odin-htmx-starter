@@ -53,6 +53,9 @@ s: struct {
 	room_seq:  mem_store.Seq,
 	invite_seq: mem_store.Seq,
 	invites:   [dynamic]m.Invite, // strings on the heap; a revoked or spent one stays, as a row would
+	bans:      [dynamic]m.Ban,
+	reports:   [dynamic]m.Report, // strings on the heap; MAX_REPORTS, the oldest resolved going first
+	report_seq: mem_store.Seq,
 	msg_seq:   mem_store.Seq,
 	base:      i64,
 	bytes:     int,
@@ -247,7 +250,7 @@ change :: proc(op: ^m.Change) -> bool {
 	switch {
 	case msg == nil || msg.gone:
 		op.err = .Not_Found
-	case msg.author != op.author || now() - msg.at > op.window:
+	case !op.moderated && (msg.author != op.author || now() - msg.at > op.window):
 		op.err = .Constraint
 	case:
 		r.ver += 1
@@ -266,8 +269,128 @@ change :: proc(op: ^m.Change) -> bool {
 		op.err = .None
 	}
 	mem_store.unlock(&s.lock)
+	if op.err == .None && op.moderated { note(op.audit) } // a log line: nothing to undo
 	mem_store.finish(op)
 	return true
+}
+
+// ---- moderation ----------------------------------------------------------------------------
+
+MAX_REPORTS :: 1000 // in a memory build
+
+@(private) audit_writer: m.Audit_Writer
+
+set_audit_writer :: proc(w: m.Audit_Writer) { audit_writer = w }
+
+// The memory family's audit is a log line, written after the change: there is no transaction to
+// share, and a line can't fail.
+@(private)
+note :: proc(a: m.Audit) {
+	if a.action != "" && audit_writer != nil { _ = audit_writer(a.actor_id, a.actor_name, a.client, a.action, a.target_kind, a.target_id, a.reason, a.meta) }
+}
+
+set_room :: proc(room_id: i64, locked: bool, slow: int, audit: m.Audit) -> m.Error {
+	mem_store.lock(&s.lock)
+	r := by_id(room_id)
+	if r != nil { r.room.locked, r.room.slow = locked, slow }
+	mem_store.unlock(&s.lock)
+	if r == nil { return .Not_Found }
+	note(audit)
+	return .None
+}
+
+ban :: proc(b: m.Ban, audit: m.Audit) -> m.Error {
+	mem_store.lock(&s.lock)
+	found := false
+	for &old in s.bans {
+		if old.room == b.room && old.who == b.who && old.kind == b.kind {
+			old.until, old.by, found = b.until, b.by, true
+			break
+		}
+	}
+	if !found { append(&s.bans, b) }
+	mem_store.unlock(&s.lock)
+	note(audit)
+	return .None
+}
+
+banned :: proc(room_id: i64, who: u64, kind: m.Ban_Kind, at: i64) -> (until: i64) {
+	mem_store.lock(&s.lock)
+	defer mem_store.unlock(&s.lock)
+	for b in s.bans {
+		if b.room == room_id && b.who == who && b.kind == kind && b.until > at { return b.until }
+	}
+	return 0
+}
+
+report :: proc(r: m.Report) -> (id: i64, err: m.Error) {
+	mem_store.lock(&s.lock)
+	defer mem_store.unlock(&s.lock)
+	if len(s.reports) >= MAX_REPORTS {
+		gone := 0
+		for old, i in s.reports {
+			if old.resolved != 0 {
+				gone = i
+				break
+			}
+		}
+		free_report(s.reports[gone])
+		ordered_remove(&s.reports, gone)
+	}
+	row := r
+	row.id, row.resolved, row.outcome = mem_store.next_id(&s.report_seq), 0, ""
+	row.author_name, row.body, row.by_name, row.reason = strings.clone(r.author_name), strings.clone(r.body), strings.clone(r.by_name), strings.clone(r.reason)
+	append(&s.reports, row)
+	return row.id, .None
+}
+
+reports :: proc(out: ^[dynamic]m.Report) -> m.Error {
+	mem_store.lock(&s.lock)
+	defer mem_store.unlock(&s.lock)
+	for r in s.reports {
+		if r.resolved == 0 { append(out, copy_report(r)) }
+	}
+	return .None
+}
+
+report_of :: proc(id: i64) -> (m.Report, m.Error) {
+	mem_store.lock(&s.lock)
+	defer mem_store.unlock(&s.lock)
+	for r in s.reports {
+		if r.id == id { return copy_report(r), .None }
+	}
+	return {}, .Not_Found
+}
+
+resolve :: proc(id: i64, at: i64, outcome: string, audit: m.Audit) -> m.Error {
+	mem_store.lock(&s.lock)
+	found := false
+	for &r in s.reports {
+		if r.id == id && r.resolved == 0 {
+			r.resolved, r.outcome, found = at, outcome, true // the outcome is one of two literals
+			break
+		}
+	}
+	mem_store.unlock(&s.lock)
+	if !found { return .Not_Found }
+	note(audit)
+	return .None
+}
+
+@(private)
+copy_report :: proc(r: m.Report) -> m.Report {
+	out := r
+	out.author_name, out.body = strings.clone(r.author_name, context.temp_allocator), strings.clone(r.body, context.temp_allocator)
+	out.by_name, out.reason = strings.clone(r.by_name, context.temp_allocator), strings.clone(r.reason, context.temp_allocator)
+	return out
+}
+
+@(private)
+free_report :: proc(r: m.Report) {
+	delete(r.author_name)
+	delete(r.body)
+	delete(r.by_name)
+	delete(r.reason)
 }
 
 // What is older than each room's kind's age goes, oldest first.

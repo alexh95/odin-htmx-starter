@@ -27,7 +27,57 @@ Room :: struct {
 	kind:    Room_Kind,
 	owner:   u64, // who made it; 0 for the seeded lobby
 	dropped: i64, // the newest message retention let go; 0: none yet (the marker, §14.1)
+	locked:  bool, // only moderators post
+	slow:    int, // seconds between a member's posts; 0: off
 }
+
+// A member kept from a room for a while by a moderator: muted (reads, doesn't post) or kicked
+// (neither).
+Ban_Kind :: enum u8 {
+	Mute,
+	Kick,
+}
+
+Ban :: struct {
+	room:  i64,
+	who:   u64,
+	kind:  Ban_Kind,
+	until: i64, // unix seconds; at or before now: lifted
+	by:    u64,
+}
+
+// A member's report of a message, with a copy of it: what a moderator sees, private rooms and DMs
+// included, which they don't read otherwise.
+Report :: struct {
+	id:          i64,
+	room:        i64,
+	msg:         i64,
+	author:      u64,
+	author_name: string,
+	body:        string,
+	by:          u64,
+	by_name:     string,
+	reason:      string,
+	at:          i64,
+	resolved:    i64, // when; 0: open
+	outcome:     string, // "removed" or "dismissed"
+}
+
+// The audit entry a moderation writes in its own transaction (M4-04): plain values, through the
+// store's Audit_Writer, which chat hands it at init (store:audit's append_in; no store imports
+// another, D18). `action` "" writes none. The body of a message is never in one (07 §1.5).
+Audit :: struct {
+	actor_id:    i64,
+	actor_name:  string,
+	client:      string,
+	action:      string,
+	target_kind: string,
+	target_id:   i64,
+	reason:      string,
+	meta:        string,
+}
+
+Audit_Writer :: proc(actor_id: i64, actor_name, client, action, target_kind: string, target_id: i64, reason, meta: string) -> Error
 
 // What a room of each kind keeps (§14.1, Q19): its newest `cap` messages, none older than `age`
 // seconds; a pinned message is exempt from both.
@@ -84,15 +134,18 @@ Post :: struct {
 }
 
 // An edit or a delete of the author's own message, inside `window` seconds of
-// posting: .Not_Found for none, .Constraint for someone else's or one too old.
+// posting: .Not_Found for none, .Constraint for someone else's or one too old. A moderator's
+// delete (`moderated`) takes anyone's, at any age, and writes `audit` in the same batch.
 Change :: struct {
-	using op: store.Op,
-	id:       i64,
-	author:   u64,
-	body:     string, // the new text; ignored for a delete
-	delete:   bool,
-	window:   i64,
-	result:   Message,
+	using op:  store.Op,
+	id:        i64,
+	author:    u64,
+	body:      string, // the new text; ignored for a delete
+	delete:    bool,
+	window:    i64,
+	moderated: bool,
+	audit:     Audit,
+	result:    Message,
 }
 
 Store_Init :: proc(ring_bytes: int, keep: Retention)
@@ -116,6 +169,15 @@ Store_Revoke_Invite :: proc(id, room, at: i64) -> Error // .Not_Found unless an 
 // In one write: when invite `id` is still open at `now`, `who` joins its room, and a use is
 // counted unless they were in it already. .Not_Found when it isn't open.
 Store_Use_Invite :: proc(id, now: i64, who: u64, name: string) -> Error
+// Moderation: each writes its `audit` in its own transaction.
+Store_Set_Audit_Writer :: proc(w: Audit_Writer) // at init
+Store_Set_Room :: proc(room: i64, locked: bool, slow: int, audit: Audit) -> Error
+Store_Ban :: proc(b: Ban, audit: Audit) -> Error // until <= now lifts it
+Store_Banned :: proc(room: i64, who: u64, kind: Ban_Kind, now: i64) -> (until: i64) // 0: not
+Store_Report :: proc(r: Report) -> (id: i64, err: Error) // r.id, resolved and outcome are ignored
+Store_Reports :: proc(out: ^[dynamic]Report) -> Error // the open ones, oldest first
+Store_Report_Of :: proc(id: i64) -> (Report, Error)
+Store_Resolve :: proc(id: i64, at: i64, outcome: string, audit: Audit) -> Error // .Not_Found unless open
 Store_Recent :: proc(room: i64, limit: int, out: ^[dynamic]Message) -> Error // oldest first
 // id > after, oldest first; reached: nothing after `after` was let go, so `out` has no gap
 Store_After :: proc(room: i64, after: i64, out: ^[dynamic]Message) -> (reached: bool, err: Error)

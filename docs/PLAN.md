@@ -3382,6 +3382,10 @@ user ids plus an `author_name` snapshot and no foreign key into `users` (D6, §1
   inserts), the `chat.retention` job sweeps by age each minute, 1000 rows a transaction at most and pinned
   (`chat_messages.pinned`) never; the memory store's ring takes the cap. The marker shows above the log when the page
   has everything the room kept. A room's own settings (up to 5000 or 90 d) are still to come.
+- **Moderation** (slice 4): remove, mute, kick, lock and slow mode in public rooms and announcements; reports with a
+  copy for every room, private ones and DMs included, closed from `/chat/reports` by removing or dismissing. Each act
+  is audited through the chat store's Audit_Writer (store:audit's `append_in`, set at init), on SQLite inside the
+  change's unit (`0004_moderation.sql`: the lock, slow mode, `chat_bans`, `chat_reports`).
 
 ### 14.2 Notifications, Today and uploads
 

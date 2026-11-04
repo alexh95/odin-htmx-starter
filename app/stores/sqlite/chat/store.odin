@@ -33,9 +33,10 @@ MIGRATIONS := [?]store.Migration {
 	{1, "0001_chat.sql", #load("migrations/0001_chat.sql", string)},
 	{2, "0002_rooms.sql", #load("migrations/0002_rooms.sql", string)},
 	{3, "0003_retention.sql", #load("migrations/0003_retention.sql", string)},
+	{4, "0004_moderation.sql", #load("migrations/0004_moderation.sql", string)},
 }
 
-@(private) ROOM_COLS :: "id, slug, name, at, kind, owner, dropped"
+@(private) ROOM_COLS :: "id, slug, name, at, kind, owner, dropped, locked, slow"
 @(private) MSG_COLS :: "id, room, author, name, body, at, edited, gone, ver"
 @(private) SQL_ROOMS :: "SELECT " + ROOM_COLS + " FROM chat_rooms ORDER BY id"
 @(private) SQL_ROOMS_FOR :: "SELECT " + ROOM_COLS + " FROM chat_rooms WHERE kind IN (0, 2) OR id IN (SELECT room FROM chat_members WHERE who = ?) ORDER BY id"
@@ -69,6 +70,17 @@ MIGRATIONS := [?]store.Migration {
 @(private) PAST_AGE :: "SELECT m.room AS room, m.id AS id, m.ver AS ver FROM chat_messages m JOIN chat_rooms r ON r.id = m.room WHERE r.kind = ? AND m.pinned = 0 AND m.at < ? ORDER BY m.id LIMIT 1000"
 @(private) SQL_PAST_AGE :: "SELECT room, max(id), max(ver), count(*) FROM (" + PAST_AGE + ") GROUP BY room"
 @(private) SQL_AGE_OUT :: "DELETE FROM chat_messages WHERE id IN (SELECT id FROM (" + PAST_AGE + "))"
+@(private) SQL_SAVE :: "SAVEPOINT op"
+@(private) SQL_UNDO :: "ROLLBACK TO op"
+@(private) SQL_RELEASE :: "RELEASE op"
+@(private) SQL_SET_ROOM :: "UPDATE chat_rooms SET locked = ?, slow = ? WHERE id = ?"
+@(private) SQL_BAN :: "INSERT INTO chat_bans(room, who, kind, until, made_by) VALUES(?, ?, ?, ?, ?) ON CONFLICT(room, who, kind) DO UPDATE SET until = excluded.until, made_by = excluded.made_by"
+@(private) SQL_BANNED :: "SELECT until FROM chat_bans WHERE room = ? AND who = ? AND kind = ? AND until > ?"
+@(private) REPORT_COLS :: "id, room, msg, author, author_name, body, made_by, by_name, reason, at, resolved, outcome"
+@(private) SQL_REPORT :: "INSERT INTO chat_reports(room, msg, author, author_name, body, made_by, by_name, reason, at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)"
+@(private) SQL_REPORTS :: "SELECT " + REPORT_COLS + " FROM chat_reports WHERE resolved = 0 ORDER BY id"
+@(private) SQL_REPORT_OF :: "SELECT " + REPORT_COLS + " FROM chat_reports WHERE id = ?"
+@(private) SQL_RESOLVE :: "UPDATE chat_reports SET resolved = ?, outcome = ? WHERE id = ? AND resolved = 0"
 @(private) SQL_DROPPED :: "UPDATE chat_rooms SET dropped = max(dropped, ?), dropped_ver = max(dropped_ver, ?) WHERE id = ?"
 @(private) SQL_POST :: "INSERT INTO chat_messages(room, author, name, body, at, ver) VALUES(?, ?, ?, ?, ?, ?)"
 @(private) SQL_EDIT :: "UPDATE chat_messages SET body = ?, edited = ?, ver = ? WHERE id = ?"
@@ -111,6 +123,9 @@ room :: proc(slug: string) -> (r: m.Room, err: m.Error) {
 // write_now's run takes no arguments: what it works on is here. write_now runs it on the caller's
 // own thread, so a loop's is its own while another loop makes a room too.
 @(private, thread_local) making: struct {
+	ban:        m.Ban,
+	report:     m.Report,
+	audit:      m.Audit,
 	invite:     m.Invite,
 	now:        i64,
 	slug, name: string,
@@ -289,29 +304,32 @@ message :: proc(id: i64) -> (msg: m.Message, err: m.Error) {
 }
 
 post :: proc(op: ^m.Post) -> bool {
-	op.run = proc(o: ^store.Op) {
-		op := (^m.Post)(o)
-		ver: i64
-		kind: m.Room_Kind
-		if ver, kind, o.err = bump(op.room); o.err != .None { return }
-		at := now()
-		st := db.writer_stmt(SQL_POST)
-		db.bind_id(st, 1, op.room)
-		db.bind_id(st, 2, i64(op.author))
-		db.bind_text(st, 3, op.name)
-		db.bind_text(st, 4, op.body)
-		db.bind_id(st, 5, at)
-		db.bind_id(st, 6, ver)
-		o.err = db.step_done(st)
-		db.reset(st)
-		if o.err != .None { return }
-		a := store.op_allocator(o)
-		op.result = {id = db.last_insert_id(), room = op.room, author = op.author, name = strings.clone(op.name, a), body = strings.clone(op.body, a), at = at, ver = ver}
-		if inserts == nil { inserts = make(map[i64]int, runtime.heap_allocator()) }
-		inserts[op.room] += 1
-		if keep.cap[kind] > 0 && inserts[op.room] % trim_every(keep.cap[kind]) == 0 { o.err = trim(op.room, keep.cap[kind]) }
-	}
+	op.run = proc(o: ^store.Op) { unit(o, post_run) }
 	return db.write(op)
+}
+
+@(private)
+post_run :: proc(o: ^store.Op) {
+	op := (^m.Post)(o)
+	ver: i64
+	kind: m.Room_Kind
+	if ver, kind, o.err = bump(op.room); o.err != .None { return }
+	at := now()
+	st := db.writer_stmt(SQL_POST)
+	db.bind_id(st, 1, op.room)
+	db.bind_id(st, 2, i64(op.author))
+	db.bind_text(st, 3, op.name)
+	db.bind_text(st, 4, op.body)
+	db.bind_id(st, 5, at)
+	db.bind_id(st, 6, ver)
+	o.err = db.step_done(st)
+	db.reset(st)
+	if o.err != .None { return }
+	a := store.op_allocator(o)
+	op.result = {id = db.last_insert_id(), room = op.room, author = op.author, name = strings.clone(op.name, a), body = strings.clone(op.body, a), at = at, ver = ver}
+	if inserts == nil { inserts = make(map[i64]int, runtime.heap_allocator()) }
+	inserts[op.room] += 1
+	if keep.cap[kind] > 0 && inserts[op.room] % trim_every(keep.cap[kind]) == 0 { o.err = trim(op.room, keep.cap[kind]) }
 }
 
 // On the writer: room's unpinned messages past its newest `cap`, a chunk at most, after its
@@ -384,50 +402,196 @@ sweep :: proc(at: i64) -> (removed: int, err: m.Error) {
 }
 
 // An edit or a delete of the author's own message inside `window`: .Not_Found for none or one
-// deleted, .Constraint for someone else's or one too old.
+// deleted, .Constraint for someone else's or one too old. A moderator's (`moderated`) takes any,
+// and its audit entry is one more statement of the unit.
 change :: proc(op: ^m.Change) -> bool {
-	op.run = proc(o: ^store.Op) {
-		op := (^m.Change)(o)
-		a := store.op_allocator(o)
-		q := db.writer_stmt(SQL_MESSAGE)
-		db.bind_id(q, 1, op.id)
-		found := db.next_row(q, &o.err)
-		msg := one_msg(q, a) if found else {}
-		db.reset(q)
-		if o.err != .None { return }
-		switch {
-		case !found || msg.gone:
-			o.err = .Not_Found
-			return
-		case msg.author != op.author || now() - msg.at > op.window:
-			o.err = .Constraint
-			return
-		}
-		ver: i64
-		if ver, _, o.err = bump(msg.room); o.err != .None { return }
-		edited := now()
-		st := db.writer_stmt(SQL_DELETE if op.delete else SQL_EDIT)
-		if op.delete {
-			db.bind_id(st, 1, ver)
-			db.bind_id(st, 2, op.id)
-		} else {
-			db.bind_text(st, 1, op.body)
-			db.bind_id(st, 2, edited)
-			db.bind_id(st, 3, ver)
-			db.bind_id(st, 4, op.id)
-		}
-		o.err = db.step_done(st)
-		db.reset(st)
-		if o.err != .None { return }
-		op.result = msg
-		op.result.ver = ver
-		if op.delete {
-			op.result.body, op.result.gone = "", true
-		} else {
-			op.result.body, op.result.edited = strings.clone(op.body, a), edited
-		}
-	}
+	op.run = proc(o: ^store.Op) { unit(o, change_run) }
 	return db.write(op)
+}
+
+@(private)
+change_run :: proc(o: ^store.Op) {
+	op := (^m.Change)(o)
+	a := store.op_allocator(o)
+	q := db.writer_stmt(SQL_MESSAGE)
+	db.bind_id(q, 1, op.id)
+	found := db.next_row(q, &o.err)
+	msg := one_msg(q, a) if found else {}
+	db.reset(q)
+	if o.err != .None { return }
+	switch {
+	case !found || msg.gone:
+		o.err = .Not_Found
+		return
+	case !op.moderated && (msg.author != op.author || now() - msg.at > op.window):
+		o.err = .Constraint
+		return
+	}
+	ver: i64
+	if ver, _, o.err = bump(msg.room); o.err != .None { return }
+	edited := now()
+	st := db.writer_stmt(SQL_DELETE if op.delete else SQL_EDIT)
+	if op.delete {
+		db.bind_id(st, 1, ver)
+		db.bind_id(st, 2, op.id)
+	} else {
+		db.bind_text(st, 1, op.body)
+		db.bind_id(st, 2, edited)
+		db.bind_id(st, 3, ver)
+		db.bind_id(st, 4, op.id)
+	}
+	o.err = db.step_done(st)
+	db.reset(st)
+	if o.err != .None { return }
+	op.result = msg
+	op.result.ver = ver
+	if op.delete {
+		op.result.body, op.result.gone = "", true
+	} else {
+		op.result.body, op.result.edited = strings.clone(op.body, a), edited
+	}
+	if op.moderated { o.err = note(op.audit) }
+}
+
+// An op of several statements fails as one, as the accounts store's (M4-06): SQLite undoes only
+// the failing statement, and the batch's transaction would commit the rest.
+@(private)
+unit :: proc(o: ^store.Op, run: proc(o: ^store.Op)) {
+	exec(SQL_SAVE)
+	run(o)
+	if o.err != .None { exec(SQL_UNDO) }
+	exec(SQL_RELEASE)
+}
+
+@(private)
+exec :: proc(sql: string) {
+	st := db.writer_stmt(sql)
+	_ = db.step_done(st)
+	db.reset(st)
+}
+
+// ---- moderation ----------------------------------------------------------------------------
+
+@(private) audit_writer: m.Audit_Writer
+
+set_audit_writer :: proc(w: m.Audit_Writer) { audit_writer = w }
+
+// On the writer, inside the change's transaction: its audit entry, whose failure undoes the change.
+@(private)
+note :: proc(a: m.Audit) -> m.Error {
+	if a.action == "" || audit_writer == nil { return .None }
+	return audit_writer(a.actor_id, a.actor_name, a.client, a.action, a.target_kind, a.target_id, a.reason, a.meta)
+}
+
+set_room :: proc(room_id: i64, locked: bool, slow: int, audit: m.Audit) -> m.Error {
+	making = {}
+	making.room = {id = room_id, locked = locked, slow = slow}
+	making.audit = audit
+	ok := db.write_now(proc() -> bool {
+		st := db.writer_stmt(SQL_SET_ROOM)
+		db.bind_int(st, 1, 1 if making.room.locked else 0)
+		db.bind_int(st, 2, making.room.slow)
+		db.bind_id(st, 3, making.room.id)
+		making.err = db.step_done(st)
+		db.reset(st)
+		if making.err == .None && db.changes() == 0 { making.err = .Not_Found }
+		if making.err == .None { making.err = note(making.audit) }
+		return making.err == .None
+	})
+	return .None if ok else making.err if making.err != .None else .Failed
+}
+
+ban :: proc(b: m.Ban, audit: m.Audit) -> m.Error {
+	making = {ban = b, audit = audit}
+	ok := db.write_now(proc() -> bool {
+		b := making.ban
+		st := db.writer_stmt(SQL_BAN)
+		db.bind_id(st, 1, b.room)
+		db.bind_id(st, 2, i64(b.who))
+		db.bind_int(st, 3, int(b.kind))
+		db.bind_id(st, 4, b.until)
+		db.bind_id(st, 5, i64(b.by))
+		making.err = db.step_done(st)
+		db.reset(st)
+		if making.err == .None { making.err = note(making.audit) }
+		return making.err == .None
+	})
+	return .None if ok else making.err if making.err != .None else .Failed
+}
+
+banned :: proc(room_id: i64, who: u64, kind: m.Ban_Kind, at: i64) -> (until: i64) {
+	q := db.read(SQL_BANNED)
+	defer db.reset(q)
+	db.bind_id(q, 1, room_id)
+	db.bind_id(q, 2, i64(who))
+	db.bind_int(q, 3, int(kind))
+	db.bind_id(q, 4, at)
+	err: m.Error
+	return db.column_id(q, 0) if db.next_row(q, &err) else 0
+}
+
+report :: proc(r: m.Report) -> (id: i64, err: m.Error) {
+	making = {report = r}
+	ok := db.write_now(proc() -> bool {
+		r := making.report
+		st := db.writer_stmt(SQL_REPORT)
+		defer db.reset(st)
+		db.bind_id(st, 1, r.room)
+		db.bind_id(st, 2, r.msg)
+		db.bind_id(st, 3, i64(r.author))
+		db.bind_text(st, 4, r.author_name)
+		db.bind_text(st, 5, r.body)
+		db.bind_id(st, 6, i64(r.by))
+		db.bind_text(st, 7, r.by_name)
+		db.bind_text(st, 8, r.reason)
+		db.bind_id(st, 9, r.at)
+		if making.err = db.step_done(st); making.err != .None { return false }
+		making.report.id = db.last_insert_id()
+		return true
+	})
+	if !ok { return 0, making.err if making.err != .None else .Failed }
+	return making.report.id, .None
+}
+
+reports :: proc(out: ^[dynamic]m.Report) -> (err: m.Error) {
+	q := db.read(SQL_REPORTS)
+	defer db.reset(q)
+	for db.next_row(q, &err) { append(out, one_report(q)) }
+	return
+}
+
+report_of :: proc(id: i64) -> (r: m.Report, err: m.Error) {
+	q := db.read(SQL_REPORT_OF)
+	defer db.reset(q)
+	db.bind_id(q, 1, id)
+	if !db.next_row(q, &err) { return {}, err if err != .None else .Not_Found }
+	return one_report(q), .None
+}
+
+resolve :: proc(id: i64, at: i64, outcome: string, audit: m.Audit) -> m.Error {
+	making = {now = at, audit = audit}
+	making.report = {id = id, outcome = outcome}
+	ok := db.write_now(proc() -> bool {
+		st := db.writer_stmt(SQL_RESOLVE)
+		db.bind_id(st, 1, making.now)
+		db.bind_text(st, 2, making.report.outcome)
+		db.bind_id(st, 3, making.report.id)
+		making.err = db.step_done(st)
+		db.reset(st)
+		if making.err == .None && db.changes() == 0 { making.err = .Not_Found }
+		if making.err == .None { making.err = note(making.audit) }
+		return making.err == .None
+	})
+	return .None if ok else making.err if making.err != .None else .Failed
+}
+
+@(private)
+one_report :: proc(q: db.Stmt) -> m.Report {
+	return {
+		id = db.column_id(q, 0), room = db.column_id(q, 1), msg = db.column_id(q, 2), author = u64(db.column_id(q, 3)),
+		author_name = db.clone_col(q, 4), body = db.clone_col(q, 5), by = u64(db.column_id(q, 6)), by_name = db.clone_col(q, 7),
+		reason = db.clone_col(q, 8), at = db.column_id(q, 9), resolved = db.column_id(q, 10), outcome = db.clone_col(q, 11),
+	}
 }
 
 // ---- invites -------------------------------------------------------------------------------
@@ -552,6 +716,7 @@ one_room :: proc(q: db.Stmt) -> m.Room {
 	return {
 		id = db.column_id(q, 0), slug = db.clone_col(q, 1), name = db.clone_col(q, 2), at = db.column_id(q, 3),
 		kind = kind, owner = u64(db.column_id(q, 5)), dropped = db.column_id(q, 6),
+		locked = db.column_int(q, 7) != 0, slow = db.column_int(q, 8),
 	}
 }
 

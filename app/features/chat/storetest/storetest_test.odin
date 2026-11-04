@@ -11,7 +11,9 @@ package chat_storetest
 // than made twice, and members join (once) and leave. An invite is open until it is revoked,
 // expires or is used up; using it joins once, and a member already in counts no use. Retention
 // keeps a room's newest `cap` (the gap said by `dropped` and `after`'s reached), and the sweep lets
-// go of what is past its kind's age. What the ring keeps and lets go is the
+// go of what is past its kind's age. Moderation: a room's lock and slow mode read back, a ban holds
+// until its time and is lifted by one in the past, a report is resolved once, and a moderator's
+// delete takes anyone's message and writes its audit entry, whose failure (SQLite) undoes it. What the ring keeps and lets go is the
 // memory store's own test; the SQLite store keeps every message, with ids that are rowids.
 
 import "base:runtime"
@@ -42,6 +44,14 @@ Family :: struct {
 	join:        m.Store_Join,
 	leave:       m.Store_Leave,
 	sweep:       m.Store_Sweep,
+	set_audit:   m.Store_Set_Audit_Writer,
+	set_room:    m.Store_Set_Room,
+	ban:         m.Store_Ban,
+	banned:      m.Store_Banned,
+	report:      m.Store_Report,
+	reports:     m.Store_Reports,
+	report_of:   m.Store_Report_Of,
+	resolve:     m.Store_Resolve,
 	add_invite:  m.Store_Add_Invite,
 	invite:      m.Store_Invite,
 	invites:     m.Store_Invites,
@@ -173,6 +183,91 @@ conforms :: proc(t: ^testing.T, f: Family) {
 	_, e5 := alter(t, f, 1 << 40, 8, "x", false)
 	testing.expectf(t, e5 == .Not_Found, "%s: no such message, %v", f.name, e5)
 	retention(t, f)
+	moderation(t, f)
+}
+
+@(private = "file")
+audited: [dynamic]string
+
+@(private = "file")
+audit_fails: bool
+
+@(private = "file")
+moderation :: proc(t: ^testing.T, f: Family) {
+	// On the heap: SQLite's ops answer from the loop's callback, whose temp memory goes when it returns.
+	audited = make([dynamic]string, runtime.heap_allocator())
+	defer delete(audited)
+	f.set_audit(proc(actor_id: i64, actor_name, client, action, target_kind: string, target_id: i64, reason, meta: string) -> m.Error {
+		if audit_fails { return .Failed }
+		append(&audited, action)
+		return .None
+	})
+	defer f.set_audit(nil)
+	room, _ := f.create_room("modded", "Modded", .Public, 7, "ann")
+	A :: proc(action: string) -> m.Audit { return {actor_id = 1, actor_name = "mod", action = action, target_kind = "room", reason = "why"} }
+
+	testing.expect_value(t, f.set_room(room.id, true, 30, A("chat.lock")), m.Error.None)
+	again, _ := f.room("modded")
+	testing.expectf(t, again.locked && again.slow == 30, "%s: lock and slow read back, %v", f.name, again)
+	testing.expect_value(t, f.set_room(1 << 40, false, 0, {}), m.Error.Not_Found)
+
+	NOW :: i64(1_800_000_000)
+	testing.expect_value(t, f.ban({room = room.id, who = 8, kind = .Mute, until = NOW + 60, by = 1}, A("chat.mute")), m.Error.None)
+	testing.expect_value(t, f.banned(room.id, 8, .Mute, NOW), NOW + 60)
+	testing.expect_value(t, f.banned(room.id, 8, .Kick, NOW), i64(0))
+	testing.expect_value(t, f.banned(room.id, 8, .Mute, NOW + 60), i64(0))
+	testing.expect_value(t, f.ban({room = room.id, who = 8, kind = .Mute, until = NOW, by = 1}, A("chat.unmute")), m.Error.None)
+	testing.expect_value(t, f.banned(room.id, 8, .Mute, NOW), i64(0)) // lifted: its time has come
+
+	msg := say(t, f, room.id, 8, "rude")
+	id, rerr := f.report({room = room.id, msg = msg.id, author = 8, author_name = "bob", body = "rude", by = 7, by_name = "ann", reason = "spam", at = NOW})
+	testing.expectf(t, rerr == .None && id > 0, "%s: a report, %v", f.name, rerr)
+	open := make([dynamic]m.Report, context.temp_allocator)
+	_ = f.reports(&open)
+	testing.expectf(t, len(open) == 1 && open[0].body == "rude" && open[0].reason == "spam" && open[0].by_name == "ann", "%s: open reports %v", f.name, open[:])
+	testing.expect_value(t, f.resolve(id, NOW, "dismissed", A("chat.report_dismissed")), m.Error.None)
+	testing.expect_value(t, f.resolve(id, NOW, "removed", A("chat.report_removed")), m.Error.Not_Found)
+	row, _ := f.report_of(id)
+	testing.expectf(t, row.resolved == NOW && row.outcome == "dismissed", "%s: resolved once, %v", f.name, row)
+	clear(&open)
+	_ = f.reports(&open)
+	testing.expectf(t, len(open) == 0, "%s: no open reports", f.name)
+
+	// A moderator's delete: someone else's message, past any window, with its audit entry.
+	removed, derr := moderate(t, f, msg.id, false)
+	testing.expectf(t, derr == .None && removed.gone, "%s: a moderator's delete, %v", f.name, derr)
+	want := []string{"chat.lock", "chat.mute", "chat.unmute", "chat.report_dismissed", "chat.remove"}
+	testing.expectf(t, len(audited) == len(want), "%s: audited %v", f.name, audited[:])
+	for a, i in want {
+		if i < len(audited) { testing.expectf(t, audited[i] == a, "%s: audit %d is %q", f.name, i, audited[i]) }
+	}
+	if f.name == "sqlite" {
+		// The entry is one statement of the change's unit: its failure undoes the delete.
+		other := say(t, f, room.id, 8, "kept")
+		audit_fails = true
+		_, ferr := moderate(t, f, other.id, false)
+		audit_fails = false
+		kept, _ := f.message(other.id)
+		testing.expectf(t, ferr == .Failed && !kept.gone && kept.body == "kept", "sqlite: a failed audit undoes the delete, %v %v", ferr, kept)
+	}
+}
+
+@(private = "file")
+moderate :: proc(t: ^testing.T, f: Family, id: i64, _: bool) -> (m.Message, m.Error) {
+	op := store.new_op(m.Change, 64)
+	op.id, op.author, op.delete, op.moderated = id, 1, true, true
+	op.audit = {actor_id = 1, actor_name = "mod", action = "chat.remove", target_kind = "message", target_id = id, reason = "rude"}
+	op.done = proc(o: ^store.Op) {
+		p := (^m.Change)(o)
+		last_err = o.err
+		keep(p.result)
+		answered += 1
+		store.free_op(o)
+	}
+	before := answered
+	testing.expectf(t, f.change(op), "%s: change accepted", f.name)
+	wait(t, f, before)
+	return last, last_err
 }
 
 // A public room keeps its newest 5 (trimmed on every insert under so small a cap); announcements
@@ -318,11 +413,11 @@ both_families :: proc(t: ^testing.T) {
 	testing.expect_value(t, nbio.acquire_thread_event_loop(), nil)
 	defer nbio.release_thread_event_loop()
 
-	conforms(t, {"memory", mem.init, mem.seed, mem.room, mem.rooms_for, mem.create_room, mem.dm, mem.members, mem.is_member, mem.join, mem.leave, mem.sweep, mem.add_invite, mem.invite, mem.invites, mem.revoke_invite, mem.use_invite, mem.recent, mem.after, mem.count_after, mem.changed, mem.message, mem.post, mem.change})
+	conforms(t, {"memory", mem.init, mem.seed, mem.room, mem.rooms_for, mem.create_room, mem.dm, mem.members, mem.is_member, mem.join, mem.leave, mem.sweep, mem.set_audit_writer, mem.set_room, mem.ban, mem.banned, mem.report, mem.reports, mem.report_of, mem.resolve, mem.add_invite, mem.invite, mem.invites, mem.revoke_invite, mem.use_invite, mem.recent, mem.after, mem.count_after, mem.changed, mem.message, mem.post, mem.change})
 
 	testing.expect_value(t, db.open_db(":memory:", .Ephemeral, "storetest"), "")
 	defer db.close()
 	db.migrate("chat", sql.MIGRATIONS[:])
-	conforms(t, {"sqlite", sql.init, sql.seed, sql.room, sql.rooms_for, sql.create_room, sql.dm, sql.members, sql.is_member, sql.join, sql.leave, sql.sweep, sql.add_invite, sql.invite, sql.invites, sql.revoke_invite, sql.use_invite, sql.recent, sql.after, sql.count_after, sql.changed, sql.message, sql.post, sql.change})
+	conforms(t, {"sqlite", sql.init, sql.seed, sql.room, sql.rooms_for, sql.create_room, sql.dm, sql.members, sql.is_member, sql.join, sql.leave, sql.sweep, sql.set_audit_writer, sql.set_room, sql.ban, sql.banned, sql.report, sql.reports, sql.report_of, sql.resolve, sql.add_invite, sql.invite, sql.invites, sql.revoke_invite, sql.use_invite, sql.recent, sql.after, sql.count_after, sql.changed, sql.message, sql.post, sql.change})
 	free_all(context.temp_allocator)
 }

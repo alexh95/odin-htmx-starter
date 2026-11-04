@@ -7,6 +7,7 @@ import "../../platform/html"
 import "../../platform/hub"
 import "../../platform/web"
 import about_web "../../features/about/web"
+import audit_web "../../features/audit/web"
 import bot_web "../../features/bot/web"
 import chat_web "../../features/chat/web"
 import home_web "../../features/home/web"
@@ -22,7 +23,7 @@ HOME_CARDS := [?]html.Home_Card{notify_web.home_card, notes_web.home_card}
 
 // Every extension the main bundle needs (D19). Boot refuses a bundle whose
 // header says otherwise.
-BUNDLE_EXTS :: notes_web.EXTS + chat_web.EXTS + notify_web.EXTS + bot_web.EXTS + ops_web.EXTS + status_web.EXTS + home_web.EXTS + about_web.EXTS + identity.EXTS
+BUNDLE_EXTS :: notes_web.EXTS + audit_web.EXTS + chat_web.EXTS + notify_web.EXTS + bot_web.EXTS + ops_web.EXTS + status_web.EXTS + home_web.EXTS + about_web.EXTS + identity.EXTS
 
 main :: proc() {
 	app.boot("streams")

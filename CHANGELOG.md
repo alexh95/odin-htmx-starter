@@ -13,6 +13,13 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 - **chat on SQLite** (M6 slice 2, its store): `stores/sqlite/chat` keeps rooms and messages across restarts, ids
   the rowids (`PERSISTED`), a post or a change bumping the room's version in the writer's batch;
   `features/chat/storetest` holds both families to one contract.
+- **Chat moderation** (M6 slice 4): in public rooms and announcements a moderator removes a message to a tombstone,
+  mutes or kicks a member for a while, locks the room and sets slow mode, each with an hx-prompt reason and audited in
+  the change's own transaction (never the body). Private rooms and DMs are moderated through reports: any reader
+  reports someone else's message, the report carries a copy, and `/chat/reports` removes the original or dismisses
+  it. `0004_moderation.sql`; `moderation.spec`, the storetest's moderation case (an audit failure undoes the
+  delete on SQLite) and the `moderation` k6 scenario. A chat post and change are now one unit each on SQLite. Chat
+  now depends on audit, so `streams` mounts it too (its memory store's log has no rows: the page says so).
 - **Chat retention** (M6 slice 3): a room keeps its kind's newest messages and none past its kind's age (`CHAT_ROOM_*`
   500 / 7 d, `CHAT_DM_*` 1000 / 30 d, `CHAT_ANNOUNCE_*` 100 / 365 d), pinned ones exempt. SQLite trims in the post's own
   batch every tenth of the cap (1 to 50 inserts) and the `chat.retention` job sweeps by age every minute, 1000 rows a

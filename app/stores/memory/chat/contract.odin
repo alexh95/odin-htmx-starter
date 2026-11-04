@@ -14,6 +14,14 @@ _ : m.Store_Is_Member : is_member
 _ : m.Store_Join : join
 _ : m.Store_Leave : leave
 _ : m.Store_Sweep : sweep
+_ : m.Store_Set_Audit_Writer : set_audit_writer
+_ : m.Store_Set_Room : set_room
+_ : m.Store_Ban : ban
+_ : m.Store_Banned : banned
+_ : m.Store_Report : report
+_ : m.Store_Reports : reports
+_ : m.Store_Report_Of : report_of
+_ : m.Store_Resolve : resolve
 _ : m.Store_Add_Invite : add_invite
 _ : m.Store_Invite : invite
 _ : m.Store_Invites : invites
