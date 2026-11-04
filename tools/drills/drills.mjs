@@ -266,8 +266,7 @@ async function phaseHang() {
 // Tier 1 of the fuzz plan (PLAN §19.1.9): 10k malformed requests, raw, each on its own socket.
 // F-16's payloads and the status each must get (the malformed phase checks them one by one too):
 // one-byte chunks by the thousand, under both caps on a write (12k overflowed a Windows loop's stack
-// before the scan trampoline, M1-17) and past the framing cap on a GET's drain (60k: 300 KB of
-// framing against 256 KiB); a size line and a trailer line past 4 KiB (M1-18, M1-24); a body that
+// before the scan trampoline, M1-17) and past what a GET's drain reads (60k: 300 KB of framing); a size line and a trailer line past 4 KiB (M1-18, M1-24); a body that
 // ends inside a trailer (M1-19; the drill half-closes); a bare LF and trailing whitespace in framing
 // (M1-20).
 const CHUNKED = (target, body) => `${target} HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n${body}`;
@@ -279,7 +278,8 @@ const F16 = [
   PROFILE === 'minimal' || PROFILE === 'streams' || PROFILE === 'full'
     ? [CHUNKED(PROFILE === 'full' ? 'POST /login' : 'POST /notes','1\r\na\r\n'.repeat(500) + '0\r\n\r\n'), '422']
     : [CHUNKED(PROFILE === 'lab' ? 'POST /compat/htmx2/save' : 'POST /contacts', '1\r\na\r\n'.repeat(12000) + '0\r\n\r\n'), '422'],
-  [CHUNKED('GET /healthz', '1\r\na\r\n'.repeat(60000) + '0\r\n\r\n'), '413'],
+  // Unread past the discard limit, the handler's answer stands and the connection goes (F-25).
+  [CHUNKED('GET /healthz', '1\r\na\r\n'.repeat(60000) + '0\r\n\r\n'), '200'],
   [CHUNKED('POST /', '1;' + 'x'.repeat(5000) + '\r\na\r\n0\r\n\r\n'), '413'],
   [CHUNKED('POST /', '1\r\na\r\n0\r\nX-T: ' + 'y'.repeat(5000) + '\r\n\r\n'), '413'],
   // Cut off by the half-close; on Linux a half-closed client often gets no answer at all (M1-11), which

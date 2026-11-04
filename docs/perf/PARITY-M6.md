@@ -3,7 +3,7 @@
 **Gate:** PLAN §18.2 at the M6 exit: the `skeleton` profile against HEAD (709bc94, v1.2.0) and v1.1.1, ten scenarios on
 `:memory:` and on a file DB, on the Windows-native and the Linux (WSL2) legs · **Result:** Linux **PASS**, 20 of 20. Windows:
 every cell passed at least one full run, but no one run passed all of them, and none ran within the gate's 20 % background;
-`static@file` is the one left, **for Alex to accept** · **Date:** 2026-11-04 · **Candidates:** `771e5ef` (Linux), `2f4fa5d`,
+`static@file`'s last run, 0.96, **accepted as a pass by Alex on 2026-11-04**, under the background of a game of Alex's · **Date:** 2026-11-04 · **Candidates:** `771e5ef` (Linux), `2f4fa5d`,
 `7e9d71c` and `28c37c1` (Windows). The commits between them change uploads, chat and an unread body's path in the fork, none of
 which a parity scenario reaches · **Baselines:** v1.2.0 and v1.1.1 · **Raw rows:** `perf/results/v2.2.0-rc.2-129-g771e5ef-linux.csv`,
 `v2.5-7e9d71c-windows-n5.csv`, `v2.5-28c37c1-windows-n5.csv`, `v2.2.0-rc.2-126-g2f4fa5d-windows.csv` · M5's gate:
@@ -31,8 +31,8 @@ which a parity scenario reaches · **Baselines:** v1.2.0 and v1.1.1 · **Raw row
 - **Why `static@file` reads as the machine, not M6:** a static file's path has no store on it, so `@mem` and `@file` are one path;
   `static@mem` passes in the same run; its candidate rps (25,653 then 25,736) didn't move between runs while the reference did;
   Linux passes it at 0.98; and M6 changed nothing on that path but F-23's atomic read, which every cell shares.
-- **Open at the gate:** the game was still running through every Windows run, at about 20–25 % background against the 20 % bar.
-  Alex's call, as with M5's `pages@mem`: accept `static@file`, or close it and repeat that cell.
+- **Accepted:** the game ran through every Windows run, at about 20–25 % background against the 20 % bar. Alex accepted
+  `static@file` at 0.96 on 2026-11-04, as with M5's `pages@mem`, and the cell wasn't repeated.
 
 ## Method
 
