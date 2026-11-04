@@ -49,6 +49,52 @@ copy-and-start ergonomics and good defaults matter more than feature depth.
       `Turİng`; it passed on the rerun. Found: it searched the seed's Turing, which can be the first row, and
       crud.spec renames and deletes the first row on the same worker's server. The case adds its own row now.
 
+## M7 — Ask (v2.6.0)
+
+The starter's seventh milestone ([`docs/PLAN.md`](docs/PLAN.md) §22.3, M7's row; §14.3 the bot; §6.2 room mode; D8, D31;
+Q20; RESOLUTIONS X37, X41). Its exit gate: the slice gate; room mode stores the bot's answer as a chat message, and a
+selection without bot drops and counts `bot.ask`; a deterministic token e2e; Stop ≤ 100 ms; the queue spec with
+`BOT_CONCURRENCY=1`; the fakellama parser suite; 1000 concurrent mock generations ≤ 1 core and ≤ +30 MB; the `x-impl`
+specs. Everything is built and tested against `tools/fakellama`; no model is needed until the last step, and Alex's apollo
+steps go through planning once the code can use them. Pushes are on the standing go.
+
+- [ ] **1. `bot` in `full`, on SQLite** (§14.3, Q20): `app/stores/sqlite/bot` with its migration, the newest 50
+      conversations and 200 turns a conversation as the memory store keeps; `/bot` mounted on Houston's main host with
+      `bot.health`, in the nav and the bundle. *Check:* a storetest over both families, a conversation surviving a restart,
+      another member's id a 404, `rbac.spec`'s rows, the catalog, both suites on `full`.
+- [ ] **2. Server-side topic rows** (§6.2, X37): a row with `deliver` takes no subscriber and keeps no ring, so a member
+      can't read a private room's question off `/events?t=bot.ask:<room>`; a publish with no row is dropped and counted;
+      `tools/check topics` holds every family published by literal name to a declared row. *Check:* hub tests, a spec that
+      the subscribe is refused, a check test with a typo.
+- [ ] **3. `tools/fakellama`** (§14.3): an Odin server on the starter's SSE encoder with llama's routes (`/v1/chat/completions`,
+      `/health`, `/props`), scripted answers and faults: chunk boundaries inside `data:` lines, `[DONE]`, an OAI error, 503
+      "Loading model", sleeping, a stall before the first token and between tokens, a dropped connection, a required key,
+      total slots. *Check:* its own tests, and the parser suite in slice 4 runs against it.
+- [ ] **4. `backend_llama`** (§14.3, D31): `Backend.Llama`, the binding on `platform/stream/client`, on the stream's loop:
+      chunked SSE, `delta.content`, `[DONE]`, usage into `Bot_Done`; the bearer from `BOT_LLAMA_KEY_FILE`, never logged;
+      connect 2 s, first token 30 s, idle 15 s; tokens coalesced to 20 Hz; cancel closes the socket; slots as a process-wide
+      count with a FIFO queue sending `Bot_Queued`, sized from `/props` or `BOT_CONCURRENCY`. *Check:* the fakellama parser
+      suite, each deadline, Stop and a closed browser reaching fakellama as a close, the queue spec with `BOT_CONCURRENCY=1`.
+- [ ] **5. Health and the badge** (§14.3): the probe of `/health` and `/props`, mapped to `Bot_Health.state`, published
+      on `bot.health`, reported to `obs` and `/status` as degraded and never failing readiness. *Check:* a spec driving
+      fakellama through ready, loading, sleeping and offline and the badge following with no reload.
+- [ ] **6. Choosing a backend** (D8, D31): per request among the healthy, guests always the mock, members choosing when
+      both are; `BOT_BACKEND`, required `BOT_LLAMA_URL`; `/admin/bot` changing the default in memory, audited, reset on
+      restart, with Q20's counts and timings; the default pushed to `obs` for `/admin/modules`. *Check:* the `x-impl` specs,
+      `rbac.spec`, a restart resetting the default, a boot refusing llama with no URL.
+- [ ] **7. Room mode** (§6.2, X37): `@bot` in a room publishes on `bot.ask:<room>`; bot's `deliver` row starts the backend
+      under the asker's limits and streams a live bubble to the room; `chat.reply:<room>`'s row stores the answer as a
+      message from the bot, cut to chat's 2,000 runes, and publishes it. *Check:* the answer is a stored message on all four
+      transports, a poll reader sees it, a reload keeps it, `full` and `streams` both; a selection with chat and no bot
+      drops and counts; a question from a non-member is impossible; the XSS suite over the bot's text.
+- [ ] **8. Budgets** (§18): 1000 concurrent mock generations ≤ 1 core and ≤ +30 MB; Stop ≤ 100 ms on llama against
+      fakellama. *Check:* recorded in `docs/perf/`, the k6 scenarios beside them.
+- [ ] **9. Exit**: the slice gate for every new feature; the parity gate on both legs; a focused audit of the llama binding,
+      `platform/stream/client` (M2's audit debt: a server path uses it now) and room mode, by an agent that didn't write
+      the code; `Audited:` stamps; CHANGELOG's 2.6.0 lead. Then, with Alex: the llama.cpp compose project on apollo's GPU,
+      the power-supply check, the v2.6.0 tag and promote, `BOT_LLAMA_URL` set, `llama-bench`'s tokens/s recorded (§14.3's
+      40–60 is UNVERIFIED), and a smoke against the real server.
+
 ## M6 — Comms, and the family beta (v2.5.0)
 
 The starter's sixth milestone ([`docs/PLAN.md`](docs/PLAN.md) §22.3, M6's row; §14.1 chat, §14.2 notify and uploads;
