@@ -232,7 +232,7 @@ post :: proc(op: ^m.Post) -> bool {
 	r.ver += 1
 	msg := m.Message{
 		id = mem_store.next_id(&s.msg_seq), room = r.room.id, author = op.author, at = now(), ver = r.ver,
-		name = strings.clone(op.name), body = strings.clone(op.body),
+		name = strings.clone(op.name), body = strings.clone(op.body), blob = strings.clone(op.blob),
 	}
 	if old, dropped := mem_store.ring_push(&r.ring, msg); dropped { forget(r, old) }
 	r.bytes += cost(msg)
@@ -259,7 +259,8 @@ change :: proc(op: ^m.Change) -> bool {
 		s.bytes -= cost(msg^)
 		delete(msg.body)
 		if op.delete {
-			msg.body, msg.gone = "", true
+			delete(msg.blob)
+			msg.body, msg.blob, msg.gone = "", "", true
 		} else {
 			msg.body, msg.edited = strings.clone(op.body), now()
 		}
@@ -634,11 +635,12 @@ forget :: proc(r: ^Room_State, msg: m.Message) {
 	s.bytes -= cost(msg)
 	delete(msg.name)
 	delete(msg.body)
+	delete(msg.blob)
 }
 
 @(private)
 cost :: proc(msg: m.Message) -> int {
-	return size_of(m.Message) + len(msg.name) + len(msg.body)
+	return size_of(m.Message) + len(msg.name) + len(msg.body) + len(msg.blob)
 }
 
 @(private)
@@ -662,5 +664,6 @@ clone_into :: proc(msg: m.Message, a: mem.Allocator) -> m.Message {
 	out := msg
 	out.name = strings.clone(msg.name, a)
 	out.body = strings.clone(msg.body, a)
+	out.blob = strings.clone(msg.blob, a)
 	return out
 }

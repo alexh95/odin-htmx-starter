@@ -100,6 +100,7 @@ Message :: struct {
 	author: u64,
 	name:   string,
 	body:   string, // "" once deleted: a tombstone keeps its row and id
+	blob:   string, // the image it carries, by its sha256; "" for none, and once deleted
 	at:     i64,
 	edited: i64, // unix seconds of the last edit; 0 = never
 	gone:   bool,
@@ -136,6 +137,7 @@ Post :: struct {
 	author:   u64,
 	name:     string,
 	body:     string,
+	blob:     string,
 	result:   Message,
 }
 

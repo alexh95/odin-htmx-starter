@@ -36,6 +36,7 @@ Room_View :: struct {
 	may_invite:   bool,
 	may_leave:    bool,
 	may_moderate: bool, // the room's lock and slow mode
+	may_attach:   bool, // the composer's image
 	mute_button:  string, // notify's: this room in the viewer's Inbox, markup of its own
 }
 
@@ -215,7 +216,9 @@ room_page :: proc(r: m.Room, msgs: []m.Message, ver: i64, here: []chat.Presence_
 		esc(&b, r.slug)
 		w(&b, `" hx-post="/chat/r/`)
 		esc(&b, r.slug)
-		fmt.sbprintf(&b, `/typing" hx-trigger="input changed throttle:2s" hx-swap="none"></textarea><button class="btn btn-primary" type="submit">Send</button><p class="field-msg form-error" id="err-%d"></p></form></div>`, r.id)
+		fmt.sbprintf(&b, `/typing" hx-trigger="input changed throttle:2s" hx-swap="none"></textarea>`)
+		if rv.may_attach { attach(&b, r.id) }
+		fmt.sbprintf(&b, `<button class="btn btn-primary" type="submit">Send</button><p class="field-msg form-error" id="err-%d"></p></form></div>`, r.id)
 	} else {
 		w(&b, `<p class="chat-readonly muted">`)
 		esc(&b, rv.cannot_post)
@@ -230,6 +233,12 @@ room_page :: proc(r: m.Room, msgs: []m.Message, ver: i64, here: []chat.Presence_
 	// What hx-pending shows while a post is on its way; the typed text arrives as data-body.
 	w(&b, `</aside></div><template id="chat-pending"><article class="chat-msg pending"><p class="chat-body muted">Sending…</p></article></template></section>`)
 	return strings.to_string(b)
+}
+
+// The composer's image: uploads' shim fills the hidden field, which is all the form sends.
+@(private)
+attach :: proc(b: ^strings.Builder, room: i64) {
+	fmt.sbprintf(b, `<input type="hidden" name="attachment" id="att-%d" value=""><label class="btn btn-outline chat-attach">Image<input type="file" accept="image/png,image/jpeg" data-upload="#att-%d" data-status="#att-say-%d"></label><span class="chat-attach-say muted" id="att-say-%d" role="status"></span>`, room, room, room, room)
 }
 
 // A moderator's controls for a room: its lock and its slow mode, each asking why (the audit log's).
@@ -363,9 +372,12 @@ message :: proc(b: ^strings.Builder, msg: m.Message, slug: string, newest: bool)
 	if msg.gone {
 		w(b, `<p class="chat-body muted">Message deleted.</p>`)
 	} else {
-		w(b, `<div class="chat-body" hx-ignore data-disable-scripting>`)
-		esc(b, msg.body)
-		w(b, `</div>`)
+		if msg.body != "" {
+			w(b, `<div class="chat-body" hx-ignore data-disable-scripting>`)
+			esc(b, msg.body)
+			w(b, `</div>`)
+		}
+		if msg.blob != "" { image(b, msg) }
 	}
 	// The menu's slot: a click outside the message, or Escape, empties it. hx-preserve keeps the
 	// slot, and the menu or edit form open in it, when the message is rendered again (its echo,
@@ -374,6 +386,18 @@ message :: proc(b: ^strings.Builder, msg: m.Message, slug: string, newest: bool)
 	fmt.sbprintf(b, `<div class="chat-menu" id="mm-%d"%s`, msg.id, "" if msg.gone else " hx-preserve")
 	html.behave(b, .Dismiss)
 	w(b, `></div></article>`)
+}
+
+// Its address is hex the store checked on the way in; esc all the same, it's a column.
+@(private)
+image :: proc(b: ^strings.Builder, msg: m.Message) {
+	w(b, `<a class="chat-img" href="/uploads/blob/`)
+	esc(b, msg.blob)
+	w(b, `"><img src="/uploads/blob/`)
+	esc(b, msg.blob)
+	w(b, `" loading="lazy" alt="An image from `)
+	esc(b, msg.name)
+	w(b, `"></a>`)
 }
 
 // Messages as one fragment for the room's log (every transport sends this), and the
@@ -565,7 +589,7 @@ dm_line :: proc(by, body: string) -> string {
 	w(&b, `<b>`)
 	esc(&b, by)
 	w(&b, `</b> wrote to you: `)
-	excerpt(&b, body)
+	excerpt(&b, body if body != "" else "an image")
 	return strings.to_string(b)
 }
 

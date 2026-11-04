@@ -181,7 +181,7 @@ room_page :: proc(req: ^web.Request, res: ^web.Response) {
 	}
 	rv := chat_views.Room_View{
 		cannot_post = chat.why_not_post(r, v), may_invite = chat.may_invite(r, v), may_leave = chat.may_leave(r, v),
-		may_moderate = chat.may_moderate(r, v), mute_button = notify_web.mute_button(v.id, chat.room_topic(r.id), "this room"),
+		may_moderate = chat.may_moderate(r, v), may_attach = authz.can(v, .Chat_Attach), mute_button = notify_web.mute_button(v.id, chat.room_topic(r.id), "this room"),
 	}
 	if r.kind == .Private || r.kind == .Dm {
 		list := make([dynamic]m.Member, context.temp_allocator)
@@ -284,7 +284,9 @@ post_message :: proc(req: ^web.Request, res: ^web.Response) {
 		web.respond_html(res, html.field_msg(false, why), .Forbidden)
 		return
 	}
-	body, problem := chat.check_body(web.form(req)["body"])
+	f := web.form(req)
+	blob := attachment(v, f["attachment"])
+	body, problem := chat.check_post(f["body"], blob)
 	if problem != "" {
 		web.respond_html(res, html.field_msg(false, problem), .Unprocessable_Content)
 		return
@@ -298,7 +300,7 @@ post_message :: proc(req: ^web.Request, res: ^web.Response) {
 		return
 	}
 	chat.slow_mark(r, v.id)
-	op := posting(v, r, body)
+	op := posting(v, r, body, blob)
 	op.http = true
 	web.defer_response(req, res, &op.deferred)
 	if !chat.post(op) {
@@ -312,7 +314,7 @@ post_message :: proc(req: ^web.Request, res: ^web.Response) {
 
 // A socket's frame takes the form's path; what it refuses goes back down the socket.
 @(private)
-socket_post :: proc(s: ^chat_transport_ws.Socket, raw: string) {
+socket_post :: proc(s: ^chat_transport_ws.Socket, raw, attached: string) {
 	if !authz.can(s.who, .Chat_Post) { return }
 	// The room as it is now: a socket outlives a lock, slow mode, a kick and a leave.
 	r, err := chat.room_for(s.room.slug, s.who)
@@ -321,7 +323,8 @@ socket_post :: proc(s: ^chat_transport_ws.Socket, raw: string) {
 		chat_transport_ws.send(s, fmt.tprintf(`<p hx-swap-oob="innerHTML:#err-%d">%s</p>`, r.id, escaped(why)))
 		return
 	}
-	body, problem := chat.check_body(raw)
+	blob := attachment(s.who, attached)
+	body, problem := chat.check_post(raw, blob)
 	if problem != "" {
 		chat_transport_ws.send(s, fmt.tprintf(`<p hx-swap-oob="innerHTML:#err-%d">%s</p>`, s.room.id, escaped(problem)))
 		return
@@ -335,20 +338,24 @@ socket_post :: proc(s: ^chat_transport_ws.Socket, raw: string) {
 		return
 	}
 	chat.slow_mark(r, s.who.id)
-	op := posting(s.who, r, body)
+	op := posting(s.who, r, body, blob)
 	if !chat.post(op) {
 		store.free_op(op)
 		chat_transport_ws.send(s, html.toast("error", "Chat is busy. Try again in a moment.", true))
 	}
 }
 
+// What a post may attach: nothing, without the perm.
 @(private)
-posting :: proc(v: authz.Viewer, r: m.Room, body: string) -> ^Posting {
+attachment :: proc(v: authz.Viewer, sha: string) -> string { return sha if authz.can(v, .Chat_Attach) else "" }
+
+@(private)
+posting :: proc(v: authz.Viewer, r: m.Room, body, blob: string) -> ^Posting {
 	// The inputs, and the stored message the store answers with in the same arena.
-	op := store.new_op(Posting, 2 * (len(body) + len(v.name)) + len(r.slug) + len(r.name))
+	op := store.new_op(Posting, 2 * (len(body) + len(v.name) + len(blob)) + len(r.slug) + len(r.name))
 	a := store.op_allocator(op)
 	op.room, op.author = r.id, v.id
-	op.name, op.body = strings.clone(v.name, a), strings.clone(body, a)
+	op.name, op.body, op.blob = strings.clone(v.name, a), strings.clone(body, a), strings.clone(blob, a)
 	op.slug, op.room_name, op.room_kind = strings.clone(r.slug, a), strings.clone(r.name, a), r.kind
 	op.done = posted
 	return op

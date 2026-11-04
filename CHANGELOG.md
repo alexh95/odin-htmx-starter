@@ -10,6 +10,11 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 
 ### Added
 
+- **Uploads and chat's images** (M6 slice 8): a new `uploads` feature: chunks of at most 4 MiB through a fetch shim,
+  resumable from the server's offset, finished by sniff, the header's size against 40 MP, and a full decode, into a
+  blob named by its sha256 and served with its own type. PNG and JPEG only. A chat message carries one, with or without
+  text (`0006_images.sql`). Twenty an hour and two at once per member. `UPLOADS_DIR` holds the bytes; compose sets it
+  to `/data/uploads`.
 - **chat on SQLite** (M6 slice 2, its store): `stores/sqlite/chat` keeps rooms and messages across restarts, ids
   the rowids (`PERSISTED`), a post or a change bumping the room's version in the writer's batch;
   `features/chat/storetest` holds both families to one contract.

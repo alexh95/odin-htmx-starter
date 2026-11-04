@@ -116,11 +116,15 @@ go; Alex's step is the last: the 2–3 invites (Q23), only after the audit.
       Done (2026-11-04): mutes per kind and per room, in notify's store rather than `accounts_prefs` (`send` asks for
       any member, on builds with no accounts: PLAN §14.2 updated); DMs to the other member's Inbox, a failed job to
       every admin's through `send_now` and `jobs_web.admin_ids`; `notify.spec` and `jobs.spec` hold each.
-- [ ] **8. Uploads** (§14.2, §17.6, X13, X14): create, `PUT /uploads/<id>?off=` chunks of ≤ 4 MiB, finish (sniff,
+- [x] **8. Uploads** (§14.2, §17.6, X13, X14): create, `PUT /uploads/<id>?off=` chunks of ≤ 4 MiB, finish (sniff,
       decode, sha256, a content-addressed blob); the chunked-upload shim in app.js; progress on
       `uploads.upload:<id>`; caps, content checks and serving headers; 20 an hour and 2 at once per user; chat
       images through it (`Chat_Attach`). *Check:* e2e of a chunked upload, a resume, a refused type; the upload
       decode-bomb fuzz (platform/fuzz) in the unit job and the nightly.
+      Done (2026-11-04): progress comes from each chunk's answer, not the topic (a page's `#live` topics are fixed at
+      load); PNG and JPEG only, not progressive JPEG (`core:image`); a finish runs one at a time on its own pool. The
+      fuzz found two faults in `core:image`, both held off in `uploads.check`, so a decode's arena has a 256 MiB cap,
+      which on Houston's 512 MiB is the real limit, below 40 MP for a deep PNG (§17.6 updated).
 - [ ] **9. The connection-mode setting** (§14.1): Auto / WebSocket / Streaming / Polling / Multipart in
       `accounts_prefs`, per request by `chat_web`'s switch, `x-impl` on every response; Auto as the spike says.
       *Check:* the four transports × resume specs on `full`, including across a restart (D37).
@@ -1259,6 +1263,14 @@ what still applies lives here.
       still kills the server. Report it upstream with the chunked path's `size < 0` guard (#117) as
       the fix. Fixed in the vendored fork (F-6, `app/vendor/odin-http/UPSTREAM.md`); the issue is
       drafted, still to post upstream.
+- [ ] **Upstream (Odin `core:image`, Alex's go to file): two faults on hostile input.** The JPEG reader sums a Huffman
+      table's counts in a `u8`, so a table past 256 symbols wraps and traps out of bounds at `jpeg.odin:533`; PNG's
+      inflate doesn't stop at the declared size, so a 282-byte file (`app/features/uploads/testdata/endless.png`) grows
+      its output until the allocator refuses. `uploads` holds both off; drop `huffman_fits` and the cap's comment when
+      they're fixed.
+- [ ] **Uploads: blobs nobody references.** A removed message, or one past retention, leaves its blob on disk and
+      servable by its address; so does an image never posted. A moderator's removal should take the file too. Needs a
+      reference count across chat, avatars and video (M6 slice 8 left it out).
 - [ ] **Upstream (_hyperscript 0.9.94): its bootstrap's fetch has no catch.** At load it fetches every
       `<script type="text/hyperscript" src>` (`Promise.all(… await fetch(r.src) …)`, the bundle's line 22), and a
       navigation that cuts the fetch rejects it in Firefox (AbortError, or a TypeError NetworkError; Chromium stays

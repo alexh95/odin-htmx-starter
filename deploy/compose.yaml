@@ -135,6 +135,7 @@ services:
       SITE_URL: https://houston.alexh95.com
       SITE_URL_LAB: https://houston-lab.alexh95.com
       DB_PATH: /data/data.db
+      UPLOADS_DIR: /data/uploads
       ACCOUNTS_ARGON_THREADS: "1"
       # A PHC string is all `$`, which compose would read as variables in .env: it comes as a
       # file (env reads NAME_FILE), the admin-hash secret beside compose.yaml.

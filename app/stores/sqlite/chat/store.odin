@@ -35,10 +35,11 @@ MIGRATIONS := [?]store.Migration {
 	{3, "0003_retention.sql", #load("migrations/0003_retention.sql", string)},
 	{4, "0004_moderation.sql", #load("migrations/0004_moderation.sql", string)},
 	{5, "0005_fts.sql", #load("migrations/0005_fts.sql", string)},
+	{6, "0006_images.sql", #load("migrations/0006_images.sql", string)},
 }
 
 @(private) ROOM_COLS :: "id, slug, name, at, kind, owner, dropped, locked, slow"
-@(private) MSG_COLS :: "id, room, author, name, body, at, edited, gone, ver"
+@(private) MSG_COLS :: "id, room, author, name, body, at, edited, gone, ver, blob"
 @(private) SQL_ROOMS :: "SELECT " + ROOM_COLS + " FROM chat_rooms ORDER BY id"
 @(private) SQL_ROOMS_FOR :: "SELECT " + ROOM_COLS + " FROM chat_rooms WHERE kind IN (0, 2) OR id IN (SELECT room FROM chat_members WHERE who = ?) ORDER BY id"
 @(private) SQL_ROOM :: "SELECT " + ROOM_COLS + " FROM chat_rooms WHERE slug = ?"
@@ -71,7 +72,7 @@ MIGRATIONS := [?]store.Migration {
 @(private) PAST_AGE :: "SELECT m.room AS room, m.id AS id, m.ver AS ver FROM chat_messages m JOIN chat_rooms r ON r.id = m.room WHERE r.kind = ? AND m.pinned = 0 AND m.at < ? ORDER BY m.id LIMIT 1000"
 @(private) SQL_PAST_AGE :: "SELECT room, max(id), max(ver), count(*) FROM (" + PAST_AGE + ") GROUP BY room"
 @(private) SQL_AGE_OUT :: "DELETE FROM chat_messages WHERE id IN (SELECT id FROM (" + PAST_AGE + "))"
-@(private) SQL_SEARCH :: "SELECT m.id, m.room, m.author, m.name, m.body, m.at, m.edited, m.gone, m.ver, r.id, r.slug, r.name, r.at, r.kind, r.owner, r.dropped, r.locked, r.slow " +
+@(private) SQL_SEARCH :: "SELECT m.id, m.room, m.author, m.name, m.body, m.at, m.edited, m.gone, m.ver, m.blob, r.id, r.slug, r.name, r.at, r.kind, r.owner, r.dropped, r.locked, r.slow " +
 	"FROM chat_fts f JOIN chat_messages m ON m.id = f.rowid JOIN chat_rooms r ON r.id = m.room " +
 	"WHERE chat_fts MATCH ? AND m.gone = 0 " +
 	"AND (r.kind IN (0, 2) OR EXISTS (SELECT 1 FROM chat_members c WHERE c.room = r.id AND c.who = ?)) " +
@@ -89,9 +90,9 @@ MIGRATIONS := [?]store.Migration {
 @(private) SQL_REPORT_OF :: "SELECT " + REPORT_COLS + " FROM chat_reports WHERE id = ?"
 @(private) SQL_RESOLVE :: "UPDATE chat_reports SET resolved = ?, outcome = ? WHERE id = ? AND resolved = 0"
 @(private) SQL_DROPPED :: "UPDATE chat_rooms SET dropped = max(dropped, ?), dropped_ver = max(dropped_ver, ?) WHERE id = ?"
-@(private) SQL_POST :: "INSERT INTO chat_messages(room, author, name, body, at, ver) VALUES(?, ?, ?, ?, ?, ?)"
+@(private) SQL_POST :: "INSERT INTO chat_messages(room, author, name, body, at, ver, blob) VALUES(?, ?, ?, ?, ?, ?, ?)"
 @(private) SQL_EDIT :: "UPDATE chat_messages SET body = ?, edited = ?, ver = ? WHERE id = ?"
-@(private) SQL_DELETE :: "UPDATE chat_messages SET body = '', gone = 1, ver = ? WHERE id = ?"
+@(private) SQL_DELETE :: "UPDATE chat_messages SET body = '', blob = '', gone = 1, ver = ? WHERE id = ?"
 
 // What each kind keeps, set at boot before the writer starts; the writer's own count of inserts
 // per room since boot, which `trim_every` reads (the writer is one thread).
@@ -329,11 +330,12 @@ post_run :: proc(o: ^store.Op) {
 	db.bind_text(st, 4, op.body)
 	db.bind_id(st, 5, at)
 	db.bind_id(st, 6, ver)
+	db.bind_text(st, 7, op.blob)
 	o.err = db.step_done(st)
 	db.reset(st)
 	if o.err != .None { return }
 	a := store.op_allocator(o)
-	op.result = {id = db.last_insert_id(), room = op.room, author = op.author, name = strings.clone(op.name, a), body = strings.clone(op.body, a), at = at, ver = ver}
+	op.result = {id = db.last_insert_id(), room = op.room, author = op.author, name = strings.clone(op.name, a), body = strings.clone(op.body, a), blob = strings.clone(op.blob, a), at = at, ver = ver}
 	if inserts == nil { inserts = make(map[i64]int, runtime.heap_allocator()) }
 	inserts[op.room] += 1
 	if keep.cap[kind] > 0 && inserts[op.room] % trim_every(keep.cap[kind]) == 0 { o.err = trim(op.room, keep.cap[kind]) }
@@ -453,7 +455,7 @@ change_run :: proc(o: ^store.Op) {
 	op.result = msg
 	op.result.ver = ver
 	if op.delete {
-		op.result.body, op.result.gone = "", true
+		op.result.body, op.result.blob, op.result.gone = "", "", true
 	} else {
 		op.result.body, op.result.edited = strings.clone(op.body, a), edited
 	}
@@ -506,12 +508,12 @@ search :: proc(who: u64, words: []string, at: i64, limit: int, out: ^[dynamic]m.
 	db.bind_id(q, 4, at)
 	db.bind_int(q, 5, limit)
 	for db.next_row(q, &err) {
-		kind, _ := store.enum_from_int(m.Room_Kind, db.column_int(q, 13))
+		kind, _ := store.enum_from_int(m.Room_Kind, db.column_int(q, 14))
 		append(out, m.Hit{
 			msg = one_msg(q),
 			room = {
-				id = db.column_id(q, 9), slug = db.clone_col(q, 10), name = db.clone_col(q, 11), at = db.column_id(q, 12), kind = kind,
-				owner = u64(db.column_id(q, 14)), dropped = db.column_id(q, 15), locked = db.column_int(q, 16) != 0, slow = db.column_int(q, 17),
+				id = db.column_id(q, 10), slug = db.clone_col(q, 11), name = db.clone_col(q, 12), at = db.column_id(q, 13), kind = kind,
+				owner = u64(db.column_id(q, 15)), dropped = db.column_id(q, 16), locked = db.column_int(q, 17) != 0, slow = db.column_int(q, 18),
 			},
 		})
 	}
@@ -783,7 +785,7 @@ one_msg :: proc(q: db.Stmt, a := context.temp_allocator) -> m.Message {
 	return {
 		id = db.column_id(q, 0), room = db.column_id(q, 1), author = u64(db.column_id(q, 2)), name = db.clone_col(q, 3, a),
 		body = db.clone_col(q, 4, a), at = db.column_id(q, 5), edited = db.column_id(q, 6), gone = db.column_int(q, 7) != 0,
-		ver = db.column_id(q, 8),
+		ver = db.column_id(q, 8), blob = db.clone_col(q, 9, a),
 	}
 }
 

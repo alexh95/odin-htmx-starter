@@ -464,7 +464,7 @@ a send is in flight) (D13; §9). Each package declares its families in a `TOPICS
 | bot, ops, jobs | `bot.health`; `bot.ask:<room>` (room mode, a server-side `deliver` row; §6.2); `ops.panel`; `jobs.runs` (`.Latest`, publish key = the run id) |
 | games | `games.players` (`.Latest`); `games.board:<g>` |
 | polls, lists, calendar | `polls.poll:<id>` (`.Latest`); `lists.list:<id>` (persisted); `calendar.event:<id>` |
-| uploads, guestbook, c4, term | `uploads.upload:<id>`; `guestbook.queue`; `c4.game:<id>`; `term.session:<sid>` |
+| guestbook, c4, term | `guestbook.queue`; `c4.game:<id>`; `term.session:<sid>` |
 
 ### 2.11 Enums and modes
 
@@ -2310,7 +2310,7 @@ writes it a part per message whose `HX-Part-ID` is the rowid it was published wi
 | `home.presence`, `chat.presence:<id>`, `chat.typing:<id>` | `.Latest` | no | who is online; typing expires after 5 s (D30) |
 | `chat.room:<id>` | `.Queue` | yes | messages, edits, tombstones |
 | `bot.health`, `games.players`, `polls.poll:<id>`, `calendar.event:<id>` | `.Latest` | no | health badge, player counts, poll bars, RSVP counts |
-| `games.board:<g>`, `jobs.runs` (publish key = the run id), `uploads.upload:<id>` | `.Latest` | no | top-10 upserts, run progress, upload progress |
+| `games.board:<g>`, `jobs.runs` (publish key = the run id) | `.Latest` | no | top-10 upserts, run progress |
 | `ops.panel` | `.Sample` | no | the 1 Hz ops render (§15) |
 | `lists.list:<id>` | `.Queue` | yes | item upserts keyed `data-pos` |
 | `guestbook.queue`, `c4.game:<id>`, `term.session:<sid>` | `.Queue` | no | the moderation queue, spectator moves, watched terminal rows |
@@ -3413,10 +3413,10 @@ from M1 (in `minimal`); Houston's Today with cards arrives at M4 with `cmd/full`
 2. `PUT /uploads/<id>?off=<n>` for each chunk of at most 4 MiB, under the route's own body cap.
 3. Finish, `POST /uploads/<id>/finish`: sniff, decode and sha256; the file becomes a content-addressed blob.
 
-The chunks go through app.js's roughly 40-line chunked-upload shim (fetch), because fetch reports no upload progress (07
-§4.3), so no htmx timeout applies to them. `hx-config timeout:0` sits only on the finish request, which can run long
-while the server hashes and moves the file (D21; RESOLUTIONS X14; **UNVERIFIED (M6)**). Progress comes from the server
-on `uploads.upload:<id>`. Size caps, content checks and serving headers are in §17.6; the rate limit is 20 per hour and
+The chunks go through app.js's chunked-upload shim (`features/uploads/static/uploads.js`, fetch), so no htmx timeout
+applies to them, and neither to the finish, which goes the same way (D21; X14). **As built (M6 slice 8):** progress
+comes from each chunk's answer, not from `uploads.upload:<id>`: a page's `#live` topics are fixed when it loads, and
+the shim has the answer already, so the topic isn't declared. Size caps, content checks and serving headers are in §17.6; the rate limit is 20 per hour and
 2 concurrent per user (§17.5).
 
 **Storage** (D8, D18; RESOLUTIONS X13). `uploads` owns its session rows, `uploads_blobs` and `uploads_parts`. In
@@ -4259,6 +4259,12 @@ with `core:image` under a 40 MP pixel cap; blobs are content-addressed; response
 `Content-Disposition: attachment` for anything that isn't an image; SVG and HTML are never served inline. At most 8
 concurrent uploads × 4 MiB are in flight. NPM streams bodies through (`proxy_request_buffering off`,
 `client_max_body_size 16m`, D41). M6 adds a decode-bomb fuzz.
+
+**As built (M6 slice 8):** PNG and JPEG (baseline), which is what `core:image` reads; a decode runs alone, in an arena
+with a hard cap (room for its pixels, at most 256 MiB), which ends the unbounded inflate the fuzz found and, on a 512 MiB
+container, is the real limit for a deep PNG. Every stored type is an image, so nothing is an attachment yet. A blob's
+address is its sha256; `Chat_Read` reaches any, so a private room's image is behind knowing that address. A removed
+message's blob stays on disk (`TODO.md`).
 
 ### 17.7 Audit log
 

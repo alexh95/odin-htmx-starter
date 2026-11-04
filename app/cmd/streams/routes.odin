@@ -15,6 +15,7 @@ import notes_web "../../features/notes/web"
 import notify_web "../../features/notify/web"
 import ops_web "../../features/ops/web"
 import status_web "../../features/status/web"
+import uploads_web "../../features/uploads/web"
 import identity "identity:."
 
 ROUTES := [?]app.Mount {
@@ -24,6 +25,7 @@ ROUTES := [?]app.Mount {
 	{"platform", web.REPORT_ROUTES[:]}, // /csp-report
 	{"home", {{.Get, "/", home_web.page, .Public, {}, 0}}}, // the root: a card per feature
 	{"notes", notes_web.ROUTES[:]},     // POST /notes
+	{"uploads", uploads_web.ROUTES[:]}, // /uploads: chunks, blobs (chat's images)
 	{"chat", chat_web.ROUTES[:]},       // /chat: rooms, four transports
 	{"notify", notify_web.ROUTES[:]},   // /notify: the Inbox
 	{"bot", bot_web.ROUTES[:]},         // /bot: the assistant, on the mock
@@ -45,6 +47,7 @@ TOPICS := [?][]hub.Topic {
 HOSTS := [?]app.Host{{"main", "SITE_URL", true, ROUTES[:], NAV[:]}}
 
 JOBS := [?][]workers.Job {
+	uploads_web.JOBS[:], // uploads.sweep: what nobody finished
 	chat_web.JOBS[:],   // chat.presence: away after the debounce, gone after 5 min; chat.retention: past the age
 	notify_web.JOBS[:], // notify.prune: read items after 30 days
 	ops_web.JOBS[:],    // ops.sample: the panel, once a second

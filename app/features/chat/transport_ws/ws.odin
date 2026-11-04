@@ -41,7 +41,7 @@ Socket :: struct {
 }
 
 // Set by chat_web at init: a frame's body, posted (or refused back down the socket).
-post: proc(s: ^Socket, body: string)
+post: proc(s: ^Socket, body, attachment: string)
 
 wiring :: proc(r: m.Room) -> chat_views.Wiring {
 	b := strings.builder_make(context.temp_allocator)
@@ -116,7 +116,8 @@ on_message :: proc(c: ^stream.Conn, text: bool, data: []byte) {
 		send((^Socket)(c.user), html.toast("error", "That message couldn't be read.", true))
 		return
 	}
-	if post != nil { post((^Socket)(c.user), body) }
+	attachment, _ := stream.ws_field(data, "attachment")
+	if post != nil { post((^Socket)(c.user), body, attachment) }
 }
 
 @(private)

@@ -15,6 +15,10 @@
 # Build artifacts and fetched deps under app/ are ignored by app/.gitignore.
 # This file covers the repo as a whole.
 
+# An app run's UPLOADS_DIR, by default
+/uploads/
+/app/uploads/
+
 # Load-test output
 load-tests/results/
 

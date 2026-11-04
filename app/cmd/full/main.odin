@@ -10,6 +10,7 @@ import store_sqlite "../../platform/store/sqlite"
 import about_web "../../features/about/web"
 import audit_web "../../features/audit/web"
 import chat_web "../../features/chat/web"
+import uploads_web "../../features/uploads/web"
 import compat_web "../../features/compat/web"
 import contacts_web "../../features/contacts/web"
 import dashboard_web "../../features/dashboard/web"
@@ -27,6 +28,7 @@ import status_web "../../features/status/web"
 import accounts_store "store:accounts"
 import audit_store "store:audit"
 import chat_store "store:chat"
+import uploads_store "store:uploads"
 import contacts_store "store:contacts"
 import jobs_store "store:jobs"
 import notify_store "store:notify"
@@ -37,7 +39,7 @@ HOME_CARDS := [?]html.Home_Card{notify_web.home_card}
 
 // Every extension the main bundle needs (D19), both hosts' pages. Boot refuses a bundle whose
 // header says otherwise.
-BUNDLE_EXTS :: home_web.EXTS + about_web.EXTS + audit_web.EXTS + chat_web.EXTS + notify_web.EXTS + modules_web.EXTS + ops_web.EXTS + jobs_web.EXTS + dbview_web.EXTS + status_web.EXTS + identity.EXTS +
+BUNDLE_EXTS :: uploads_web.EXTS + home_web.EXTS + about_web.EXTS + audit_web.EXTS + chat_web.EXTS + notify_web.EXTS + modules_web.EXTS + ops_web.EXTS + jobs_web.EXTS + dbview_web.EXTS + status_web.EXTS + identity.EXTS +
 	landing_web.EXTS + dashboard_web.EXTS + gallery_web.EXTS + contacts_web.EXTS + lab_web.EXTS +
 	scripting_web.EXTS + compat_web.EXTS
 
@@ -52,6 +54,7 @@ main :: proc() {
 	about_web.init(ABOUT)
 	landing_web.init()
 	chat_web.init()
+	uploads_web.init()
 	ops_web.init()
 	status_web.init()
 	lab_web.init()
@@ -69,6 +72,7 @@ main :: proc() {
 	store_sqlite.migrate("contacts", contacts_store.MIGRATIONS[:])
 	store_sqlite.migrate("jobs", jobs_store.MIGRATIONS[:])
 	store_sqlite.migrate("notify", notify_store.MIGRATIONS[:])
+	store_sqlite.migrate("uploads", uploads_store.MIGRATIONS[:])
 	identity.bootstrap() // the first admin, from ACCOUNTS_ADMIN_HASH
 	jobs_web.init()      // this boot's id; the runs an earlier boot left queued or running
 	jobs_web.admin_ids = identity.admin_ids // who hears of a failed run

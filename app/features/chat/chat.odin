@@ -23,6 +23,7 @@ import "../../platform/env"
 import "../../platform/guard"
 import "../../platform/sys"
 import m "models"
+import uploads "../uploads"
 import audit_store "store:audit"
 import chat_store "store:chat"
 
@@ -283,10 +284,17 @@ remove :: proc(op: ^m.Change, a: Actor, reason, action: string) -> bool {
 	return chat_store.change(op)
 }
 
+// What a moderator reads of a reported message: its text, and where its image is.
+@(private)
+report_copy :: proc(msg: m.Message) -> string {
+	if msg.blob == "" { return msg.body }
+	return fmt.tprintf("%s\n[image: /uploads/blob/%s]", msg.body, msg.blob)
+}
+
 // A member's report of `msg` in `r` (any kind of room), with a copy of it for the moderators.
 report :: proc(msg: m.Message, v: authz.Viewer, reason: string) -> (i64, m.Error) {
 	return chat_store.report({
-		room = msg.room, msg = msg.id, author = msg.author, author_name = msg.name, body = msg.body,
+		room = msg.room, msg = msg.id, author = msg.author, author_name = msg.name, body = report_copy(msg),
 		by = v.id, by_name = v.name, reason = reason, at = now(),
 	})
 }
@@ -478,6 +486,16 @@ check_body :: proc(body: string) -> (trimmed, problem: string) {
 		return "", fmt.tprintf("A message is at most %d characters.", MAX_BODY)
 	}
 	return trimmed, ""
+}
+
+// A post's body and its image: the image may stand alone. Any member's blob may be attached, not
+// only one they uploaded: the same image twice is one blob, with its first uploader's name on it.
+check_post :: proc(body, blob: string) -> (trimmed, problem: string) {
+	if blob == "" { return check_body(body) }
+	if !uploads.valid_sha(blob) { return "", "That image isn't there any more." }
+	if _, err := uploads.blob(blob); err != .None { return "", "That image isn't there any more." }
+	if strings.trim_space(body) == "" { return "", "" }
+	return check_body(body)
 }
 
 // Stores op's message; op.done runs once it is. false: the store is busy.
