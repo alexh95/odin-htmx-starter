@@ -106,6 +106,13 @@ jobs:
           echo "singleton: $f"
           odin run tools/init -- ci-single --features "$f" --yes
           sh app/prepare.sh && CMD=test sh build.sh app
+      # The nightly's selections alone had caught a build that mounts what no committed profile
+      # does alone (a stream route with no hub): here each push runs one, and the features turn over.
+      - name: The singleton's specs (chromium and api)
+        run: cd e2e && npm ci && npx playwright install --with-deps chromium && npx playwright test --project=chromium --project=api
+        env:
+          CI: 'true'
+          E2E_PROFILE: app
 
   # Each profile on four platforms: WSL and Docker cover only Linux, and macOS is
   # the arm64-darwin target nobody can test locally (odin-http's kqueue path under

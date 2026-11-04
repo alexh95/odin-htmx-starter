@@ -10,7 +10,9 @@ import { ADMIN } from '../../helpers/accounts';
 // back it up with `<bin> --backup` while the server is still running, then
 // restore by starting a server on the copy. Any build on the sqlite store: a
 // contact where it has contacts, a session where it has accounts (the copy still
-// knows its cookie), else a note. API-only (no browser); starts its own servers.
+// knows its cookie), a note where it has notes; a build with none of those (dbview
+// alone) writes nothing, and its copy need only boot. API-only (no browser); starts
+// its own servers.
 test('a backup taken under a live server restores with the data in it', { tag: '@platform-sqlite' }, async () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'odin-backup-'));
   const live = path.join(dir, 'data.db');
@@ -20,6 +22,7 @@ test('a backup taken under a live server restores with the data in it', { tag: '
     srv = await startServer(test.info().config, { DB_PATH: live });
     const demo = has('contacts');
     const accounts = !demo && has('accounts-accounts');
+    const notes = !demo && !accounts && has('notes');
     let marker = `Backup ${Date.now()}`;
     let cookie = '';
     if (accounts) {
@@ -27,11 +30,13 @@ test('a backup taken under a live server restores with the data in it', { tag: '
       expect(made.status).toBe(303);
       cookie = String(made.headers['set-cookie']).split(';')[0];
       marker = `Signed in as ${ADMIN.username}`;
-    } else {
+    } else if (demo || notes) {
       const made = demo
         ? await post(srv.port, '/contacts', `name=${encodeURIComponent(marker)}&email=backup@example.dev`)
         : await post(srv.port, '/notes', `body=${encodeURIComponent(marker)}`);
       expect(made.status).toBe(200);
+    } else {
+      marker = '';
     }
 
     // The same binary the server runs, whatever init renamed it to.
@@ -45,7 +50,9 @@ test('a backup taken under a live server restores with the data in it', { tag: '
     await stopServer(srv);
     srv = await startServer(test.info().config, { DB_PATH: copy });
     const page = demo ? `/api/search?q=${encodeURIComponent(marker)}` : accounts ? '/login' : '/';
-    expect((await get(srv.port, page, cookie ? { cookie, ...onMain(srv.port) } : {})).body).toContain(marker);
+    const restored = await get(srv.port, marker ? page : '/healthz', cookie ? { cookie, ...onMain(srv.port) } : {});
+    expect(restored.status).toBe(200);
+    expect(restored.body).toContain(marker);
   } finally {
     if (srv) await stopServer(srv);
     try { rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }

@@ -44,7 +44,7 @@ MIGRATIONS := [?]store.Migration {
 @(private) SQL_ROOM_COUNT :: "SELECT count(*) FROM chat_rooms"
 @(private) SQL_ADD_ROOM :: "INSERT INTO chat_rooms(slug, name, at, kind, owner, dm) VALUES(?, ?, ?, ?, ?, ?)"
 @(private) SQL_DM :: "SELECT " + ROOM_COLS + " FROM chat_rooms WHERE dm = ?"
-@(private) SQL_MEMBERS :: "SELECT room, who, name, at FROM chat_members WHERE room = ? ORDER BY at, who"
+@(private) SQL_MEMBERS :: "SELECT room, who, name, at FROM chat_members WHERE room = ? ORDER BY who = (SELECT owner FROM chat_rooms WHERE id = room) DESC, at, who"
 @(private) SQL_IS_MEMBER :: "SELECT 1 FROM chat_members WHERE room = ? AND who = ?"
 @(private) SQL_JOIN :: "INSERT INTO chat_members(room, who, name, at) VALUES(?, ?, ?, ?) ON CONFLICT DO NOTHING"
 @(private) SQL_LEAVE :: "DELETE FROM chat_members WHERE room = ? AND who = ?"

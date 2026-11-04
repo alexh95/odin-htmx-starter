@@ -1,8 +1,8 @@
 import crypto from 'node:crypto';
 import http from 'node:http';
 import net from 'node:net';
-import { expect, test } from '../../fixtures';
-import { startServer, stopServer } from '../../helpers/server';
+import { expect, has, test } from '../../fixtures';
+import { startServer, stopServer, TWO_HOSTS } from '../../helpers/server';
 import { closeTopic, epochOf, get, HOST, post, publish, say, seqOf, sleep, sse, stats, uid, wsRaw } from './streams';
 
 // 03's contract checks that speak the protocols from Node (03 §10.2; spike S0.3), numbered as 03
@@ -133,7 +133,9 @@ test.describe('SSE', T, () => {
   });
 
   test('/events refuses a topic its host does not mount (400) and a malformed one (400)', async ({ server }) => {
-    for (const t of ['chat.room:1', 'lab.feed:BAD', 'lab.feed:a@x', '', 'lab.bus@5']) {
+    // chat.room where this host doesn't mount it (a selection with chat on its one host does: 403).
+    const elsewhere = has('chat') && !TWO_HOSTS ? 'nothing.here:1' : 'chat.room:1';
+    for (const t of [elsewhere, 'lab.feed:BAD', 'lab.feed:a@x', '', 'lab.bus@5']) {
       expect((await get(server.port, `/events?t=${encodeURIComponent(t)}`)).status, t).toBe(400);
     }
   });

@@ -33,6 +33,7 @@ import "../env"
 import "../guard"
 import "../html"
 import "../obs"
+import "../stream"
 import "../sys"
 import "../web"
 import "../workers"
@@ -129,6 +130,15 @@ boot :: proc(profile: string) {
 // `page_bundles` names the fixed bundles the profile's pages load (§12.1): the
 // BUNDLES lines of its scripting and compat packages.
 check :: proc(hosts: []Host, jobs: [][]workers.Job, bundle_exts: web.Exts, page_bundles := bit_set[web.Bundle]{}) {
+	// A build that streams but has no topics calls no hub.init (a generated `status` alone, or
+	// `scripting`): its streams' env rows are read here, or its first stream trapped.
+	for h in hosts {
+		for m in h.routes {
+			for row in m.rows {
+				if .Stream in row.flags { stream.init() }
+			}
+		}
+	}
 	mount(hosts)
 	for &s in st.sites {
 		for m in s.router.rows { m.obs = obs.register_route(m.id) }

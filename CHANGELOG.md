@@ -58,6 +58,11 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 
 ### Fixed
 
+- **A build that streams but has no topics serves its streams** (the nightly's selections): a generated `status` or
+  `scripting` called no `hub.init`, so its first stream tripped an assertion and answered 500. `app.check` now
+  initialises streams whenever a mounted row is `.Stream`. A private room's owner lists first among its members. The
+  nightly's ASan fuzz job had never run a parser (`app/bin` didn't exist), and three specs assumed what a build
+  mounts. CI's rotating singleton now runs its e2e on every push, so a selection-only break shows there.
 - **A nightly backup that stopped shows**: `/status`'s backups line judges by the newest nightly alone (degraded past
   26 h, or with none yet) and says the newest run by hand or pre-deploy snapshot beside it, never counting either:
   counted, a promote or a click hid a broken nightly for a day. A job run that ended through `workers.fail` logs

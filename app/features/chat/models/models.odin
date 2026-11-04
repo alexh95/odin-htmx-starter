@@ -158,7 +158,7 @@ Store_Room :: proc(slug: string) -> (Room, Error)
 Store_Create_Room :: proc(slug, name: string, kind: Room_Kind, owner: u64, owner_name: string) -> (Room, Error)
 // The DM of `a` and `b`, made (with `slug` and both as members) when they have none.
 Store_Dm :: proc(a: u64, a_name: string, b: u64, b_name: string, slug: string) -> (Room, Error)
-Store_Members :: proc(room: i64, out: ^[dynamic]Member) -> Error // in the order they joined
+Store_Members :: proc(room: i64, out: ^[dynamic]Member) -> Error // the owner first, then as they joined
 Store_Is_Member :: proc(room: i64, who: u64) -> bool
 Store_Join :: proc(room: i64, who: u64, name: string) -> Error // .None when they are in it already
 Store_Leave :: proc(room: i64, who: u64) -> Error
