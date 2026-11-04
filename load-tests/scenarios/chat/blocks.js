@@ -7,8 +7,8 @@ import { options as build, summarize } from '../../lib/options.js';
 // tags: @chat
 //
 // Blocking: each VU, a member with a DM to the peer setup() signed in, blocks them from the DM,
-// reads the list, finds a DM refused, and unblocks. Row writes through write_now, and the reads a
-// DM's page makes for it.
+// reads the list, finds a DM refused, blocks them again from a message of theirs, and unblocks.
+// Row writes through write_now, and the reads a DM's page makes for it.
 export const options = build();
 options.noCookiesReset = true;
 export const handleSummary = summarize('blocks');
@@ -17,8 +17,9 @@ let slug = '';
 
 export function setup() {
   signIn('blocks peer');
+  const said = http.post(`${BASE}/chat/r/lobby`, { body: 'block me' }, { headers: FORM, tags: { name: 'POST /chat/r/:slug' } });
   const page = http.get(`${BASE}/chat/r/lobby?transport=poll`, { tags: { name: 'GET /chat/r/:slug' } });
-  return { peer: (page.body.match(/data-me="(\d+)"/) || [])[1] };
+  return { peer: (page.body.match(/data-me="(\d+)"/) || [])[1], msg: (said.body.match(/id="m-(\d+)"/) || [])[1] };
 }
 
 export default function (data) {
@@ -35,6 +36,8 @@ export default function (data) {
   check(list, { 'listed': (r) => r.status === 200 && r.body.includes('Unblock') });
   const refused = http.post(`${BASE}/chat/dm/${data.peer}`, null, { headers: FORM, tags: { name: 'POST /chat/dm/:id' }, responseCallback: http.expectedStatuses(403) });
   check(refused, { 'refused 403': (r) => r.status === 403 });
+  const again = http.post(`${BASE}/chat/m/${data.msg}/block`, null, { headers: FORM, tags: { name: 'POST /chat/m/:id/block' } });
+  check(again, { 'from a message': (r) => r.status === 204 });
   const open = http.post(`${BASE}/chat/unblock/${data.peer}`, null, { headers: FORM, tags: { name: 'POST /chat/unblock/:id' } });
   check(open, { 'unblocked 204': (r) => r.status === 204 });
 }

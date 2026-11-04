@@ -361,6 +361,7 @@ Checked :: struct {
 check :: proc(data: []byte) -> (c: Checked, problem: string) {
 	UNREADABLE :: "That image can't be read."
 	TOO_LARGE :: "That image is too large: at most 40 megapixels."
+	TOO_DEEP :: "That image is too large to read here: try a smaller one, or a JPEG."
 	PROGRESSIVE :: "That's a progressive JPEG, which can't be read here. Save it as a regular JPEG or a PNG." // as images saved from the web often are
 	if len(data) == 0 || len(data) > MAX_IMAGE { return c, "An image is at most 10 MiB." }
 	c.kind = sniff(data)
@@ -375,7 +376,8 @@ check :: proc(data: []byte) -> (c: Checked, problem: string) {
 	// an error, so the arena is what ends it. Room for the raw rows and the pixels at 16 bits
 	// and four channels, never more than a small container's share.
 	arena: virtual.Arena
-	if virtual.arena_init_static(&arena, uint(min(w * h * 8 * 3 + 16 << 20, DECODE_LIMIT))) != nil { return c, UNREADABLE }
+	limit := uint(min(w * h * 8 * 3 + 16 << 20, DECODE_LIMIT))
+	if virtual.arena_init_static(&arena, limit) != nil { return c, UNREADABLE }
 	defer virtual.arena_destroy(&arena)
 	a := virtual.arena_allocator(&arena)
 	context.allocator = a
@@ -388,7 +390,7 @@ check :: proc(data: []byte) -> (c: Checked, problem: string) {
 	case .Jpeg:
 		img, err = jpeg.load_from_bytes(data, {}, a)
 	}
-	if err != nil || img == nil { return c, UNREADABLE }
+	if err != nil || img == nil { return c, TOO_DEEP if arena.total_used >= limit / 2 else UNREADABLE }
 	c.width, c.height = img.width, img.height
 	if c.width * c.height > MAX_PIXELS { return c, TOO_LARGE }
 

@@ -3,7 +3,7 @@ package main
 // ---- writerbench: the writer task against one commit per write (PLAN §18, D38) ---------------
 //
 //   sh tools/drills/chat-budget.sh        (builds this with the SQLite family)
-//   writerbench [--messages N] [--rate R] [--seconds S] [--db PATH]
+//   writerbench [--messages N] [--rate R] [--seconds S] [--cap ROOM_CAP] [--db PATH]
 //
 // Chat's own post, through the store's real path, on a file in WAL mode with the search index's
 // triggers and a retention cap: the rows and the transaction a member's message costs.
@@ -63,7 +63,7 @@ alone :: proc(n: int) -> f64 {
 	for i in 0 ..< n {
 		base := answered
 		if !send() { fmt.panicf("refused at %d", i) }
-		for answered == base { nbio.tick(time.Millisecond) }
+		for answered == base { nbio.tick(0) } // no timeout: the wait is the writer's, not this loop's
 	}
 	return f64(n) / time.duration_seconds(time.tick_since(start))
 }
@@ -76,7 +76,7 @@ queued :: proc(n: int) -> f64 {
 			if !send() { break }
 			sent += 1
 		}
-		nbio.tick(50 * time.Microsecond)
+		nbio.tick(0)
 	}
 	return f64(n) / time.duration_seconds(time.tick_since(start))
 }
@@ -98,7 +98,7 @@ paced :: proc(rate: int, seconds: int) {
 }
 
 main :: proc() {
-	n, rate, seconds := 20_000, 1000, 10
+	n, rate, seconds, cap := 20_000, 1000, 10, 10_000
 	path := "writerbench.db"
 	args := os.args[1:]
 	for i := 0; i + 1 < len(args); i += 2 {
@@ -108,6 +108,7 @@ main :: proc() {
 		case "--rate":     rate = v
 		case "--seconds":  seconds = v
 		case "--db":       path = args[i + 1]
+		case "--cap":      cap = v
 		case:              fmt.panicf("unknown flag %s", args[i])
 		}
 	}
@@ -122,7 +123,7 @@ main :: proc() {
 	db.migrate("chat", chat_store.MIGRATIONS[:])
 
 	keep: m.Retention
-	keep.cap[.Public] = 10_000
+	keep.cap[.Public] = cap
 	chat_store.init(0, keep)
 	chat_store.seed()
 	lobby, err := chat_store.room("lobby")

@@ -35,7 +35,7 @@ app/bin/writerbench --db "$WORK/writer.db"
 
 echo "== $SOCKETS sockets × $MESSAGES messages"
 ADMIN_HASH='$argon2id$v=19$m=19456,t=2,p=1$usNdKTDf754mp5KZr0QZOg$UmN+6Cr4ai7YMbp4f0SsrCtA/kmVO/w4cSHz7Fs8F8I' # the suites' test admin
-THREADS=4 LOG_LEVEL=warn LAN_CIDRS=127.0.0.0/8 STREAM_CONNECTS=1000000 STREAMS_PER_CLIENT=100000 \
+THREADS=4 LOG_LEVEL=warn LAN_CIDRS=127.0.0.0/8 STREAM_CONNECTS=1000000 STREAMS_PER_CLIENT=100000 STREAMS_PER_USER=100000 \
   DB_PATH="$WORK/data.db" UPLOADS_DIR="$WORK/uploads" ACCOUNTS_ADMIN_HASH="$ADMIN_HASH" ACCOUNTS_ADMIN_TOTP=optional \
   ACCOUNTS_REGISTRATION=open ACCOUNTS_REGISTER_PER_HOUR=100000000 ACCOUNTS_LOGIN_PER_CLIENT=100000000 \
   ACCOUNTS_LOGIN_PER_NET=100000000 ACCOUNTS_LOGIN_OVERALL=100000000 ACCOUNTS_NICK_KEY=budget-only-nickname-signing-key-0123456789 \
@@ -64,6 +64,25 @@ while [ "$i" -lt "$n" ]; do
   i=$((i + 1))
 done
 app/bin/streamload fanout --base "$BASE" --ws "$SOCKETS" --publish "$MESSAGES" --every 0 --room lobby --cookies "$WORK/cookies"
+
+# The worst finish there is (planning, 2026-11-04): an image whose decode fills the whole arena,
+# during a hold of the same sockets, against Houston's mem_limit of 512m.
+echo "== the worst decode, during a hold of $SOCKETS sockets"
+app/bin/streamload hold --base "$BASE" --ws "$SOCKETS" --for 15 --room lobby --cookies "$WORK/cookies" >"$WORK/hold.log" &
+HOLD=$!
+sleep 4
+rss() { awk -v k="$1" '$1 == k":" { printf "%.1f MiB", $2 / 1024 }' "/proc/$SRV/status"; }
+echo "before: VmRSS $(rss VmRSS), VmHWM $(rss VmHWM)"
+for dim in 4400 3900; do # past the cap, then the deepest image that fits under it
+  node tools/drills/bomb-png.mjs "$WORK/bomb.png" "$dim" "$dim"
+  size=$(wc -c <"$WORK/bomb.png")
+  id=$(curl -s -b "$WORK/jar1" -X POST "$BASE/uploads?size=$size" | grep -o '"id":[0-9]*' | cut -d: -f2)
+  curl -s -o /dev/null -b "$WORK/jar1" -X PUT --data-binary @"$WORK/bomb.png" "$BASE/uploads/$id?off=0"
+  curl -s -w " finish of $dim square: %{http_code} in %{time_total} s
+" -b "$WORK/jar1" -X POST "$BASE/uploads/$id/finish"
+  echo "after:  VmRSS $(rss VmRSS), VmHWM $(rss VmHWM) (Houston's mem_limit: 512 MiB)"
+done
+wait "$HOLD" || true
 
 echo "== send to another member's DOM, direct"
 node tools/drills/chat-latency.mjs "$BASE" || true

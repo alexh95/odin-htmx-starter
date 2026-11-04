@@ -337,12 +337,12 @@ members :: proc(t: ^testing.T) {
 	testing.expect_value(t, none, m.Theme{})
 	for scheme in ([]string{"aqua", "brass"}) { // the second replaces the first
 		th := store.new_op(m.Set_Theme, 16)
-		th.theme = {strings.clone("skeuo", store.op_allocator(th)), strings.clone(scheme, store.op_allocator(th))}
+		th.theme = {style = strings.clone("skeuo", store.op_allocator(th)), scheme = strings.clone(scheme, store.op_allocator(th))}
 		th.user_id, th.done = mod.result, DONE
 		testing.expect_value(t, write(t, th, sql.set_theme(th)), store.Error.None)
 	}
 	kept, _ := sql.theme_of(mod.result)
-	testing.expect_value(t, kept, m.Theme{"skeuo", "brass"})
+	testing.expect_value(t, kept, m.Theme{style = "skeuo", scheme = "brass"})
 
 	drop := store.new_op(m.Delete_Invite, 8)
 	drop.code_hash = strings.clone("inv1", store.op_allocator(drop))
