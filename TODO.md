@@ -26,6 +26,8 @@ copy-and-start ergonomics and good defaults matter more than feature depth.
       floor, and a client reaching the app directly can pipeline past the buffer's give-back. It waits because the fix is in
       `scanner_reset`, which every request passes, so it needs a parity rerun. In compose only Caddy publishes a port, so
       nobody on the LAN reaches the app directly; a starter run with no proxy is exposed until then.
+- [ ] **Before stage 2: the oldest-browser walk** (M6 slice 11, deferred by Alex 2026-11-04): D22's core flows on the
+      oldest-browser device with no client behaviours; htmx 4 there is still UNVERIFIED.
 - [ ] **A limited revoke wipes a once-shown invite link** (M6-S4).
 - [ ] **One member can hold the blob budget** (M6-R8), the 64 MiB of answers in flight, for as long as their sockets stall.
 - [ ] **Search on the query pool** (M6-13), when `find` comes (M8).
@@ -169,17 +171,15 @@ go; Alex's step is the last: the 2–3 invites (Q23), only after the audit.
       all five on v2.5.0, healthy.
       Done (2026-11-04): Alex's drill through NPM on v2.5.0, `chat-latency.mjs <Houston URL> --login … --room <slug>
       --count 60`: 60 of 60 landed over WS, p50 5.5, p95 9.3, max 11.7 ms against the 50 ms budget.
-- [ ] **11. The XSS/UGC suite and the oldest browser** (§19.1.2, D22): every place chat, notify and uploads render a
+- [x] **11. The XSS/UGC suite and the oldest browser** (§19.1.2, D22): every place chat, notify and uploads render a
       member's text or file, against the injection set; D22's core flows on the oldest-browser device with no client
       behaviours (htmx 4 there UNVERIFIED (M6)). *Check:* the suite in e2e; the device run recorded.
       The suite is in (`e2e/tests/chat/xss.spec.ts`, 2026-11-04): messages over the four transports, edits, search, room
-      names, the Inbox, invites, reports, the audit log, upload names. It found nothing. Closes after the promote, as
-      M5's smoke did: the phone is Alex's (v2.5.0's steps), and the invites wait on the walk.
-      v2.5.0 is promoted and smoked (slice 10's note), which doesn't touch this: left, the phone walk.
-      Alex walked the five flows on a current phone in the latest Brave (2026-11-04) and all worked, but that isn't the
-      oldest-browser device, so it doesn't meet D22's check. The walk on that device is still the check; Alex decides
-      whether it happens or the check is deferred.
-- [x] **12. Exit** (2026-11-04: parity `docs/perf/PARITY-M6.md`, audit `docs/audit/M6.md`; the tag is Alex's, and 10 and 11 close after the promote): the slice gate for every new feature; the parity gate on both legs; `docs/audit/M6.md`, the
+      names, the Inbox, invites, reports, the audit log, upload names. It found nothing.
+      **The device check was not met:** Alex deferred it on 2026-11-04 and went ahead with the invites. A current phone in
+      the latest Brave passed the five flows instead, which says nothing about the oldest browser. The walk is now an open
+      item before stage 2, at the top of this file.
+- [x] **12. Exit** (2026-11-04: parity `docs/perf/PARITY-M6.md`, audit `docs/audit/M6.md`; v2.5.0 tagged and promoted, slices 10 and 11 closed, 11's device check deferred by Alex; Q23's invites are now Alex's to send, on the LAN only per stage 1b): the slice gate for every new feature; the parity gate on both legs; `docs/audit/M6.md`, the
       focused security audit of accounts, sessions, chat and uploads, by an agent that didn't write the code, 0 open
       CRITICAL/HIGH, and a re-read of its fixes; `Audited:` stamps; CHANGELOG's 2.5.0 lead. Then, with Alex: the
       v2.5.0 tag, `starter-full` promoted, and Q23's 2–3 invites.
