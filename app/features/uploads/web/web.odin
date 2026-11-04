@@ -7,11 +7,14 @@ package uploads_web
 // response; a pool's queue is the bound on what's held in memory (§17.6: 8 × 4 MiB), and past it
 // `submit` refuses: 503, which the shim tries again. One decode at a time: a 40 MP image is a few
 // hundred MiB of pixels. Reads have a wider pool: a room's page asks for its images all at once.
+// A body is bounded before that, in `front` (its route's body_cap makes it a large one).
 
 import "core:fmt"
 import "core:strings"
+import "core:sync"
 import "core:time"
 
+import "../../../platform/guard"
 import "../../../platform/web"
 import "../../../platform/workers"
 import uploads ".."
@@ -35,11 +38,14 @@ JOBS := [?]workers.Job {
 @(private) starts := web.Limit{window = time.Hour} // n: UPLOADS_PER_HOUR
 @(private) writes: workers.Pool
 @(private) decodes: workers.Pool
+@(private) answering: int // atomic: bytes of blobs in answers not yet sent
+@(private) MAX_ANSWERING :: 64 << 20
 @(private) reads: workers.Pool
 
 // At boot.
 init :: proc() {
 	uploads.init()
+	guard.watch_work(&uploads.decoding)
 	starts.n = uploads.per_hour()
 	workers.start(&writes, "uploads", 2, 8)
 	workers.start(&decodes, "decodes", 1, 8)
@@ -199,7 +205,7 @@ chunk_done :: proc(t: ^workers.Task) {
 	if res == nil { return }
 	defer web.finish(&c.deferred, res)
 	switch {
-	case !c.ran:
+	case c.crashed, !c.ran:
 		refuse(res, "Busy: try again in a moment.", .Service_Unavailable)
 	case c.err != .None:
 		web.respond_store_error(web.request(&c.deferred), res, c.err)
@@ -215,6 +221,7 @@ Finish :: struct {
 	using task: workers.Task,
 	deferred:   web.Deferred,
 	upload:     m.Upload,
+	holding:    uploads.Decoding, // freed here, on the loop, trap or not
 	sha256:     [64]byte,
 	problem:    string, // a constant of the domain's
 	err:        m.Error,
@@ -239,7 +246,7 @@ finish :: proc(req: ^web.Request, res: ^web.Response) {
 run_finish :: proc(t: ^workers.Task) {
 	f := (^Finish)(t)
 	b: m.Blob
-	b, f.problem, f.err = uploads.conclude(f.upload)
+	b, f.problem, f.err = uploads.conclude(f.upload, &f.holding)
 	copy(f.sha256[:], b.sha256)
 }
 
@@ -247,6 +254,8 @@ run_finish :: proc(t: ^workers.Task) {
 finish_done :: proc(t: ^workers.Task) {
 	f := (^Finish)(t)
 	defer free(f)
+	defer uploads.free_decoding(&f.holding)
+	if f.crashed { uploads.drop(f.upload.id) } // a client that left doesn't get to try these bytes again
 	res := web.resume(&f.deferred)
 	if res == nil { return }
 	defer web.finish(&f.deferred, res)
@@ -254,8 +263,7 @@ finish_done :: proc(t: ^workers.Task) {
 		sha256: string `json:"sha256"`,
 	}
 	switch {
-	case f.crashed: // the decoder trapped on these bytes: they're not trying them again
-		uploads.drop(f.upload.id)
+	case f.crashed: // the decoder trapped on these bytes
 		refuse(res, "That image can't be read.", .Unprocessable_Content)
 	case !f.ran:
 		refuse(res, "Busy: try again in a moment.", .Service_Unavailable)
@@ -276,6 +284,7 @@ Reading :: struct {
 	deferred:   web.Deferred,
 	sha256:     [64]byte,
 	png:        bool,
+	bytes:      int,
 	data:       []byte,
 	found:      bool,
 }
@@ -295,13 +304,25 @@ blob :: proc(req: ^web.Request, res: ^web.Response) {
 		web.respond_store_error(req, res, err)
 		return
 	}
+	// An answer sits in its connection's memory until the peer has it, so what's out is counted
+	// until then: a pool's queue bounds only what's waiting to be read.
+	if sync.atomic_add(&answering, b.bytes) + b.bytes > MAX_ANSWERING {
+		sync.atomic_sub(&answering, b.bytes)
+		web.respond_status(res, .Service_Unavailable)
+		return
+	}
 	t := new(Reading)
 	copy(t.sha256[:], sha)
 	t.png = b.mime == uploads.MIME[.Png]
+	t.bytes = b.bytes
 	t.run, t.done = run_read, read_done
 	web.defer_response(req, res, &t.deferred)
 	if !workers.submit(&reads, &t.task) { read_done(&t.task) }
 }
+
+// What the sent answer, or the one that never went, gives back.
+@(private)
+answered :: proc(bytes: rawptr) { sync.atomic_sub(&answering, int(uintptr(bytes))) }
 
 @(private)
 run_read :: proc(t: ^workers.Task) {
@@ -315,7 +336,11 @@ read_done :: proc(t: ^workers.Task) {
 	defer free(r)
 	defer uploads.free_bytes(r.data)
 	res := web.resume(&r.deferred)
-	if res == nil { return }
+	if res == nil {
+		answered(rawptr(uintptr(r.bytes)))
+		return
+	}
+	web.after_sent(res, answered, rawptr(uintptr(r.bytes)))
 	defer web.finish(&r.deferred, res)
 	switch {
 	case !r.ran:

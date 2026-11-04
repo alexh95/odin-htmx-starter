@@ -43,6 +43,11 @@ respond_file :: proc(res: ^Response, name: string, content: []byte, status := St
 	http.respond_file_content(res, name, content, status)
 }
 
+// Runs once this response has gone, or failed to, when its connection's memory is given back.
+after_sent :: proc(res: ^Response, cb: proc(user: rawptr), user: rawptr) {
+	res._after_sent, res._after_sent_user = cb, user
+}
+
 respond_status :: proc(res: ^Response, status: Status) {
 	http.respond(res, status)
 }

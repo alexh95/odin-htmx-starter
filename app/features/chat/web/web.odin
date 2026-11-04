@@ -15,6 +15,7 @@ import "core:strings"
 import "core:time"
 
 import "../../../platform/authz"
+import "../../../platform/env"
 import "../../../platform/html"
 import "../../../platform/hub"
 import "../../../platform/store"
@@ -92,6 +93,9 @@ JOBS := [?]workers.Job {
 // typing 1 per 2 s.
 @(private) posts := web.Limit{n = 5, window = 10 * time.Second}
 @(private) typists := web.Limit{n = 1, window = 2 * time.Second}
+@(private) reporting := web.Limit{window = time.Minute} // n's from the env, as these three
+@(private) writes := web.Limit{window = time.Minute}
+@(private) searches := web.Limit{window = time.Second}
 
 @(private)
 SLOW_DOWN :: "Slow down: at most 5 messages in 10 seconds."
@@ -106,6 +110,9 @@ FALLBACK :: "chat_fallback"
 init :: proc() {
 	chat.init()
 	chat_transport_ws.post = socket_post
+	reporting.n = env.int_("CHAT_REPORTS_PER_MINUTE")
+	writes.n = env.int_("CHAT_WRITES_PER_MINUTE")
+	searches.n = env.int_("CHAT_SEARCHES_PER_SECOND")
 }
 
 // From main, once the store is open: the lobby into an empty one.
@@ -153,6 +160,11 @@ index :: proc(req: ^web.Request, res: ^web.Response) {
 @(private)
 search_page :: proc(req: ^web.Request, res: ^web.Response) {
 	q := web.query_get(req, "q")
+	if len(q) > chat.MAX_SEARCH_QUERY { q = strings.truncate_to_rune(q, chat.MAX_SEARCH_QUERY) }
+	if ok, retry := web.limit_hit(&searches, web.viewer(req).id); !ok {
+		web.respond_limited(res, retry, "Too many searches: wait a moment.")
+		return
+	}
 	hits := make([dynamic]m.Hit, context.temp_allocator)
 	if err := chat.search(web.viewer(req), q, &hits); err != .None {
 		web.respond_store_error(req, res, err)
@@ -237,6 +249,7 @@ set_transport :: proc(req: ^web.Request, res: ^web.Response) {
 		return
 	}
 	v := web.viewer(req)
+	if v.id != 0 && !write_allowed(req, res) { return }
 	if authz.keep_connection == nil || v.id == 0 || !authz.keep_connection(v.id, s) {
 		web.set_header(res, "set-cookie", fmt.tprintf("%s=%s; Path=/chat; Max-Age=31536000; SameSite=Lax; HttpOnly%s", COOKIE, s, "; Secure" if web.ctx().https else ""))
 	}
@@ -253,6 +266,11 @@ KINDS := [?]struct {
 
 @(private)
 create_room :: proc(req: ^web.Request, res: ^web.Response) {
+	if !write_allowed(req, res) { return }
+	if chat.too_many_rooms(web.viewer(req)) {
+		web.respond_html(res, html.field_msg(false, "You have as many rooms as you can."), .Unprocessable_Content)
+		return
+	}
 	f := web.form(req)
 	name, slug, problem := chat.check_room(f["name"])
 	if problem != "" {
@@ -284,6 +302,15 @@ create_room :: proc(req: ^web.Request, res: ^web.Response) {
 	}
 	web.set_header(res, "hx-redirect", fmt.tprintf("/chat/r/%s", r.slug))
 	web.respond_status(res, .No_Content)
+}
+
+// One limit over what's rare and small enough to write as it comes (§14.1): its answers are the
+// toast slot's.
+@(private)
+write_allowed :: proc(req: ^web.Request, res: ^web.Response) -> bool {
+	ok, retry := web.limit_hit(&writes, web.viewer(req).id)
+	if !ok { web.respond_limited(res, retry, html.toast("error", SLOW_DOWN, false)) }
+	return ok
 }
 
 // ---- posting --------------------------------------------------------------------------------
@@ -463,10 +490,15 @@ menu :: proc(req: ^web.Request, res: ^web.Response) {
 
 @(private)
 edit_form :: proc(req: ^web.Request, res: ^web.Response) {
-	msg, _, ok := message_of(req, res)
+	msg, r, ok := message_of(req, res)
 	if !ok { return }
-	if !chat.may_change(msg, web.viewer(req).id) {
+	v := web.viewer(req)
+	if !chat.may_change(msg, v.id) {
 		web.respond_html(res, html.field_msg(false, "Only your own messages, for 10 minutes."), .Forbidden)
+		return
+	}
+	if why := chat.why_not_post(r, v); why != "" {
+		web.respond_html(res, html.field_msg(false, why), .Forbidden)
 		return
 	}
 	web.respond_html(res, chat_views.edit_form(msg.id, msg.body, ""))
@@ -487,9 +519,18 @@ edit :: proc(req: ^web.Request, res: ^web.Response) {
 	msg, r, ok := message_of(req, res)
 	if !ok { return }
 	typed := web.form(req)["body"]
+	v := web.viewer(req)
+	if why := chat.why_not_post(r, v); why != "" { // a mute or a lock holds for what's already said
+		web.respond_html(res, chat_views.edit_form(msg.id, typed, why), .Forbidden)
+		return
+	}
 	body, problem := chat.check_body(typed)
 	if problem != "" {
 		web.respond_html(res, chat_views.edit_form(msg.id, typed, problem), .Unprocessable_Content)
+		return
+	}
+	if allowed, retry := web.limit_hit(&posts, v.id); !allowed {
+		web.respond_limited(res, retry, html.toast("error", SLOW_DOWN, false))
 		return
 	}
 	change(req, res, msg, r, body, false)
@@ -512,7 +553,8 @@ change :: proc(req: ^web.Request, res: ^web.Response, msg: m.Message, r: m.Room,
 @(private)
 changing :: proc(req: ^web.Request, res: ^web.Response, msg: m.Message, r: m.Room, body: string, del: bool) -> ^Changing {
 	v := web.viewer(req)
-	op := store.new_op(Changing, 3 * len(body) + 2 * len(msg.name) + 2 * len(msg.blob) + len(r.slug) + len(r.name))
+	// The store clones the row beside the new text; `remove` adds an audit entry's strings.
+	op := store.new_op(Changing, 3 * len(body) + 2 * (len(msg.name) + len(msg.body) + len(msg.blob)) + len(r.slug) + len(r.name) + len(v.name) + 256 + 4 * web.MAX_REASON)
 	a := store.op_allocator(op)
 	op.id, op.author, op.delete = msg.id, v.id, del
 	op.body, op.typed = strings.clone(body, a), strings.clone(body, a)
@@ -540,6 +582,7 @@ changed :: proc(o: ^store.Op) {
 	if op.err == .None {
 		hub.publish(chat.room_topic(op.result.room), chat_views.one(op.result.room, op.slug, op.result), op.result.id)
 		chat.released(op.released)
+		if op.delete { notify_web.retract(fmt.tprintf("/chat/r/%s#m-%d", op.slug, op.result.id)) }
 	}
 	if res == nil { return }
 	switch op.err {
@@ -624,6 +667,7 @@ read :: proc(req: ^web.Request, res: ^web.Response) {
 // or a moderator among its members.
 @(private)
 invite :: proc(req: ^web.Request, res: ^web.Response) {
+	if !write_allowed(req, res) { return }
 	r, v, ok := inviting(req, res)
 	if !ok { return }
 	inv, token, err := chat.new_invite(r, v, web.form(req)["once"] == "1")
@@ -744,6 +788,7 @@ leave_room :: proc(req: ^web.Request, res: ^web.Response) {
 // A DM with a message's author (the menu's "Message <name>"): theirs, made when there is none.
 @(private)
 start_dm :: proc(req: ^web.Request, res: ^web.Response) {
+	if !write_allowed(req, res) { return }
 	other, ok := web.parse_id(req.url_params[0])
 	if !ok {
 		web.not_found(req, res)
@@ -770,6 +815,7 @@ start_dm :: proc(req: ^web.Request, res: ^web.Response) {
 
 @(private)
 block_member :: proc(req: ^web.Request, res: ^web.Response, other: u64, name: string) {
+	if !write_allowed(req, res) { return }
 	v := web.viewer(req)
 	if err := chat.block(v.id, other, name); err != .None {
 		web.respond_html(res, html.toast("error", "You can't block yourself.", true), .Unprocessable_Content)
@@ -808,6 +854,7 @@ block_peer :: proc(req: ^web.Request, res: ^web.Response) {
 
 @(private)
 unblock :: proc(req: ^web.Request, res: ^web.Response) {
+	if !write_allowed(req, res) { return }
 	other, ok := web.parse_id(req.url_params[0])
 	if !ok {
 		web.not_found(req, res)
@@ -930,6 +977,7 @@ ban_member :: proc(req: ^web.Request, res: ^web.Response, kind: m.Ban_Kind) {
 out_of_room :: proc(r: m.Room, who: u64) {
 	hub.kick_member(chat.room_topic(r.id), who, "/chat")
 	hub.kick_member(chat.presence_topic(r.id), who, "/chat")
+	hub.kick_member(chat.typing_topic(r.id), who, "/chat")
 }
 
 // A moderator's delete, in a room they moderate: to a tombstone, published as an edit is.
@@ -977,7 +1025,14 @@ report_message :: proc(req: ^web.Request, res: ^web.Response) {
 	}
 	reason, rok := web.prompt_reason(req, res)
 	if !rok { return }
-	if _, err := chat.report(msg, v, reason); err != .None {
+	if allowed, retry := web.limit_hit(&reporting, v.id); !allowed {
+		web.respond_limited(res, retry, html.toast("error", SLOW_DOWN, false))
+		return
+	}
+	if _, err := chat.report(msg, v, reason); err == .Constraint {
+		web.respond_html(res, html.toast("error", "Too many reports are open right now.", true), .Unprocessable_Content)
+		return
+	} else if err != .None {
 		web.respond_store_error(req, res, err)
 		return
 	}
@@ -1054,10 +1109,7 @@ report_dismiss :: proc(req: ^web.Request, res: ^web.Response) {
 // How many reports wait, for a moderator's rooms page; -1 for anyone else.
 @(private)
 open_reports :: proc(v: authz.Viewer) -> int {
-	if !authz.can(v, .Chat_Moderate) { return -1 }
-	list := make([dynamic]m.Report, context.temp_allocator)
-	_ = chat.reports(&list)
-	return len(list)
+	return chat.open_reports() if authz.can(v, .Chat_Moderate) else -1
 }
 
 // ---- the hub's hooks ---------------------------------------------------------------------------
@@ -1067,7 +1119,7 @@ open_reports :: proc(v: authz.Viewer) -> int {
 @(private)
 room_readable :: proc(key: string, v: authz.Viewer) -> bool {
 	id, ok := web.parse_id(key)
-	if !ok { return false }
+	if !ok || fmt.tprintf("%d", id) != key { return false } // one spelling: a kick matches topics by name
 	r, err := chat.room_by_id(id)
 	return err == .None && chat.may_read(r, v)
 }

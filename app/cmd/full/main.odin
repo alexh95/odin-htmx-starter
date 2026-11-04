@@ -54,6 +54,7 @@ main :: proc() {
 	about_web.init(ABOUT)
 	landing_web.init()
 	chat_web.init()
+	notify_web.init()
 	uploads_web.init()
 	ops_web.init()
 	status_web.init()

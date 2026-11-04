@@ -12,3 +12,4 @@ _ : m.Store_Add_Now : add_now
 _ : m.Store_Mute : mute
 _ : m.Store_Muted : muted
 _ : m.Store_Mutes : mutes
+_ : m.Store_Retract : retract

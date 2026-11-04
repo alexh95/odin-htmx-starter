@@ -105,6 +105,38 @@ stops_an_endless_stream :: proc(t: ^testing.T) {
 	testing.expect(t, why != "")
 }
 
+// The audit's files (M6-01, M6-03), height 6400 and width 6250, all nothing but headers. Each is refused
+// at the frame, before `blocks` is made: no trap, no pages touched.
+@(private = "file")
+FRAME :: "\xFF\xD8\xFF\xC0\x00\x11\x08\x19\x00\x18\x6A\x03"
+@(private = "file")
+SCAN :: "\xFF\xDA\x00\x0C\x03\x01\x00\x02\x00\x03\x00\x00\x3F\x00\xFF\xD9"
+
+@(test)
+refuses_a_frame_the_decoder_cant_scan :: proc(t: ^testing.T) {
+	Case :: struct { name, components: string }
+	cases := [?]Case{
+		{"Cb sampled finer than Y", "\x01\x11\x00\x02\x12\x00\x03\x11\x00"},
+		{"no Y at all", "\x02\x11\x00\x02\x11\x00\x02\x11\x00"},
+		{"Cb twice", "\x01\x11\x00\x02\x11\x00\x02\x11\x00"},
+	}
+	for c in cases {
+		data := transmute([]byte)strings.concatenate({FRAME, c.components, SCAN}, context.temp_allocator)
+		_, why := check(data)
+		testing.expectf(t, why == "That image can't be read.", "%s: %q", c.name, why)
+	}
+}
+
+// A JFXX segment naming a thumbnail larger than itself: the decoder goes by the segment's length,
+// as the header read does, so what a COM hides stays hidden from both.
+@(test)
+walks_a_file_as_the_header_read_does :: proc(t: ^testing.T) {
+	JFXX :: "\xFF\xE0\x00\x08JFXX\x00\x13\xFF\xD9"
+	data := transmute([]byte)strings.concatenate({"\xFF\xD8", JFXX}, context.temp_allocator)
+	_, why := check(data)
+	testing.expect_value(t, why, "That image can't be read.")
+}
+
 // Flipped bytes of real files, cut short at any length: an answer, never a trap, and nothing past
 // the pixel cap gets through.
 @(test)
@@ -185,6 +217,13 @@ sweep_and_mirror :: proc(t: ^testing.T) {
 	_, removed, _ = mirror(dest)
 	testing.expect_value(t, removed, 1)
 	testing.expect(t, os.exists(fmt.tprintf("%s/%s", dest, SHA_A)) && !os.exists(fmt.tprintf("%s/%s", dest, SHA_B)))
+
+	// A table that's lost its rows doesn't take the copies: past a handful, most going at once fails.
+	many := fmt.tprintf("%s/backup2/blobs", dir)
+	testing.expect(t, os.make_directory_all(many) == nil)
+	for i in 0 ..< 12 { _ = os.write_entire_file(fmt.tprintf("%s/%064d", many, i), "x") }
+	_, removed, ok = mirror(many)
+	testing.expect(t, !ok && removed == 0)
 
 	// A release with no grace, and a holder that can't tell keeps it.
 	release(SHA_A)

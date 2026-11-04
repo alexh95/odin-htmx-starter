@@ -107,6 +107,7 @@ Req_Ctx :: struct {
 	parsed: bool,
 	impl:     string, // "chat.transport=sse": sent as x-impl and logged
 	deferred: bool,   // the handler deferred its response: its continuation logs it
+	large:    bool,   // holds a large body's count until it's read
 	allow:    []string, // no route: the methods that would answer (405)
 	nonce:    string,   // a .Nonce_Csp route's, this response's (§12.2); "" otherwise
 }

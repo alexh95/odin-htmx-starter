@@ -508,9 +508,14 @@ subscribe :: proc(c: ^stream.Conn, topics: []string, viewer := authz.Viewer{}) -
 	s.user, s.session = viewer.id, viewer.session
 	guard.lock(&h.mu)
 	join_loop()
+	revoked := revoked_since(viewer, web.ctx().start)
 	s.last = h.seq
 	guard.unlock(&h.mu)
 	add_sub(s)
+	// Revoked while this request was on its way, as `/events` asks (M4-09).
+	if revoked {
+		if c.proto == .Multipart { stream.multipart_end(c) } else { stream.ws_close(c, stream.WS_POLICY) }
+	}
 	return s
 }
 

@@ -59,3 +59,42 @@ respond_limited :: proc(res: ^Response, retry_after: time.Duration, body: string
 	set_header(res, "retry-after", strconv.write_int(buf[:], secs, 10))
 	respond_html(res, body, .Too_Many_Requests)
 }
+
+// ---- large bodies (§17.6) -----------------------------------------------------------------
+
+// A route whose body_cap is at least this holds up to that much in its connection's buffer before
+// the handler runs, so `front` counts them, and refuses past the counts before reading a byte.
+LARGE_BODY :: 1 << 20
+LARGE_AT_ONCE :: 8
+LARGE_PER_MEMBER :: 2
+
+@(private)
+large: struct {
+	mu:   guard.Mutex,
+	all:  int,
+	each: map[u64]int,
+}
+
+// By its Content-Length; a body that won't say counts.
+declares_large :: proc(req: ^Request) -> bool {
+	n, ok := parse_digits(header(req, "content-length"))
+	return !ok || n >= LARGE_BODY
+}
+
+large_begin :: proc(user: u64) -> bool {
+	guard.lock(&large.mu)
+	defer guard.unlock(&large.mu)
+	if large.each == nil { large.each = make(map[u64]int, runtime.heap_allocator()) }
+	if large.all >= LARGE_AT_ONCE || large.each[user] >= LARGE_PER_MEMBER { return false }
+	large.all += 1
+	large.each[user] += 1
+	return true
+}
+
+large_end :: proc(user: u64) {
+	guard.lock(&large.mu)
+	defer guard.unlock(&large.mu)
+	large.all -= 1
+	if large.each[user] <= 1 { delete_key(&large.each, user) } else { large.each[user] -= 1 }
+}
+

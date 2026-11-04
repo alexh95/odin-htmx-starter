@@ -115,18 +115,28 @@ blobs :: proc(before: i64, out: ^[dynamic]string) -> m.Error {
 	return .None
 }
 
-drop_blob :: proc(sha256: string) -> m.Error {
+drop_blob :: proc(sha256: string, before: i64) -> (dropped: bool, err: m.Error) {
 	mem_store.lock(&s.lock)
 	defer mem_store.unlock(&s.lock)
 	for b, i in s.blobs {
-		if b.sha256 == sha256 {
+		if b.sha256 == sha256 && b.at < before {
 			delete(b.sha256)
 			delete(b.mime)
 			ordered_remove(&s.blobs, i)
-			break
+			return true, .None
 		}
 	}
-	return .None
+	return false, .None
+}
+
+bytes_held :: proc(user: u64, since: i64) -> (member, all: int) {
+	mem_store.lock(&s.lock)
+	defer mem_store.unlock(&s.lock)
+	for u in s.uploads {
+		if u.user == user && u.at >= since { member += u.size }
+	}
+	for b in s.blobs { all += b.bytes }
+	return
 }
 
 blob :: proc(sha256: string) -> (m.Blob, m.Error) {

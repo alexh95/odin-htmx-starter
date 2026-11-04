@@ -61,7 +61,20 @@ muted :: proc(user: u64, kind, scope: string) -> bool {
 	return notify_store.muted(user, kind) || (scope != "" && notify_store.muted(user, scope))
 }
 
-mute :: proc(user: u64, key: string, on: bool) -> m.Error { return notify_store.mute(user, key, on) }
+MAX_MUTES :: 200 // a member's; unmuting is always allowed
+
+// .Constraint: they've muted as much as they may.
+mute :: proc(user: u64, key: string, on: bool) -> m.Error {
+	if on {
+		have := make([dynamic]string, context.temp_allocator)
+		_ = notify_store.mutes(user, &have)
+		if len(have) >= MAX_MUTES { return .Constraint }
+	}
+	return notify_store.mute(user, key, on)
+}
+
+// What its producer took back (a deleted message): out of every Inbox.
+retract :: proc(ref: string) -> m.Error { return notify_store.retract(ref) }
 mutes :: proc(user: u64, out: ^[dynamic]string) -> m.Error { return notify_store.mutes(user, out) }
 
 // A kind or a scope, as a member's mute names it: what valid_kind allows, and a `:` in a scope.

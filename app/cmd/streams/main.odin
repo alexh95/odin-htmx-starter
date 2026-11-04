@@ -33,6 +33,7 @@ main :: proc() {
 	hub.init()
 	hub.mount("main", ..TOPICS[:])
 	chat_web.init()
+	notify_web.init()
 	uploads_web.init()
 	bot_web.init()
 	ops_web.init()

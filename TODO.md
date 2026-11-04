@@ -16,6 +16,17 @@ copy-and-start ergonomics and good defaults matter more than feature depth.
 > items (**bulk actions**, a **named console identity**) are **out of scope as goals** — they'd just
 > be cruft a copier deletes — and survive only as "example extensions you might add."
 
+## M6's audit: what stays open (docs/audit/M6.md)
+
+- [ ] **Rooms can't be deleted** (M6-07), and nobody can remove a member from a private room (M6-16): with the room
+      settings page (3a).
+- [ ] **A post in flight isn't a holder** (M6-10): a delete or the sweep in the same milliseconds costs that message its
+      image; a purge racing a post can leave a message naming a blob that a later upload brings back.
+- [ ] **A session's expiry doesn't reach an open stream** (M6-12): revokes do. Give a stream its session's end.
+- [ ] **Search on the query pool** (M6-13), when `find` comes (M8).
+- [ ] **Small things** (M6-16): a private room's slug can be probed by name, a moderator can mute an admin, a renamed
+      member's socket keeps the old name, `report_remove` closes before it removes.
+
 ## Known flakes (seen once, passed on a rerun: not fixed)
 
 - `contacts/crud.spec:4` on Firefox (skeleton): "Invited" stayed where "Disabled" was due, both attempts of one run on
@@ -1284,11 +1295,10 @@ what still applies lives here.
       still kills the server. Report it upstream with the chunked path's `size < 0` guard (#117) as
       the fix. Fixed in the vendored fork (F-6, `app/vendor/odin-http/UPSTREAM.md`); the issue is
       drafted, still to post upstream.
-- [ ] **Upstream (Odin `core:image`, Alex's go to file): two faults on hostile input.** The JPEG reader sums a Huffman
-      table's counts in a `u8`, so a table past 256 symbols wraps and traps out of bounds at `jpeg.odin:533`; PNG's
-      inflate doesn't stop at the declared size, so a 282-byte file (`app/features/uploads/testdata/endless.png`) grows
-      its output until the allocator refuses. `uploads` holds both off; drop `huffman_fits` and the cap's comment when
-      they're fixed.
+- [ ] **Upstream (Odin `core:image`, `core:nbio`, Alex's go to file).** The JPEG reader: a Huffman table's counts wrap a
+      `u8`, a frame's sampling factors and a missing Y reach an unchecked scan, and JFXX walks past its segment
+      (`platform/jpeg`'s README lists each; drop that copy once fixed). PNG's inflate doesn't stop at the declared size
+      (`app/features/uploads/testdata/endless.png`). core:nbio's Linux tick waits while work is queued (F-23).
 - [ ] **Upstream (_hyperscript 0.9.94): its bootstrap's fetch has no catch.** At load it fetches every
       `<script type="text/hyperscript" src>` (`Promise.all(… await fetch(r.src) …)`, the bundle's line 22), and a
       navigation that cuts the fetch rejects it in Firefox (AbortError, or a TypeError NetworkError; Chromium stays

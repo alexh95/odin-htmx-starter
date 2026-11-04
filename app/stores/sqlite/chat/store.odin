@@ -37,6 +37,7 @@ MIGRATIONS := [?]store.Migration {
 	{5, "0005_fts.sql", #load("migrations/0005_fts.sql", string)},
 	{6, "0006_images.sql", #load("migrations/0006_images.sql", string)},
 	{7, "0007_blocks.sql", #load("migrations/0007_blocks.sql", string)},
+	{8, "0008_reports.sql", #load("migrations/0008_reports.sql", string)},
 }
 
 @(private) ROOM_COLS :: "id, slug, name, at, kind, owner, dropped, locked, slow"
@@ -44,7 +45,9 @@ MIGRATIONS := [?]store.Migration {
 @(private) SQL_ROOMS :: "SELECT " + ROOM_COLS + " FROM chat_rooms ORDER BY id"
 @(private) SQL_ROOMS_FOR :: "SELECT " + ROOM_COLS + " FROM chat_rooms WHERE kind IN (0, 2) OR id IN (SELECT room FROM chat_members WHERE who = ?) ORDER BY id"
 @(private) SQL_ROOM :: "SELECT " + ROOM_COLS + " FROM chat_rooms WHERE slug = ?"
-@(private) SQL_ROOM_COUNT :: "SELECT count(*) FROM chat_rooms"
+@(private) SQL_ROOM_COUNT :: "SELECT count(*) FROM chat_rooms WHERE kind <> 3" // a DM's a pair's, and takes no one's room
+@(private) SQL_ROOM_OF :: "SELECT " + ROOM_COLS + " FROM chat_rooms WHERE id = ?"
+@(private) SQL_ROOMS_OWNED :: "SELECT count(*) FROM chat_rooms WHERE owner = ? AND kind <> 3"
 @(private) SQL_ADD_ROOM :: "INSERT INTO chat_rooms(slug, name, at, kind, owner, dm) VALUES(?, ?, ?, ?, ?, ?)"
 @(private) SQL_DM :: "SELECT " + ROOM_COLS + " FROM chat_rooms WHERE dm = ?"
 @(private) SQL_MEMBERS :: "SELECT room, who, name, at FROM chat_members WHERE room = ? ORDER BY who = (SELECT owner FROM chat_rooms WHERE id = room) DESC, at, who"
@@ -86,10 +89,12 @@ MIGRATIONS := [?]store.Migration {
 @(private) SQL_BAN :: "INSERT INTO chat_bans(room, who, kind, until, made_by) VALUES(?, ?, ?, ?, ?) ON CONFLICT(room, who, kind) DO UPDATE SET until = excluded.until, made_by = excluded.made_by"
 @(private) SQL_BANNED :: "SELECT until FROM chat_bans WHERE room = ? AND who = ? AND kind = ? AND until > ?"
 @(private) REPORT_COLS :: "id, room, msg, author, author_name, body, made_by, by_name, reason, at, resolved, outcome, blob"
-@(private) SQL_REPORT :: "INSERT INTO chat_reports(room, msg, author, author_name, body, made_by, by_name, reason, at, blob) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-@(private) SQL_REPORTS :: "SELECT " + REPORT_COLS + " FROM chat_reports WHERE resolved = 0 ORDER BY id"
+@(private) SQL_REPORT :: "INSERT INTO chat_reports(room, msg, author, author_name, body, made_by, by_name, reason, at, blob) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING"
+@(private) SQL_REPORTS :: "SELECT " + REPORT_COLS + " FROM chat_reports WHERE resolved = 0 ORDER BY id LIMIT ?"
+@(private) SQL_REPORTS_THEIRS :: "SELECT count(*) FROM chat_reports WHERE resolved = 0 AND made_by = ?"
+@(private) SQL_REPORTS_ALL :: "SELECT count(*) FROM chat_reports WHERE resolved = 0"
 @(private) SQL_REPORT_OF :: "SELECT " + REPORT_COLS + " FROM chat_reports WHERE id = ?"
-@(private) SQL_RESOLVE :: "UPDATE chat_reports SET resolved = ?, outcome = ? WHERE id = ? AND resolved = 0"
+@(private) SQL_RESOLVE :: "UPDATE chat_reports SET resolved = ?, outcome = ?, body = '', blob = '' WHERE id = ? AND resolved = 0"
 @(private) SQL_BLOB_HELD :: "SELECT EXISTS(SELECT 1 FROM chat_messages WHERE blob = ?1) OR EXISTS(SELECT 1 FROM chat_reports WHERE blob = ?1 AND resolved = 0)"
 @(private) SQL_HOLDING :: "SELECT " + MSG_COLS + " FROM chat_messages WHERE blob = ?"
 @(private) SQL_UNBLOB :: "UPDATE chat_messages SET blob = '', ver = ? WHERE id = ?"
@@ -318,6 +323,22 @@ message :: proc(id: i64) -> (msg: m.Message, err: m.Error) {
 	db.bind_id(q, 1, id)
 	if !db.next_row(q, &err) { return {}, err if err != .None else .Not_Found }
 	return one_msg(q), .None
+}
+
+room_of :: proc(id: i64) -> (r: m.Room, err: m.Error) {
+	q := db.read(SQL_ROOM_OF)
+	defer db.reset(q)
+	db.bind_id(q, 1, id)
+	if !db.next_row(q, &err) { return {}, err if err != .None else .Not_Found }
+	return one_room(q), .None
+}
+
+rooms_owned :: proc(owner: u64) -> int {
+	q := db.read(SQL_ROOMS_OWNED)
+	defer db.reset(q)
+	db.bind_id(q, 1, i64(owner))
+	err: m.Error
+	return db.column_int(q, 0) if db.next_row(q, &err) else 0
 }
 
 post :: proc(op: ^m.Post) -> bool {
@@ -607,17 +628,30 @@ report :: proc(r: m.Report) -> (id: i64, err: m.Error) {
 		db.bind_id(st, 9, r.at)
 		db.bind_text(st, 10, r.blob)
 		if making.err = db.step_done(st); making.err != .None { return false }
-		making.report.id = db.last_insert_id()
+		making.report.id = db.last_insert_id() if db.changes() > 0 else 0
 		return true
 	})
 	if !ok { return 0, making.err if making.err != .None else .Failed }
 	return making.report.id, .None
 }
 
-reports :: proc(out: ^[dynamic]m.Report) -> (err: m.Error) {
+reports :: proc(limit: int, out: ^[dynamic]m.Report) -> (err: m.Error) {
 	q := db.read(SQL_REPORTS)
 	defer db.reset(q)
+	db.bind_int(q, 1, limit)
 	for db.next_row(q, &err) { append(out, one_report(q)) }
+	return
+}
+
+open_reports :: proc(by: u64) -> (theirs, all: int) {
+	err: m.Error
+	q := db.read(SQL_REPORTS_THEIRS)
+	db.bind_id(q, 1, i64(by))
+	if db.next_row(q, &err) { theirs = db.column_int(q, 0) }
+	db.reset(q)
+	q = db.read(SQL_REPORTS_ALL)
+	if db.next_row(q, &err) { all = db.column_int(q, 0) }
+	db.reset(q)
 	return
 }
 

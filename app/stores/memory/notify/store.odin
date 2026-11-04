@@ -37,6 +37,22 @@ Mute :: struct {
 	key:  string,
 }
 
+retract :: proc(ref: string) -> m.Error {
+	mem_store.lock(&s.lock)
+	defer mem_store.unlock(&s.lock)
+	ref_of := ref
+	for _, r in s.users {
+		mem_store.ring_filter(r, proc(it: ^m.Item, data: rawptr) -> bool {
+			if it.ref != (^string)(data)^ { return true }
+			delete(it.kind)
+			delete(it.ref)
+			delete(it.html)
+			return false
+		}, rawptr(&ref_of))
+	}
+	return .None
+}
+
 list :: proc(user: u64, limit: int, out: ^[dynamic]m.Item) -> m.Error {
 	mem_store.lock(&s.lock)
 	defer mem_store.unlock(&s.lock)

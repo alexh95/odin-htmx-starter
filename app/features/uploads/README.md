@@ -14,12 +14,11 @@ Progress comes from each chunk's answer, not from `uploads.upload:<id>`: the pag
 loads, and the shim holds the answer already.
 
 **What the bytes are** is decided by the bytes: magic bytes, then the header's size against 40 MP before anything is
-allocated for it, then a full decode with `core:image`. Only PNG and JPEG get through, so SVG and HTML never do, and no
-progressive JPEG, which `core:image` doesn't read. `core:image` isn't written for hostile input, and two things stand
-in front of it (the fuzz found both; both are upstream reports waiting in `TODO.md`):
+allocated for it, then a full decode. Only PNG and JPEG get through, so SVG and HTML never do, and no progressive JPEG,
+which `core:image` doesn't read. `core:image` isn't written for hostile input (the upstream reports wait in `TODO.md`), so:
 
-- a JPEG's Huffman tables are checked first: its reader sums their counts in a `u8`, and past 256 symbols indexes out of
-  bounds;
+- a JPEG goes through `platform/jpeg`, `core:image/jpeg` patched for it (its README lists how), and `read_header` still
+  refuses the worst before it gets there;
 - a decode runs in an arena with a hard cap, room for its declared pixels and never more than 256 MiB: the inflate
   behind PNG doesn't stop at the declared size, and a 282-byte file would take all the memory there is. The allocator's
   refusal is what ends it. That cap is the real limit, below 40 MP: about 31 MP for a JPEG, 23 MP for an RGB PNG
@@ -36,6 +35,10 @@ true: a file goes only on a no.
 
 **Backups**: `uploads.mirror`, daily, keeps `<BACKUP_DIR>/blobs/` as the rows say (`docs/DATA.md`): a build with no backups
 calls no `backs_up_to` and the job does nothing.
+
+**Limits**: 256 MiB a member a day and 16 GiB overall (`UPLOADS_BYTES_PER_DAY`, `UPLOADS_MAX_BYTES`); a decode has 30 s, then
+the watchdog exits 70; a body of 1 MiB or more is counted before it's read, 8 at once and 2 a member (`web.large_begin`);
+blob answers are counted to 64 MiB until they've gone.
 
 **Pools**: chunks on `uploads` (2 threads, queue 8: §17.6's 8 × 4 MiB), finishes on `decodes` (1, queue 8), reads on
 `blobs` (2, queue 32); past a queue, 503.

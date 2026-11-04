@@ -10,6 +10,9 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 
 ### Added
 
+- **Limits a member can't talk past** (M6's audit): reports (5 a minute, once a message, 20 open each), rooms, DMs,
+  invites and blocks (30 a minute), rooms owned (20), searches (10 a second), mutes (200), and uploads' bytes (256 MiB a
+  day, 16 GiB overall). Large bodies are counted before they're read, 8 at once and 2 a member. Each has an env row.
 - **Blocking** (M6): a member can block another from a DM, a message's menu or `/chat/blocks`. The DM closes both ways,
   neither can start one, and the blocked member's DMs and mentions stop reaching the Inbox. Public rooms and moderation
   don't change, and nothing is audited (`0007_blocks.sql`).
@@ -82,6 +85,10 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 
 ### Fixed
 
+- **A hostile JPEG reached a decode loop with no bounds checks**, and a trap there leaked what it had touched: `platform/jpeg`
+  is `core:image/jpeg` patched for what strangers send, and a finish's memory now goes whatever happens. A decode has 30 s.
+- **An edit passed none of a post's rules**: a muted member could keep changing their messages. A deleted message's Inbox
+  lines go with it, and a closed report keeps its record, not its copy.
 - **A chat message over a WebSocket on a store with a writer thread waited for the next timer**, up to 1 s: the writer's
   answer queued the hub's drain, and the loop went to sleep past it. F-23 now counts work posted from other threads.
 - **An open stream can't outlive its room's rules**: a socket's frame was judged on the room as the socket found it,

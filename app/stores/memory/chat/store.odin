@@ -374,6 +374,9 @@ banned :: proc(room_id: i64, who: u64, kind: m.Ban_Kind, at: i64) -> (until: i64
 report :: proc(r: m.Report) -> (id: i64, err: m.Error) {
 	mem_store.lock(&s.lock)
 	defer mem_store.unlock(&s.lock)
+	for old in s.reports {
+		if old.resolved == 0 && old.msg == r.msg && old.by == r.by { return 0, .None }
+	}
 	if len(s.reports) >= MAX_REPORTS {
 		gone := 0
 		for old, i in s.reports {
@@ -393,13 +396,41 @@ report :: proc(r: m.Report) -> (id: i64, err: m.Error) {
 	return row.id, .None
 }
 
-reports :: proc(out: ^[dynamic]m.Report) -> m.Error {
+reports :: proc(limit: int, out: ^[dynamic]m.Report) -> m.Error {
 	mem_store.lock(&s.lock)
 	defer mem_store.unlock(&s.lock)
 	for r in s.reports {
-		if r.resolved == 0 { append(out, copy_report(r)) }
+		if r.resolved == 0 && len(out) < limit { append(out, copy_report(r)) }
 	}
 	return .None
+}
+
+open_reports :: proc(by: u64) -> (theirs, all: int) {
+	mem_store.lock(&s.lock)
+	defer mem_store.unlock(&s.lock)
+	for r in s.reports {
+		if r.resolved != 0 { continue }
+		all += 1
+		if r.by == by { theirs += 1 }
+	}
+	return
+}
+
+room_of :: proc(id: i64) -> (m.Room, m.Error) {
+	mem_store.lock(&s.lock)
+	defer mem_store.unlock(&s.lock)
+	if r := by_id(id); r != nil { return copy_room(r.room), .None }
+	return {}, .Not_Found
+}
+
+rooms_owned :: proc(owner: u64) -> int {
+	mem_store.lock(&s.lock)
+	defer mem_store.unlock(&s.lock)
+	n := 0
+	for r in s.rooms {
+		if r.room.owner == owner && r.room.kind != .Dm { n += 1 }
+	}
+	return n
 }
 
 report_of :: proc(id: i64) -> (m.Report, m.Error) {
@@ -417,6 +448,9 @@ resolve :: proc(id: i64, at: i64, outcome: string, audit: m.Audit) -> m.Error {
 	for &r in s.reports {
 		if r.id == id && r.resolved == 0 {
 			r.resolved, r.outcome, found = at, outcome, true // the outcome is one of two literals
+			delete(r.body)
+			delete(r.blob)
+			r.body, r.blob = "", ""
 			break
 		}
 	}

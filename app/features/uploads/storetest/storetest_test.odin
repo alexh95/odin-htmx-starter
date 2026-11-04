@@ -26,6 +26,7 @@ Family :: struct {
 	blob:       m.Store_Blob,
 	blobs:      m.Store_Blobs,
 	drop_blob:  m.Store_Drop_Blob,
+	bytes_held: m.Store_Bytes_Held,
 }
 
 @(private = "file")
@@ -74,10 +75,16 @@ conforms :: proc(t: ^testing.T, f: Family) {
 	clear(&list)
 	testing.expect_value(t, f.blobs(NOW + 1, &list), m.Error.None)
 	testing.expect_value(t, len(list), 0)
-	testing.expect_value(t, f.drop_blob(SHA), m.Error.None)
+	member, all := f.bytes_held(7, NOW)
+	testing.expectf(t, member == 100 && all == 9, "%s: bytes %d %d", f.name, member, all) // the upload at NOW, not the older one
+	stayed, _ := f.drop_blob(SHA, NOW + 100) // made at NOW + 100: not before it
+	testing.expect(t, !stayed)
+	went, derr := f.drop_blob(SHA, max(i64))
+	testing.expect(t, went && derr == .None)
 	_, dropped := f.blob(SHA)
 	testing.expect_value(t, dropped, m.Error.Not_Found)
-	testing.expect_value(t, f.drop_blob(SHA), m.Error.None)
+	went, _ = f.drop_blob(SHA, max(i64))
+	testing.expect(t, !went)
 }
 
 // One test, in order: the stores are process-wide.
@@ -88,10 +95,10 @@ both_families :: proc(t: ^testing.T) {
 	guard.install(proc(_: ^guard.Crash) {})
 	testing.expect_value(t, nbio.acquire_thread_event_loop(), nil)
 	defer nbio.release_thread_event_loop()
-	conforms(t, {"memory", mem.create, mem.upload, mem.advance, mem.close, mem.open_count, mem.stale, mem.add_blob, mem.blob, mem.blobs, mem.drop_blob})
+	conforms(t, {"memory", mem.create, mem.upload, mem.advance, mem.close, mem.open_count, mem.stale, mem.add_blob, mem.blob, mem.blobs, mem.drop_blob, mem.bytes_held})
 	testing.expect_value(t, db.open_db(":memory:", .Ephemeral, "storetest"), "")
 	defer db.close()
 	db.migrate("uploads", sql.MIGRATIONS[:])
-	conforms(t, {"sqlite", sql.create, sql.upload, sql.advance, sql.close, sql.open_count, sql.stale, sql.add_blob, sql.blob, sql.blobs, sql.drop_blob})
+	conforms(t, {"sqlite", sql.create, sql.upload, sql.advance, sql.close, sql.open_count, sql.stale, sql.add_blob, sql.blob, sql.blobs, sql.drop_blob, sql.bytes_held})
 	free_all(context.temp_allocator)
 }

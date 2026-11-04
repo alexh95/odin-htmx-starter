@@ -191,8 +191,12 @@ Store_Set_Audit_Writer :: proc(w: Audit_Writer) // at init
 Store_Set_Room :: proc(room: i64, locked: bool, slow: int, audit: Audit) -> Error
 Store_Ban :: proc(b: Ban, audit: Audit) -> Error // until <= now lifts it
 Store_Banned :: proc(room: i64, who: u64, kind: Ban_Kind, now: i64) -> (until: i64) // 0: not
-Store_Report :: proc(r: Report) -> (id: i64, err: Error) // r.id, resolved and outcome are ignored
-Store_Reports :: proc(out: ^[dynamic]Report) -> Error // the open ones, oldest first
+// r.id, resolved and outcome are ignored; 0: this member has it open already
+Store_Report :: proc(r: Report) -> (id: i64, err: Error)
+Store_Reports :: proc(limit: int, out: ^[dynamic]Report) -> Error // the oldest open ones
+Store_Open_Reports :: proc(by: u64) -> (theirs, all: int)
+Store_Room_Of :: proc(id: i64) -> (Room, Error)
+Store_Rooms_Owned :: proc(owner: u64) -> int // DMs aside
 Store_Report_Of :: proc(id: i64) -> (Report, Error)
 Store_Resolve :: proc(id: i64, at: i64, outcome: string, audit: Audit) -> Error // .Not_Found unless open
 Store_Recent :: proc(room: i64, limit: int, out: ^[dynamic]Message) -> Error // oldest first

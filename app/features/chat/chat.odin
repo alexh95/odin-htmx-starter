@@ -21,6 +21,7 @@ import "core:unicode/utf8"
 import "../../platform/authz"
 import "../../platform/env"
 import "../../platform/guard"
+import "../../platform/store"
 import "../../platform/sys"
 import m "models"
 import uploads "../uploads"
@@ -87,6 +88,10 @@ ENV := [?]env.Row {
 	{name = "CHAT_DM_CAP", kind = .Int, def = "1000", doc = "messages a DM keeps"},
 	{name = "CHAT_DM_MAX_AGE", kind = .Duration, def = "30d", doc = "and none older than this"},
 	{name = "CHAT_ANNOUNCE_CAP", kind = .Int, def = "100", doc = "messages announcements keep"},
+	{name = "CHAT_REPORTS_PER_MINUTE", kind = .Int, def = "5", doc = "reports a member may file in a minute"},
+	{name = "CHAT_WRITES_PER_MINUTE", kind = .Int, def = "30", doc = "rooms, DMs, invites, blocks and settings a member may change in a minute"},
+	{name = "CHAT_ROOMS_PER_MEMBER", kind = .Int, def = "20", doc = "rooms a member may own, DMs aside; moderators aren't held to it"},
+	{name = "CHAT_SEARCHES_PER_SECOND", kind = .Int, def = "10", doc = "searches a member may run in a second (§17.5)"},
 	{name = "CHAT_ANNOUNCE_MAX_AGE", kind = .Duration, def = "365d", doc = "and none older than this"},
 }
 
@@ -288,22 +293,32 @@ set_ban :: proc(r: m.Room, a: Actor, who: u64, kind: m.Ban_Kind, minutes: int, r
 	return chat_store.ban(b, audit(a, name, "user", i64(who), reason, fmt.tprintf("room=%d minutes=%d", r.id, mins)))
 }
 
-// A moderator's delete of `msg` to a tombstone, audited; op.done runs once it is stored.
+// A moderator's delete of `msg` to a tombstone, audited; op.done runs once it is stored. The op
+// can outlive its connection, so what its audit entry names is in the op's own memory.
 remove :: proc(op: ^m.Change, a: Actor, reason, action: string) -> bool {
 	op.delete, op.moderated = true, true
-	op.audit = audit(a, action, "message", op.id, reason, "")
+	mem := store.op_allocator(op)
+	op.audit = audit({a.id, strings.clone(a.name, mem), strings.clone(a.client, mem)}, action, "message", op.id, strings.clone(reason, mem), "")
 	return chat_store.change(op)
 }
 
-// A member's report of `msg` in `r` (any kind of room), with a copy of it for the moderators.
+// A member's report of `msg` in `r` (any kind of room), with a copy of it for the moderators; again
+// answers as the first did. .Constraint: past what may be open, theirs or anyone's. A moderator's
+// page lists the oldest REPORTS_SHOWN, so the rest wait behind them.
 report :: proc(msg: m.Message, v: authz.Viewer, reason: string) -> (i64, m.Error) {
+	theirs, all := chat_store.open_reports(v.id)
+	if theirs >= MAX_OPEN_REPORTS_EACH || all >= MAX_OPEN_REPORTS { return 0, .Constraint }
 	return chat_store.report({
 		room = msg.room, msg = msg.id, author = msg.author, author_name = msg.name, body = msg.body, blob = msg.blob,
 		by = v.id, by_name = v.name, reason = reason, at = now(),
 	})
 }
 
-reports :: proc(out: ^[dynamic]m.Report) -> m.Error { return chat_store.reports(out) }
+reports :: proc(out: ^[dynamic]m.Report) -> m.Error { return chat_store.reports(REPORTS_SHOWN, out) }
+open_reports :: proc() -> int {
+	_, all := chat_store.open_reports(0)
+	return all
+}
 report_of :: proc(id: i64) -> (m.Report, m.Error) { return chat_store.report_of(id) }
 
 // A report closed as `outcome` ("removed" or "dismissed"), audited.
@@ -431,14 +446,7 @@ may_create :: proc(kind: m.Room_Kind, v: authz.Viewer) -> bool {
 }
 
 // A message's room, for its menu's link.
-room_by_id :: proc(id: i64) -> (m.Room, m.Error) {
-	all := make([dynamic]m.Room, 0, 16, context.temp_allocator)
-	if err := chat_store.rooms(&all); err != .None { return {}, err }
-	for r in all {
-		if r.id == id { return r, .None }
-	}
-	return {}, .Not_Found
-}
+room_by_id :: proc(id: i64) -> (m.Room, m.Error) { return chat_store.room_of(id) }
 
 // ---- search ------------------------------------------------------------------------------
 
@@ -448,7 +456,7 @@ MAX_SEARCH_WORDS :: 8
 // What `q` finds in the rooms `v` may read, newest first. Global search is `find`'s (M8).
 search :: proc(v: authz.Viewer, q: string, out: ^[dynamic]m.Hit) -> m.Error {
 	words := make([dynamic]string, 0, MAX_SEARCH_WORDS, context.temp_allocator)
-	rest := q
+	rest, _ := strings.remove_all(q, "\x00", context.temp_allocator) // FTS5 reads its query as a C string
 	for w in strings.fields_iterator(&rest) {
 		if len(words) == MAX_SEARCH_WORDS { break }
 		append(&words, w)
@@ -521,6 +529,10 @@ purge_image :: proc(sha: string, a: Actor, reason: string, out: ^[dynamic]m.Mess
 // ---- blocks ------------------------------------------------------------------------------------
 
 CANT_MESSAGE :: "You can't message this member."
+MAX_OPEN_REPORTS :: 1000
+MAX_OPEN_REPORTS_EACH :: 20
+REPORTS_SHOWN :: 100
+MAX_SEARCH_QUERY :: 200 // bytes
 
 blocking :: proc(who, other: u64) -> bool { return chat_store.blocking(who, other) }
 
@@ -557,6 +569,11 @@ post :: proc(op: ^m.Post) -> bool {
 change :: proc(op: ^m.Change) -> bool {
 	op.window = i64(EDIT_WINDOW / time.Second)
 	return chat_store.change(op)
+}
+
+// Past what they may own? Moderators make rooms for everyone, and aren't held to it.
+too_many_rooms :: proc(v: authz.Viewer) -> bool {
+	return !authz.can(v, .Chat_Moderate) && chat_store.rooms_owned(v.id) >= env.int_("CHAT_ROOMS_PER_MEMBER")
 }
 
 // Whether `who` may still edit or delete `msg`: the menu's question, which the

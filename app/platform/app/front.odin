@@ -78,8 +78,20 @@ front :: proc(req: ^web.Request, res: ^web.Response) {
 			call(c)
 			return
 		}
+		// Before a byte of it: a connection's buffer holds a large body until its handler runs.
+		c.large = m.body_cap >= web.LARGE_BODY && web.declares_large(req)
+		if c.large && !web.large_begin(c.viewer.id) {
+			c.large = false
+			web.set_header(res, "connection", "close")
+			web.respond_plain(res, "Busy: try again in a moment.", .Service_Unavailable)
+			break
+		}
 		web.read_body(req, res, m.body_cap if m.body_cap > 0 else web.MAX_BODY, c, proc(user: rawptr, body: string, ok: bool) {
 			c := (^web.Req_Ctx)(user)
+			if c.large {
+				c.large = false
+				web.large_end(c.viewer.id)
+			}
 			if !ok {
 				done(c)
 				return

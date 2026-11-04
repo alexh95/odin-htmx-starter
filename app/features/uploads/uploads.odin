@@ -6,7 +6,8 @@ package uploads
 // sha256, so the same image twice is one file. What it may be is decided by its bytes alone:
 // magic bytes first, then the size its header claims against MAX_PIXELS, before anything
 // allocates for it (a decode bomb is small on the wire), then a full decode. SVG and HTML never
-// get in: only what core:image decodes here, PNG and JPEG. The disk work runs on web's pool.
+// get in: only what decodes here, PNG and JPEG, the latter through platform/jpeg, a patched
+// core:image/jpeg. The disk work runs on web's pool.
 //
 // A blob lives while something holds it (§17.6). Whoever uses blobs registers a Holder, asked
 // each time, so nothing counts and nothing drifts: the sweep takes what's a day old and unheld,
@@ -17,7 +18,6 @@ import "core:crypto/hash"
 import "core:encoding/hex"
 import "core:fmt"
 import "core:image"
-import "core:image/jpeg"
 import "core:image/png"
 import "core:mem/virtual"
 import "core:os"
@@ -25,6 +25,8 @@ import "core:strings"
 import "core:time"
 
 import "../../platform/env"
+import "../../platform/guard"
+import "../../platform/jpeg"
 import "../../platform/obs"
 import m "models"
 import uploads_store "store:uploads"
@@ -35,6 +37,9 @@ MAX_IMAGE :: 10 << 20 // bytes (§17.6)
 MAX_CHUNK :: 4 << 20
 MAX_PIXELS :: 40_000_000
 DECODE_LIMIT :: 256 << 20 // what one decode may hold; past it an image is refused, whatever its pixels
+
+// A decode has no way to stop but this: past it the process restarts (D15's rule for a hang).
+DECODE_LIMIT_TIME :: 30 * time.Second
 
 // §17.5. An upload nobody finished stops counting after ABANDONED, and the sweep takes it.
 AT_ONCE :: 2
@@ -47,6 +52,8 @@ Holder :: proc(sha256: string) -> bool
 ENV := [?]env.Row {
 	{name = "UPLOADS_DIR", kind = .Path, def = "uploads", doc = "where parts and blobs live; a container's is on its volume"},
 	{name = "UPLOADS_PER_HOUR", kind = .Int, def = "20", doc = "uploads a member may start in an hour (§17.5)"},
+	{name = "UPLOADS_BYTES_PER_DAY", kind = .Size, def = "256MiB", doc = "what a member may upload in a day"},
+	{name = "UPLOADS_MAX_BYTES", kind = .Size, def = "16GiB", doc = "what all the blobs together may hold"},
 }
 
 @(private)
@@ -65,6 +72,8 @@ init :: proc() {
 	st.parts = strings.concatenate({dir, "/parts"})
 	st.blobs = strings.concatenate({dir, "/blobs"})
 }
+
+decoding := guard.Work{name = "image decode", limit = DECODE_LIMIT_TIME}
 
 // At boot, by whatever keeps blobs in its rows.
 holds :: proc(h: Holder) {
@@ -116,6 +125,9 @@ directories :: proc() -> bool {
 begin :: proc(user: u64, size: int) -> (id: i64, problem: string, err: m.Error) {
 	if size <= 0 || size > MAX_IMAGE { return 0, "An image is at most 10 MiB.", .None }
 	if uploads_store.open_count(user, oldest_open()) >= AT_ONCE { return 0, "Two uploads at a time: wait for one to finish.", .None }
+	member, all := uploads_store.bytes_held(user, now() - 86_400)
+	if member + size > env.size("UPLOADS_BYTES_PER_DAY") { return 0, "That's as much as you can upload today.", .None }
+	if all + size > env.size("UPLOADS_MAX_BYTES") { return 0, "The image store is full: tell an admin.", .None }
 	if !directories() { return 0, "", .Failed }
 	id, err = uploads_store.create(user, size, now())
 	return id, "", err
@@ -131,10 +143,13 @@ drop :: proc(id: i64) {
 }
 
 // A blob's row and file, whoever may hold it: a moderator's removal, once its holders let it go.
-erase :: proc(sha: string) -> m.Error {
+// Only one made before `before`: the sweep's list is old by the time it acts, and the same image
+// uploaded since is new.
+erase :: proc(sha: string, before: i64 = max(i64)) -> m.Error {
 	if !valid_sha(sha) { return .Not_Found }
-	if err := uploads_store.drop_blob(sha); err != .None { return err }
-	_ = os.remove(blob_path(sha))
+	dropped, err := uploads_store.drop_blob(sha, before)
+	if err != .None { return err }
+	if dropped { _ = os.remove(blob_path(sha)) }
 	return .None
 }
 
@@ -151,9 +166,10 @@ sweep :: proc() -> (uploads, blobs: int) {
 		uploads = len(ids)
 	}
 	shas := make([dynamic]string, context.temp_allocator)
-	if uploads_store.blobs(now() - i64(UNHELD / time.Second), &shas) == .None {
+	before := now() - i64(UNHELD / time.Second)
+	if uploads_store.blobs(before, &shas) == .None {
 		for sha in shas {
-			if !held(sha) && erase(sha) == .None { blobs += 1 }
+			if !held(sha) && erase(sha, before) == .None { blobs += 1 }
 		}
 	}
 	return
@@ -164,7 +180,8 @@ sweep :: proc() -> (uploads, blobs: int) {
 // `data` at `off` of the part file, and the row moved on. At an offset, not appended: a chunk sent
 // twice (its answer was lost) lands where it landed before.
 write_chunk :: proc(id: i64, off: int, data: []byte) -> m.Error {
-	f, oerr := os.open(part_path(id), {.Write, .Create})
+	// Created by the first chunk alone: a late one has no file to bring back.
+	f, oerr := os.open(part_path(id), {.Write, .Create} if off == 0 else {.Write})
 	if oerr != nil { return .Failed }
 	defer os.close(f)
 	n, werr := os.write_at(f, data, i64(off))
@@ -172,25 +189,44 @@ write_chunk :: proc(id: i64, off: int, data: []byte) -> m.Error {
 	return uploads_store.advance(id, off + n)
 }
 
+// What a finish holds while it decodes, in the task so that a trap frees it too: the guard's
+// longjmp skips a `defer`, and here that would be every page the decode touched.
+Decoding :: struct {
+	arena: virtual.Arena,
+	live:  bool,
+	data:  []byte,
+}
+
+free_decoding :: proc(d: ^Decoding) {
+	if d.live { virtual.arena_destroy(&d.arena) }
+	delete(d.data, runtime.heap_allocator())
+	d^ = {}
+}
+
 // A complete upload, checked and made a blob; refused, its part file goes. `problem` is the
-// member's to read, `err` the store's or the disk's.
-conclude :: proc(u: m.Upload) -> (b: m.Blob, problem: string, err: m.Error) {
+// member's to read, `err` the store's or the disk's. The blob is written from the bytes that were
+// checked, not the part file, which a chunk still queued could change under the decode.
+conclude :: proc(u: m.Upload, d: ^Decoding) -> (b: m.Blob, problem: string, err: m.Error) {
 	path := part_path(u.id)
-	data, rerr := os.read_entire_file(path, runtime.heap_allocator())
+	rerr: os.Error
+	d.data, rerr = os.read_entire_file(path, runtime.heap_allocator())
 	if rerr != nil { return {}, "", .Failed }
-	defer delete(data, runtime.heap_allocator())
-	c, why := check(data)
+	c, why := decode(d.data, d)
 	if why != "" {
 		drop(u.id)
 		return {}, why, .None
 	}
 	sha := string(c.sha256[:])
-	if os.exists(blob_path(sha)) {
-		_ = os.remove(path)
-	} else if os.rename(path, blob_path(sha)) != nil {
-		return {}, "", .Failed
+	to := blob_path(sha)
+	if !os.exists(to) {
+		part := fmt.tprintf("%s.%d", to, u.id)
+		if os.write_entire_file(part, d.data) != nil || os.rename(part, to) != nil {
+			_ = os.remove(part)
+			return {}, "", .Failed
+		}
 	}
-	b = {sha256 = strings.clone(sha, context.temp_allocator), mime = MIME[c.kind], bytes = len(data), width = c.width, height = c.height, user = u.user, at = now()}
+	_ = os.remove(path)
+	b = {sha256 = strings.clone(sha, context.temp_allocator), mime = MIME[c.kind], bytes = len(d.data), width = c.width, height = c.height, user = u.user, at = now()}
 	if err = uploads_store.add_blob(b); err != .None { return }
 	err = uploads_store.close(u.id, .Done)
 	return
@@ -246,10 +282,15 @@ mirror :: proc(dest: string) -> (copied, removed: int, ok: bool) {
 	}
 	there, lerr := os.read_all_directory_by_path(dest, context.temp_allocator)
 	if lerr != nil { return copied, 0, false }
+	going := make([dynamic]string, context.temp_allocator)
 	for f in there {
-		if !alive[strings.trim_suffix(f.name, ".part")] || strings.has_suffix(f.name, ".part") {
-			if os.remove(f.fullpath) == nil { removed += 1 } else { ok = false }
-		}
+		if !alive[strings.trim_suffix(f.name, ".part")] || strings.has_suffix(f.name, ".part") { append(&going, f.fullpath) }
+	}
+	// Most of the copies gone at once isn't a day's removals: it's the wrong database, a volume
+	// not mounted. The copies stay, and the failed run tells an admin.
+	if len(going) > 8 && len(going) * 2 > len(there) { return copied, 0, false }
+	for path in going {
+		if os.remove(path) == nil { removed += 1 } else { ok = false }
 	}
 	return
 }
@@ -355,10 +396,16 @@ Checked :: struct {
 	sha256:        [64]byte,
 }
 
-// What an upload's bytes are, or why they're refused, in the member's words. Everything the
-// decoders allocate goes in an arena of its own; nothing a file claims sizes an allocation until
-// MAX_PIXELS has judged it.
-check :: proc(data: []byte) -> (c: Checked, problem: string) {
+// What an upload's bytes are, or why they're refused, in the member's words.
+check :: proc(data: []byte) -> (Checked, string) {
+	d: Decoding
+	defer free_decoding(&d)
+	return decode(data, &d)
+}
+
+// The same, in `d`'s arena, which the caller frees, trap or not. Nothing a file claims sizes an
+// allocation until MAX_PIXELS has judged it.
+decode :: proc(data: []byte, d: ^Decoding) -> (c: Checked, problem: string) {
 	UNREADABLE :: "That image can't be read."
 	TOO_LARGE :: "That image is too large: at most 40 megapixels."
 	TOO_DEEP :: "That image is too large to read here: try a smaller one, or a JPEG."
@@ -375,14 +422,15 @@ check :: proc(data: []byte) -> (c: Checked, problem: string) {
 	// stream that never ends grows its output until the allocator says no. It takes that no as
 	// an error, so the arena is what ends it. Room for what a decode takes at its deepest, 31
 	// bytes a pixel at 16 bits and four channels, never more than a small container's share.
-	arena: virtual.Arena
 	limit := uint(min(w * h * 32 + 16 << 20, DECODE_LIMIT))
-	if virtual.arena_init_static(&arena, limit) != nil { return c, UNREADABLE }
-	defer virtual.arena_destroy(&arena)
-	a := virtual.arena_allocator(&arena)
+	if virtual.arena_init_static(&d.arena, limit) != nil { return c, UNREADABLE }
+	d.live = true
+	a := virtual.arena_allocator(&d.arena)
 	context.allocator = a
 	img: ^image.Image
 	err: image.Error
+	guard.work_began(&decoding)
+	defer guard.work_ended(&decoding)
 	switch c.kind {
 	case .None:
 	case .Png:
@@ -390,7 +438,7 @@ check :: proc(data: []byte) -> (c: Checked, problem: string) {
 	case .Jpeg:
 		img, err = jpeg.load_from_bytes(data, {}, a)
 	}
-	if err != nil || img == nil { return c, TOO_DEEP if arena.total_used >= limit / 3 else UNREADABLE }
+	if err != nil || img == nil { return c, TOO_DEEP if d.arena.total_used >= limit / 3 else UNREADABLE }
 	c.width, c.height = img.width, img.height
 	if c.width * c.height > MAX_PIXELS { return c, TOO_LARGE }
 

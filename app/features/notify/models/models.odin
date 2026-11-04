@@ -43,3 +43,4 @@ Store_Add_Now :: proc(user: u64, kind, ref, html: string) -> (it: Item, unread: 
 Store_Mute :: proc(user: u64, key: string, on: bool) -> Error
 Store_Muted :: proc(user: u64, key: string) -> bool
 Store_Mutes :: proc(user: u64, out: ^[dynamic]string) -> Error // sorted
+Store_Retract :: proc(ref: string) -> Error // every member's items naming `ref` go

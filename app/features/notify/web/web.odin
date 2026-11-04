@@ -11,6 +11,7 @@ import "core:strings"
 import "core:time"
 
 import "../../../platform/authz"
+import "../../../platform/env"
 import "../../../platform/html"
 import "../../../platform/hub"
 import "../../../platform/obs"
@@ -133,6 +134,10 @@ list :: proc(req: ^web.Request, res: ^web.Response) {
 @(private)
 read_all :: proc(req: ^web.Request, res: ^web.Response) {
 	v := web.viewer(req)
+	if ok, retry := web.limit_hit(&writes, v.id); !ok {
+		web.respond_limited(res, retry, "")
+		return
+	}
 	if err := notify.mark_read(v.id); err != .None {
 		web.respond_store_error(req, res, err)
 		return
@@ -148,18 +153,40 @@ read_all :: proc(req: ^web.Request, res: ^web.Response) {
 // A member mutes or unmutes a kind or a producer's scope; the page shows it on its next render.
 @(private)
 mute :: proc(req: ^web.Request, res: ^web.Response) {
+	if ok, retry := web.limit_hit(&writes, web.viewer(req).id); !ok {
+		web.respond_limited(res, retry, "")
+		return
+	}
 	f := web.form(req)
 	key := f["key"]
 	if !notify.valid_key(key) {
 		web.respond_html(res, html.toast("error", "That can't be muted.", true), .Unprocessable_Content)
 		return
 	}
-	if err := notify.mute(web.viewer(req).id, key, f["on"] == "1"); err != .None {
+	if err := notify.mute(web.viewer(req).id, key, f["on"] == "1"); err == .Constraint {
+		web.respond_html(res, html.toast("error", "That's as many mutes as you can have.", true), .Unprocessable_Content)
+		return
+	} else if err != .None {
 		web.respond_store_error(req, res, err)
 		return
 	}
 	web.set_header(res, "hx-refresh", "true")
 	web.respond_status(res, .No_Content)
+}
+
+// A producer took this back: its items go from every Inbox, with what they quoted.
+retract :: proc(ref: string) { _ = notify.retract(ref) }
+
+@(private) writes := web.Limit{window = time.Minute} // n: NOTIFY_WRITES_PER_MINUTE
+
+ENV := [?]env.Row {
+	{name = "NOTIFY_WRITES_PER_MINUTE", kind = .Int, def = "30", doc = "mutes and Mark read a member may press in a minute"},
+}
+
+// At boot.
+init :: proc() {
+	env.record("NOTIFY_", ENV[:])
+	writes.n = env.int_("NOTIFY_WRITES_PER_MINUTE")
 }
 
 // The home page's card: a member's count and newest few; a guest's nothing.

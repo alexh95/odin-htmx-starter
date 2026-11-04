@@ -26,6 +26,8 @@ Response :: struct {
 	_buf:             bytes.Buffer,
 	_heading_written: bool,
 	_heading_end:     int, // F-24: where the body starts in _buf, which a HEAD's answer ends at
+	_after_sent:      proc(user: rawptr), // F-25: when the response's memory goes
+	_after_sent_user: rawptr,
 }
 
 response_init :: proc(r: ^Response, allocator := context.allocator) {
@@ -376,6 +378,8 @@ _on_response_sent :: proc(op: ^nbio.Operation, conn: ^Connection) {
 @(private)
 clean_request_loop :: proc(conn: ^Connection, close: Maybe(bool) = nil) {
 	context.temp_allocator = conn_arena_allocator(&conn.temp_allocator)
+
+	if cb := conn.loop.res._after_sent; cb != nil { cb(conn.loop.res._after_sent_user) } // F-25
 
 	// blocks, size, used := allocator_free_all(&conn.temp_allocator)
 	// log.debugf("temp_allocator had %d blocks of a total size of %m of which %m was used", blocks, size, used)

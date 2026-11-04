@@ -68,6 +68,9 @@ Family :: struct {
 	message:     m.Store_Message,
 	post:        m.Store_Post,
 	change:      m.Store_Change,
+	open_reports: m.Store_Open_Reports,
+	room_of:     m.Store_Room_Of,
+	rooms_owned: m.Store_Rooms_Owned,
 	blob_held:   m.Store_Blob_Held,
 	purge_blob:  m.Store_Purge_Blob,
 	block:       m.Store_Block,
@@ -273,14 +276,14 @@ moderation :: proc(t: ^testing.T, f: Family) {
 	id, rerr := f.report({room = room.id, msg = msg.id, author = 8, author_name = "bob", body = "rude", by = 7, by_name = "ann", reason = "spam", at = NOW})
 	testing.expectf(t, rerr == .None && id > 0, "%s: a report, %v", f.name, rerr)
 	open := make([dynamic]m.Report, context.temp_allocator)
-	_ = f.reports(&open)
+	_ = f.reports(100, &open)
 	testing.expectf(t, len(open) == 1 && open[0].body == "rude" && open[0].reason == "spam" && open[0].by_name == "ann", "%s: open reports %v", f.name, open[:])
 	testing.expect_value(t, f.resolve(id, NOW, "dismissed", A("chat.report_dismissed")), m.Error.None)
 	testing.expect_value(t, f.resolve(id, NOW, "removed", A("chat.report_removed")), m.Error.Not_Found)
 	row, _ := f.report_of(id)
 	testing.expectf(t, row.resolved == NOW && row.outcome == "dismissed", "%s: resolved once, %v", f.name, row)
 	clear(&open)
-	_ = f.reports(&open)
+	_ = f.reports(100, &open)
 	testing.expectf(t, len(open) == 0, "%s: no open reports", f.name)
 
 	// A moderator's delete: someone else's message, past any window, with its audit entry.
@@ -382,6 +385,16 @@ images :: proc(t: ^testing.T, f: Family) {
 	testing.expect_value(t, rerr, m.Error.None)
 	rep, _ := f.report_of(id)
 	testing.expect_value(t, rep.blob, SHA)
+	twice, _ := f.report({room = lobby.id, msg = msg.id, author = 7, author_name = "ann", by = 8, by_name = "bob", reason = "again", at = 101})
+	testing.expect_value(t, twice, i64(0)) // open already
+	theirs, all := f.open_reports(8)
+	testing.expectf(t, theirs >= 1 && all >= theirs, "%s: open %d of %d", f.name, theirs, all)
+	one, oerr := f.room_of(lobby.id)
+	testing.expectf(t, oerr == .None && one.slug == "lobby", "%s: room_of %v", f.name, one)
+	_, none := f.room_of(1 << 40)
+	testing.expect_value(t, none, m.Error.Not_Found)
+	owned := f.rooms_owned(7)
+	testing.expectf(t, owned >= 1, "%s: owned %d", f.name, owned)
 
 	out := make([dynamic]m.Message, context.temp_allocator)
 	testing.expect_value(t, f.purge_blob(SHA, {}, &out), m.Error.None)
@@ -392,6 +405,8 @@ images :: proc(t: ^testing.T, f: Family) {
 	rep, _ = f.report_of(id)
 	testing.expect_value(t, rep.blob, "")
 	testing.expect_value(t, f.resolve(id, 200, "dismissed", {}), m.Error.None)
+	rep, _ = f.report_of(id)
+	testing.expect_value(t, rep.body, "") // a closed report keeps the record, not the copy
 }
 
 @(private = "file")
@@ -525,11 +540,11 @@ both_families :: proc(t: ^testing.T) {
 	testing.expect_value(t, nbio.acquire_thread_event_loop(), nil)
 	defer nbio.release_thread_event_loop()
 
-	conforms(t, {"memory", mem.init, mem.seed, mem.room, mem.rooms_for, mem.create_room, mem.dm, mem.members, mem.is_member, mem.join, mem.leave, mem.sweep, mem.search, mem.set_audit_writer, mem.set_room, mem.ban, mem.banned, mem.report, mem.reports, mem.report_of, mem.resolve, mem.add_invite, mem.invite, mem.invites, mem.revoke_invite, mem.use_invite, mem.recent, mem.after, mem.count_after, mem.changed, mem.message, mem.post, mem.change, mem.blob_held, mem.purge_blob, mem.block, mem.unblock, mem.blocking, mem.blocks})
+	conforms(t, {"memory", mem.init, mem.seed, mem.room, mem.rooms_for, mem.create_room, mem.dm, mem.members, mem.is_member, mem.join, mem.leave, mem.sweep, mem.search, mem.set_audit_writer, mem.set_room, mem.ban, mem.banned, mem.report, mem.reports, mem.report_of, mem.resolve, mem.add_invite, mem.invite, mem.invites, mem.revoke_invite, mem.use_invite, mem.recent, mem.after, mem.count_after, mem.changed, mem.message, mem.post, mem.change, mem.open_reports, mem.room_of, mem.rooms_owned, mem.blob_held, mem.purge_blob, mem.block, mem.unblock, mem.blocking, mem.blocks})
 
 	testing.expect_value(t, db.open_db(":memory:", .Ephemeral, "storetest"), "")
 	defer db.close()
 	db.migrate("chat", sql.MIGRATIONS[:])
-	conforms(t, {"sqlite", sql.init, sql.seed, sql.room, sql.rooms_for, sql.create_room, sql.dm, sql.members, sql.is_member, sql.join, sql.leave, sql.sweep, sql.search, sql.set_audit_writer, sql.set_room, sql.ban, sql.banned, sql.report, sql.reports, sql.report_of, sql.resolve, sql.add_invite, sql.invite, sql.invites, sql.revoke_invite, sql.use_invite, sql.recent, sql.after, sql.count_after, sql.changed, sql.message, sql.post, sql.change, sql.blob_held, sql.purge_blob, sql.block, sql.unblock, sql.blocking, sql.blocks})
+	conforms(t, {"sqlite", sql.init, sql.seed, sql.room, sql.rooms_for, sql.create_room, sql.dm, sql.members, sql.is_member, sql.join, sql.leave, sql.sweep, sql.search, sql.set_audit_writer, sql.set_room, sql.ban, sql.banned, sql.report, sql.reports, sql.report_of, sql.resolve, sql.add_invite, sql.invite, sql.invites, sql.revoke_invite, sql.use_invite, sql.recent, sql.after, sql.count_after, sql.changed, sql.message, sql.post, sql.change, sql.open_reports, sql.room_of, sql.rooms_owned, sql.blob_held, sql.purge_blob, sql.block, sql.unblock, sql.blocking, sql.blocks})
 	free_all(context.temp_allocator)
 }

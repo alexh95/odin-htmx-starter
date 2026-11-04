@@ -228,7 +228,7 @@ classify :: proc(p: ^Pkg) {
 // PLAN §5.1's platform layers. 0: a platform package the table doesn't place.
 layer_of :: proc(path: string) -> int {
 	switch path {
-	case "platform/sys", "platform/sqlite", "platform/ext", "platform/escape", "platform/signed", "platform/fuzz":
+	case "platform/sys", "platform/sqlite", "platform/ext", "platform/escape", "platform/signed", "platform/jpeg", "platform/fuzz":
 		return 1
 	case "platform/store", "platform/store/sqlite", "platform/store/memory", "platform/env", "platform/workers",
 	     "platform/authz", "platform/authz/anonymous", "platform/obs", "platform/guard", "platform/markdown",

@@ -45,4 +45,6 @@ Store_Stale :: proc(before: i64, out: ^[dynamic]i64) -> Error // open uploads ma
 Store_Add_Blob :: proc(b: Blob) -> Error // .None when the content is here already
 Store_Blob :: proc(sha256: string) -> (Blob, Error)
 Store_Blobs :: proc(before: i64, out: ^[dynamic]string) -> Error // the addresses of those made before `before`
-Store_Drop_Blob :: proc(sha256: string) -> Error
+Store_Drop_Blob :: proc(sha256: string, before: i64) -> (dropped: bool, err: Error) // only if made before `before`
+// What `user` has started since `since`, and what all the blobs hold.
+Store_Bytes_Held :: proc(user: u64, since: i64) -> (member, all: int)

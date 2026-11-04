@@ -91,6 +91,7 @@ scanner_cancel :: proc(s: ^Scanner) {
 }
 
 INIT_BUF_SIZE :: 1024
+SHRINK_BUF_SIZE :: 64 * 1024
 DEFAULT_MAX_CONSECUTIVE_EMPTY_READS :: 128
 
 scanner_init :: proc(s: ^Scanner, c: ^Connection, buf_allocator := context.allocator) {
@@ -108,6 +109,12 @@ scanner_reset :: proc(s: ^Scanner) {
 	remove_range(&s.buf, 0, s.start)
 	s.end   -= s.start
 	s.start  = 0
+
+	// F-25: a large body's buffer goes back with its request, not with its connection.
+	if len(s.buf) > SHRINK_BUF_SIZE && s.end <= SHRINK_BUF_SIZE {
+		resize(&s.buf, SHRINK_BUF_SIZE)
+		shrink(&s.buf)
+	}
 
 	s.split                        = scan_lines
 	s.split_data                   = nil

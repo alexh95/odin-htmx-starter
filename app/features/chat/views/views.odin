@@ -537,6 +537,7 @@ reports_page :: proc(rows: []Report_Row) -> string {
 	html.page_head(&b, "Comms", "Reports", "Reported messages. Removing one deletes it from its room; either way the report closes.")
 	w(&b, `<section class="block"><ul class="chat-report-list">`)
 	if len(rows) == 0 { w(&b, `<li class="muted">Nothing is reported.</li>`) }
+	if len(rows) == chat.REPORTS_SHOWN { fmt.sbprintf(&b, `<li class="muted">The oldest %d: more wait behind them.</li>`, len(rows)) }
 	for row in rows {
 		rep := row.report
 		fmt.sbprintf(&b, `<li class="card chat-report" id="report-%d"><p><b>`, rep.id)

@@ -33,6 +33,7 @@ KEEP :: 200
 @(private) SQL_MUTE :: "INSERT INTO notify_mutes(user_id, key) VALUES(?, ?) ON CONFLICT DO NOTHING"
 @(private) SQL_UNMUTE :: "DELETE FROM notify_mutes WHERE user_id = ? AND key = ?"
 @(private) SQL_MUTED :: "SELECT 1 FROM notify_mutes WHERE user_id = ? AND key = ?"
+@(private) SQL_RETRACT :: "DELETE FROM notify_items WHERE ref = ?"
 @(private) SQL_MUTES :: "SELECT key FROM notify_mutes WHERE user_id = ? ORDER BY key"
 
 list :: proc(user: u64, limit: int, out: ^[dynamic]m.Item) -> (err: m.Error) {
@@ -139,6 +140,18 @@ muted :: proc(user: u64, key: string) -> bool {
 	return db.next_row(q, &err)
 }
 
+retract :: proc(ref: string) -> m.Error {
+	now_ = {key = ref}
+	ok := db.write_now(proc() -> bool {
+		st := db.writer_stmt(SQL_RETRACT)
+		defer db.reset(st)
+		db.bind_text(st, 1, now_.key)
+		now_.err = db.step_done(st)
+		return now_.err == .None
+	})
+	return .None if ok else now_.err if now_.err != .None else .Busy
+}
+
 mutes :: proc(user: u64, out: ^[dynamic]string) -> (err: m.Error) {
 	q := db.read(SQL_MUTES)
 	defer db.reset(q)
@@ -147,7 +160,7 @@ mutes :: proc(user: u64, out: ^[dynamic]string) -> (err: m.Error) {
 	return
 }
 
-@(private) marking: u64
+@(private, thread_local) marking: u64
 
 mark_read :: proc(user: u64) -> m.Error {
 	marking = user

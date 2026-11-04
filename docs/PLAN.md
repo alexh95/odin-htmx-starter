@@ -364,6 +364,7 @@ Below L4, platform imports a feature only through a family collection: `platform
 | `platform/sys` | 1 | glibc `_setjmp`, sigaction and sigaltstack, the Windows VEH and `_resetstkoflw`, setrlimit, the vDSO clock; the thread-local counters the guard classifies by (here because `platform/sqlite`, L1, raises `in_sqlite`) |
 | `platform/sqlite` | 1 | the SQLite binding (core only); raises `in_sqlite` around every call |
 | `platform/escape` | 1 | the injection boundary, `w esc url_encode json_esc`: a leaf, so `platform/markdown` (L2) escapes with it and `platform/html` re-exports it (M1, **NEW**) |
+| `platform/jpeg` | 1 | `core:image/jpeg`, patched for hostile files (M6-01): what `uploads` decodes a JPEG with; its README lists each patch |
 | `platform/signed` | 1 | `<body>.<MAC>` text the server hands out and reads back (a pending sign-in, envadmin's cookie): `sign` and `open`, the one parser of it, fuzzed (M5, M4-13, **NEW**) |
 | `platform/fuzz` | 1 | the parsers' tests' seeded random input, `FUZZ_SCALE`/`FUZZ_SEED` for the nightly; only tests import it (M5, M4-13, **NEW**) |
 | `platform/ext` | 1 | the closed `Ext` enum of htmx extensions with its registration-name and file tables; imports nothing; re-exported as `web.Ext` (RESOLUTIONS X33) |
@@ -818,7 +819,7 @@ app/cmd/<p>/   brand.odin main.odin routes.odin routes_test.odin   (all hand-wri
 platform  L4 app      ─► identity:., store:., L1–L3             (only cmd/* imports it; it holds front)
           L3 web html hub stream stream/client client/* theme/*   (html ─► client:., theme:.)
           L2 store store/sqlite store/memory env authz authz/anonymous obs guard workers markdown password totp
-          L1 sys sqlite ext escape signed fuzz
+          L1 sys sqlite ext escape signed fuzz jpeg
 ```
 
 Each feature `f` is a set of packages (D4, with RESOLUTIONS X30 applied to the web row and LC §5's models and stores):
@@ -4261,7 +4262,8 @@ Chunked (D35; the flow is in §14.2): chunks of at most 4 MiB under a per-route 
 Images up to 10 MiB; video up to 4 GiB, for holders of `Video_Upload` only. Magic-byte sniffing, then a full decode
 with `core:image` under a 40 MP pixel cap; blobs are content-addressed; responses carry `nosniff` and
 `Content-Disposition: attachment` for anything that isn't an image; SVG and HTML are never served inline. At most 8
-concurrent uploads × 4 MiB are in flight. NPM streams bodies through (`proxy_request_buffering off`,
+concurrent uploads × 4 MiB are in flight, counted by `front` before a body is read (2 a member), and blob answers
+are counted to 64 MiB until they're sent. NPM streams bodies through (`proxy_request_buffering off`,
 `client_max_body_size 16m`, D41). M6 adds a decode-bomb fuzz.
 
 **As built (M6 slice 8):** PNG and JPEG (baseline), which is what `core:image` reads; a decode runs alone, in an arena
@@ -4282,6 +4284,9 @@ keeps its own `blob`, so a moderator keeps the image if the author deletes first
 **Decision: reads stay member-wide.** `/uploads/blob/<sha256>` is `Chat_Read`, not per room: a 256-bit address held only by
 people who saw the image is a capability, and it now leaves with the message. Its limit: `private, immutable` can't reach
 a copy already in a browser's cache, so a removal takes the image from the server, not from those who already have it.
+
+**Quotas (M6's audit).** 256 MiB a member a day and 16 GiB overall (`UPLOADS_BYTES_PER_DAY`, `UPLOADS_MAX_BYTES`). A JPEG
+goes through `platform/jpeg`, a patched `core:image/jpeg`, and a decode has 30 s before the watchdog ends the process.
 
 **Backups.** `store.backup` takes only the database, so `uploads.mirror` copies blobs to `<BACKUP_DIR>/blobs/` once a
 day: by name, what's new, through a part file and a rename; a copy whose row has gone is deleted, so a removal reaches the

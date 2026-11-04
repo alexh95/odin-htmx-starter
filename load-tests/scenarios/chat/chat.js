@@ -45,8 +45,8 @@ export default function () {
     check(menu, { 'menu: Edit': (r) => r.status === 200 && r.body.includes('Edit') });
     const form = http.get(`${BASE}/chat/m/${id}/edit`, { tags: { name: 'GET /chat/m/:id/edit' } });
     check(form, { 'edit form 200': (r) => r.status === 200 && r.body.includes('chat-edit') });
-    const edit = http.post(`${BASE}/chat/m/${id}/edit`, { body: `edited ${__ITER}` }, { headers: FORM, tags: { name: 'POST /chat/m/:id/edit' } });
-    check(edit, { 'edited': (r) => r.status === 200 && r.body.includes('(edited)') });
+    const edit = http.post(`${BASE}/chat/m/${id}/edit`, { body: `edited ${__ITER}` }, { headers: FORM, tags: { name: 'POST /chat/m/:id/edit' }, responseCallback: ok(200, 429) });
+    check(edit, { 'edited, or 429 past the rate': (r) => r.status === 429 || (r.status === 200 && r.body.includes('(edited)')) });
     const del = http.post(`${BASE}/chat/m/${id}/delete`, null, { headers: FORM, tags: { name: 'POST /chat/m/:id/delete' } });
     check(del, { 'deleted': (r) => r.status === 200 && r.body.includes('Message deleted.') });
     const read = http.post(`${BASE}/chat/r/lobby/read?upto=${id}`, null, { headers: FORM, tags: { name: 'POST /chat/r/:slug/read' } });

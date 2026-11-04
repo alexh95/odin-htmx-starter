@@ -14,3 +14,4 @@ _ : m.Store_Add_Blob : add_blob
 _ : m.Store_Blob : blob
 _ : m.Store_Blobs : blobs
 _ : m.Store_Drop_Blob : drop_blob
+_ : m.Store_Bytes_Held : bytes_held

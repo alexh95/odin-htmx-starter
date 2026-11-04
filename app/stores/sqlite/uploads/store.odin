@@ -26,7 +26,9 @@ MIGRATIONS := [?]store.Migration {
 @(private) SQL_STALE :: "SELECT id FROM uploads_parts WHERE state = 0 AND at < ?"
 @(private) SQL_ADD_BLOB :: "INSERT INTO uploads_blobs(sha256, mime, bytes, width, height, user_id, at) VALUES(?, ?, ?, ?, ?, ?, ?) ON CONFLICT(sha256) DO UPDATE SET at = excluded.at"
 @(private) SQL_BLOBS :: "SELECT sha256 FROM uploads_blobs WHERE at < ?"
-@(private) SQL_DROP_BLOB :: "DELETE FROM uploads_blobs WHERE sha256 = ?"
+@(private) SQL_DROP_BLOB :: "DELETE FROM uploads_blobs WHERE sha256 = ? AND at < ?"
+@(private) SQL_BYTES_MEMBER :: "SELECT coalesce(sum(size), 0) FROM uploads_parts WHERE user_id = ? AND at >= ?"
+@(private) SQL_BYTES_ALL :: "SELECT coalesce(sum(bytes), 0) FROM uploads_blobs"
 @(private) SQL_BLOB :: "SELECT sha256, mime, bytes, width, height, user_id, at FROM uploads_blobs WHERE sha256 = ?"
 
 @(private, thread_local) t: struct {
@@ -118,15 +120,31 @@ blobs :: proc(before: i64, out: ^[dynamic]string) -> m.Error {
 	}))
 }
 
-drop_blob :: proc(sha256: string) -> m.Error {
-	t = {blob = {sha256 = sha256}}
-	return outcome(db.write_now(proc() -> bool {
+drop_blob :: proc(sha256: string, before: i64) -> (dropped: bool, err: m.Error) {
+	t = {blob = {sha256 = sha256}, at = before}
+	ok := db.write_now(proc() -> bool {
 		st := db.writer_stmt(SQL_DROP_BLOB)
 		defer db.reset(st)
 		db.bind_text(st, 1, t.blob.sha256)
+		db.bind_id(st, 2, t.at)
 		t.err = db.step_done(st)
+		t.n = db.changes()
 		return t.err == .None
-	}))
+	})
+	return t.n > 0, outcome(ok)
+}
+
+bytes_held :: proc(user: u64, since: i64) -> (member, all: int) {
+	err: m.Error
+	q := db.read(SQL_BYTES_MEMBER)
+	db.bind_id(q, 1, i64(user))
+	db.bind_id(q, 2, since)
+	if db.next_row(q, &err) { member = int(db.column_id(q, 0)) }
+	db.reset(q)
+	q = db.read(SQL_BYTES_ALL)
+	if db.next_row(q, &err) { all = int(db.column_id(q, 0)) }
+	db.reset(q)
+	return
 }
 
 // Uploaded again, it's as new: the sweep's 24 h count from the last time anyone sent it.
