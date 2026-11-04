@@ -274,7 +274,7 @@ Reading :: struct {
 	using task: workers.Task,
 	deferred:   web.Deferred,
 	sha256:     [64]byte,
-	png:        bool,
+	kind:       uploads.Image_Kind,
 	bytes:      int,
 	data:       []byte,
 	found:      bool,
@@ -304,7 +304,7 @@ blob :: proc(req: ^web.Request, res: ^web.Response) {
 	}
 	t := new(Reading)
 	copy(t.sha256[:], sha)
-	t.png = b.mime == uploads.MIME[.Png]
+	t.kind = uploads.kind_of(b.mime)
 	t.bytes = b.bytes
 	t.run, t.done = run_read, read_done
 	web.defer_response(req, res, &t.deferred)
@@ -341,6 +341,6 @@ read_done :: proc(t: ^workers.Task) {
 	case:
 		web.set_header(res, "cache-control", "private, max-age=31536000, immutable")
 		web.set_header(res, "content-disposition", "inline")
-		web.respond_bytes(res, uploads.MIME[.Png] if r.png else uploads.MIME[.Jpeg], r.data)
+		web.respond_bytes(res, uploads.MIME[r.kind], r.data)
 	}
 }

@@ -22,6 +22,11 @@ copy-and-start ergonomics and good defaults matter more than feature depth.
 - [ ] **A post in flight isn't a holder** (M6-10): a delete or the sweep in the same milliseconds costs that message its
       image; a purge racing a post can leave a message naming a blob that a later upload brings back.
 - [ ] **A session's expiry doesn't reach an open stream** (M6-12): revokes do. Give a stream its session's end.
+- [ ] **Before stage 2: a connection cap per client, and pipelined buffers** (M6-S1, M6-S2): a request's head stays the
+      floor, and a client reaching the app directly can pipeline past the buffer's give-back. It waits because the fix is in
+      `scanner_reset`, which every request passes, so it needs a parity rerun. In compose only Caddy publishes a port, so
+      nobody on the LAN reaches the app directly; a starter run with no proxy is exposed until then.
+- [ ] **A limited revoke wipes a once-shown invite link** (M6-S4).
 - [ ] **One member can hold the blob budget** (M6-R8), the 64 MiB of answers in flight, for as long as their sockets stall.
 - [ ] **Search on the query pool** (M6-13), when `find` comes (M8).
 - [ ] **Small things** (M6-16): a private room's slug can be probed by name, a moderator can mute an admin, a renamed

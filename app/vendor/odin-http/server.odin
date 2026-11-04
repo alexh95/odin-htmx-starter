@@ -502,11 +502,12 @@ server_is_closing :: proc(s: ^Server) -> bool {
 	return atomic_load(&s.closing)
 }
 
-// Taken from Go's implementation,
 // The maximum amount of bytes we will read (if handler did not)
-// in order to get the connection ready for the next request.
+// in order to get the connection ready for the next request. F-25: past this the connection closes.
+// Go's is 256 KiB, which a GET with a stalled body holds uncounted and with no account: a guest's
+// thousand sockets would be a small server's memory (M6-S1).
 @(private)
-Max_Post_Handler_Discard_Bytes :: 256 << 10
+Max_Post_Handler_Discard_Bytes :: 4 << 10
 
 // How long to wait before actually closing a connection.
 // This is to make sure the client can fully receive the response.

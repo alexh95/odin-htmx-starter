@@ -318,7 +318,7 @@ create_room :: proc(req: ^web.Request, res: ^web.Response) {
 @(private)
 write_allowed :: proc(req: ^web.Request, res: ^web.Response) -> bool {
 	ok, retry := web.limit_hit(&writes, web.viewer(req).id)
-	if !ok { web.respond_limited(res, retry, html.toast("error", SLOW_DOWN, false)) }
+	if !ok { web.respond_limited(res, retry, html.toast("error", "That's a lot of changes at once: wait a minute.", false)) }
 	return ok
 }
 

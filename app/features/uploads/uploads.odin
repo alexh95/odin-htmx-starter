@@ -286,6 +286,14 @@ MIME := [Image_Kind]string {
 	.Jpeg = "image/jpeg",
 }
 
+// What a blob's row says it is.
+kind_of :: proc(mime: string) -> Image_Kind {
+	for name, k in MIME {
+		if name == mime { return k }
+	}
+	return .None
+}
+
 // Magic bytes alone.
 sniff :: proc(data: []byte) -> Image_Kind {
 	PNG_MAGIC :: "\x89PNG\r\n\x1a\n"
@@ -294,9 +302,11 @@ sniff :: proc(data: []byte) -> Image_Kind {
 	return .None
 }
 
-// The width and height a file's header claims. ok false: it names none. A JPEG is walked to its end
-// by each segment's length, as a browser's decoder goes: a second frame is refused, or one could
-// show this check a small image and a browser a huge one, past the pixel cap.
+// The width and height a file's header claims. ok false: it names none, or isn't plainly a JPEG. A JPEG
+// is walked to its end by each segment's length, as a browser's decoder goes, and anything a decoder
+// might read another way is refused rather than guessed at: a second frame, or stuffing or a
+// reserved marker where a marker belongs. Otherwise a file could show this check a small image
+// and a browser a huge one, past the pixel cap (decoy.spec holds each engine to it).
 claimed_size :: proc(data: []byte, kind: Image_Kind) -> (width, height: int, ok: bool) {
 	be16 :: proc(b: []byte) -> int { return int(b[0]) << 8 | int(b[1]) }
 	be32 :: proc(b: []byte) -> int { return int(b[0]) << 24 | int(b[1]) << 16 | int(b[2]) << 8 | int(b[3]) }
@@ -307,13 +317,12 @@ claimed_size :: proc(data: []byte, kind: Image_Kind) -> (width, height: int, ok:
 		if len(data) < 24 || string(data[12:16]) != "IHDR" { return }
 		return be32(data[16:20]), be32(data[20:24]), true
 	case .Jpeg:
+		framed := false
 		i := 2
 		for i + 4 <= len(data) {
 			if data[i] != 0xFF { return 0, 0, false }
 			marker := data[i + 1]
 			switch marker {
-			case 0x00: // stuffing, no marker: a browser's decoder scans on from here, past what a length would skip
-				return 0, 0, false
 			case 0xFF: // fill
 				i += 1
 				continue
@@ -321,7 +330,10 @@ claimed_size :: proc(data: []byte, kind: Image_Kind) -> (width, height: int, ok:
 				i += 2
 				continue
 			case 0xD9:
-				return width, height, width > 0
+				return width, height, framed
+			case 0xC0 ..= 0xC7, 0xC9 ..= 0xCF, 0xDA ..= 0xDF, 0xE0 ..= 0xEF, 0xFE: // what has a length
+			case: // stuffing, or reserved: a decoder may scan on from here, past what a length would skip
+				return 0, 0, false
 			}
 			n := be16(data[i + 2:])
 			if n < 2 || i + 2 + n > len(data) { return 0, 0, false }
@@ -329,13 +341,13 @@ claimed_size :: proc(data: []byte, kind: Image_Kind) -> (width, height: int, ok:
 			i += 2 + n
 			switch marker {
 			case 0xC0 ..= 0xC3, 0xC5 ..= 0xC7, 0xC9 ..= 0xCB, 0xCD ..= 0xCF: // SOFn
-				if width != 0 || len(segment) < 5 { return 0, 0, false }
-				width, height = be16(segment[3:]), be16(segment[1:])
+				if framed || len(segment) < 5 { return 0, 0, false }
+				width, height, framed = be16(segment[3:]), be16(segment[1:]), true
 			case 0xDA: // a scan: its data runs to the next marker that isn't stuffing or a restart
 				for i + 1 < len(data) && (data[i] != 0xFF || data[i + 1] == 0 || data[i + 1] & 0xF8 == 0xD0) { i += 1 }
 			}
 		}
-		return width, height, width > 0
+		return width, height, framed
 	}
 	return
 }

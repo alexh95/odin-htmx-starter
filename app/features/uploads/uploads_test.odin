@@ -82,10 +82,37 @@ refuses_a_second_frame :: proc(t: ^testing.T) {
 // A segment whose length runs off the file, and a file with no frame at all.
 @(test)
 refuses_a_walk_that_ends_badly :: proc(t: ^testing.T) {
-	for bad in ([?]string{"\xFF\xD8\xFF\xE0\xFF\xFF\x00", "\xFF\xD8\xFF\xD9", "\xFF\xD8\xFF\x00\x00\x00", "\xFF\xD8\xFF\x00\x00\x13\xFF\xC0\x00\x0B\x08\x00\x01\x00\x01\x01\x01\x11\x00\xFF\xD9"}) {
+	for bad in ([?]string{"\xFF\xD8\xFF\xE0\xFF\xFF\x00", "\xFF\xD8\xFF\xD9", "\xFF\xD8\xFF\x00\x00\x00"}) {
 		_, why := check(transmute([]byte)bad)
 		testing.expectf(t, why == "That image can't be read.", "%q: %q", bad, why)
 	}
+}
+
+// `FF 00` is stuffing, not a segment: a length read there would skip what a browser's decoder sees, here
+// a huge frame hidden behind a decoy of 1×1.
+@(test)
+refuses_stuffing_where_a_marker_belongs :: proc(t: ^testing.T) {
+	HIDDEN :: "\xFF\xD8\xFF\x00\x00\x0F\xFF\xC0\x00\x0B\x08\xFF\xDC\xFF\xDC\x01\x01\x11\x00"
+	DECOY :: "\xFF\xC0\x00\x0B\x08\x00\x01\x00\x01\x01\x01\x11\x00\xFF\xD9"
+	_, why := check(transmute([]byte)strings.concatenate({HIDDEN, DECOY}, context.temp_allocator))
+	testing.expect_value(t, why, "That image can't be read.")
+}
+
+@(test)
+refuses_a_reserved_marker :: proc(t: ^testing.T) {
+	for bad in ([?]string{"\xFF\xD8\xFF\x02\x00\x02", "\xFF\xD8\xFF\xC8\x00\x02", "\xFF\xD8\xFF\xF0\x00\x02"}) {
+		_, why := check(transmute([]byte)bad)
+		testing.expectf(t, why == "That image can't be read.", "%q: %q", bad, why)
+	}
+}
+
+// A frame of width 0 is still a frame: a second one doesn't get to take its place.
+@(test)
+counts_a_frame_of_no_width :: proc(t: ^testing.T) {
+	NIL :: "\xFF\xC0\x00\x0B\x08\x00\x01\x00\x00\x01\x01\x11\x00"
+	REAL :: "\xFF\xC0\x00\x0B\x08\x00\x01\x00\x01\x01\x01\x11\x00"
+	_, why := check(transmute([]byte)strings.concatenate({"\xFF\xD8", NIL, REAL, "\xFF\xD9"}, context.temp_allocator))
+	testing.expect_value(t, why, "That image can't be read.")
 }
 
 // Corrupt past its header: stored, and a broken image in a browser. Nothing here reads that far.

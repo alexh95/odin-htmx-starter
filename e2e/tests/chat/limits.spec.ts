@@ -152,6 +152,24 @@ test.describe('limits', T, () => {
   });
 });
 
+test('joining, leaving and revoking an invite share that rate', { tag: ['@chat'] }, async ({ browser }) => {
+  await own({ CHAT_WRITES_PER_MINUTE: '3' }, async (_s, base) => {
+    const ann = await member(browser, base), bob = await member(browser, base);
+    await ann.page.goto('/chat');
+    await bob.page.goto('/chat');
+    expect((await ann.page.request.post('/chat/rooms', { form: { name: uid('den '), kind: 'private' } })).status()).toBeLessThan(400);
+    const slug = (await ann.page.goto('/chat'), new URL(await ann.page.locator('a[href^="/chat/r/"]').filter({ hasText: 'den ' }).first().evaluate((a: HTMLAnchorElement) => a.href)).pathname.split('/').pop()!);
+    const invite = await ann.page.request.post(`/chat/r/${slug}/invite`, { form: { once: '0' } });
+    expect(invite.status()).toBe(200);
+    const [href, id] = (await invite.text()).match(/\/chat\/join\/(\d+)\.[^"]+/)!;
+    expect((await ann.page.request.post(`/chat/r/${slug}/invites/${id}/revoke`)).status()).toBe(200); // the third
+    expect((await ann.page.request.post(`/chat/r/${slug}/invites/${id}/revoke`)).status()).toBe(429);
+    expect((await ann.page.request.post(href)).status()).toBe(429); // join
+    expect((await ann.page.request.post(`/chat/r/${slug}/leave`)).status()).toBe(429);
+    await leave(ann, bob);
+  });
+});
+
 test.describe('what a delete takes back', { tag: ['@chat', '@notify'] }, () => {
   test("a DM's line leaves the Inbox with its message", async ({ browser, baseURL }) => {
     const ann = await member(browser, baseURL!), bob = await member(browser, baseURL!);
@@ -174,5 +192,9 @@ test("a search can't be made to fail by what's typed", T, async ({ browser, base
   await ann.page.goto('/chat');
   expect((await ann.page.request.get('/chat/search?q=%00')).status()).toBe(200);
   expect((await ann.page.request.get(`/chat/search?q=${'x'.repeat(4000)}`)).status()).toBeLessThan(500);
+  // Past the cap in a two-byte character: cut at its start, not through it.
+  const long = await ann.page.request.get(`/chat/search?q=${encodeURIComponent('x' + 'é'.repeat(150))}`);
+  expect(long.status()).toBe(200);
+  expect(await long.text()).not.toContain('\ufffd');
   await leave(ann);
 });

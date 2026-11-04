@@ -1,3 +1,4 @@
+import net from 'node:net';
 import { test, expect, has } from '../../fixtures';
 import { startServer, stopServer, get, raw } from '../../helpers/server';
 
@@ -63,5 +64,33 @@ test.describe('input limits', { tag: '@platform' }, () => {
     } finally {
       await stopServer(server);
     }
+  });
+});
+
+// A body nobody reads (F-25): a small one is read past, and the connection goes on; past 4 KiB the
+// connection closes, after the status, so a client still hears its answer.
+test.describe('an unread body', { tag: '@platform' }, () => {
+  const raw = (baseURL: string, wire: string) => new Promise<{ text: string; closed: boolean }>((done) => {
+    const u = new URL(baseURL);
+    let text = '', closed = false;
+    const sock = net.connect(Number(u.port), u.hostname, () => sock.write(wire));
+    sock.on('data', (d) => { text += d.toString(); });
+    sock.on('close', () => { closed = true; done({ text, closed }); });
+    setTimeout(() => { sock.destroy(); if (!closed) done({ text, closed }); }, 2500);
+  });
+  const host = (baseURL: string) => `Host: ${new URL(baseURL).host}\r\n`;
+
+  test('under 4 KiB keeps its connection', async ({ baseURL }) => {
+    const body = 'x'.repeat(2048);
+    const one = `GET /healthz HTTP/1.1\r\n${host(baseURL!)}Content-Length: ${body.length}\r\n\r\n${body}`;
+    const two = `GET /healthz HTTP/1.1\r\n${host(baseURL!)}Connection: close\r\n\r\n`;
+    const got = await raw(baseURL!, one + two);
+    expect(got.text.match(/HTTP\/1\.1 200/g)).toHaveLength(2);
+  });
+
+  test('past 4 KiB gets its status, then the close', async ({ baseURL }) => {
+    const got = await raw(baseURL!, `GET /healthz HTTP/1.1\r\n${host(baseURL!)}Content-Length: 8192\r\n\r\n`);
+    expect(got.text).toMatch(/^HTTP\/1\.1 200/);
+    expect(got.closed).toBe(true);
   });
 });

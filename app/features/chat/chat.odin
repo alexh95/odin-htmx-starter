@@ -89,7 +89,7 @@ ENV := [?]env.Row {
 	{name = "CHAT_DM_MAX_AGE", kind = .Duration, def = "30d", doc = "and none older than this"},
 	{name = "CHAT_ANNOUNCE_CAP", kind = .Int, def = "100", doc = "messages announcements keep"},
 	{name = "CHAT_REPORTS_PER_MINUTE", kind = .Int, def = "5", doc = "reports a member may file in a minute"},
-	{name = "CHAT_WRITES_PER_MINUTE", kind = .Int, def = "30", doc = "rooms, DMs, invites, blocks and settings a member may change in a minute"},
+	{name = "CHAT_WRITES_PER_MINUTE", kind = .Int, def = "30", doc = "rooms, DMs, invites, joins, leaves, blocks and settings a member may change in a minute"},
 	{name = "CHAT_ROOMS_PER_MEMBER", kind = .Int, def = "20", doc = "rooms a member may own, DMs aside; moderators aren't held to it"},
 	{name = "CHAT_SEARCHES_PER_SECOND", kind = .Int, def = "10", doc = "searches a member may run in a second (§17.5)"},
 	{name = "CHAT_ANNOUNCE_MAX_AGE", kind = .Duration, def = "365d", doc = "and none older than this"},
