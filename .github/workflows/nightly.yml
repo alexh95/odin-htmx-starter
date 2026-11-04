@@ -74,6 +74,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-odin
+      # ASan's shadow memory collides with high-entropy ASLR: at 32 bits one binary in five dies
+      # before main, with no report (measured in CI's image, never with ASLR off).
+      - name: ASLR within ASan's reach
+        run: sudo sysctl -w vm.mmap_rnd_bits=28
       - name: The fuzzed packages
         run: |
           echo "FUZZ_SEED=$FUZZ_SEED FUZZ_SCALE=$FUZZ_SCALE"
