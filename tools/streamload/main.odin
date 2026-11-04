@@ -6,6 +6,9 @@ package main
 //   odin run tools/streamload -- restart [--sse N] [--ws N] [--within S] [flags]
 //   odin run tools/streamload -- hold    [--sse N] [--ws N] [--for S] [flags]
 //   flags: --base http://127.0.0.1:8080  --threads T (4)  --key K (random)
+//   fanout's --room SLUG --cookies FILE: a chat room instead of the lab's: the sockets in
+//            /chat/r/SLUG/ws as FILE's first line (a Cookie header's value), and each message a
+//            POST to the room as a composer's, by the lines in turn: chat allows a member 5 in 10 s.
 //
 // Stock k6 returns from an SSE request only when the stream ends, xk6-sse is a
 // custom AGPL k6 the repo won't ship, and Node clients left 03's numbers
@@ -50,6 +53,8 @@ opt: struct {
 	within:  time.Duration,
 	hold:    time.Duration,
 	key:     string,
+	room:    string,
+	cookies: []string,
 }
 
 // What every thread adds to, read by main once they are done.
@@ -241,7 +246,9 @@ connect :: proc(c: ^Client) {
 		})
 	}
 	req: string
-	if c.ws {
+	if opt.room != "" {
+		req = sc.request("GET", opt.host, fmt.tprintf("/chat/r/%s/ws", opt.room), fmt.tprintf("Cookie: %s\r\n", opt.cookies[0]))
+	} else if c.ws {
 		req = sc.request("GET", opt.host, strings.concatenate({"/lab/ws/chat?room=", opt.key}, context.temp_allocator))
 	} else {
 		extra := ""
@@ -251,13 +258,15 @@ connect :: proc(c: ^Client) {
 	sc.open(conn, opt.ep, req, .Ws if c.ws else .Sse)
 }
 
-// The publisher's stamp, `t=<ns>`, read back out of the delivered fragment.
+// The publisher's stamp, `<MARK><ns>`, read back out of the delivered fragment.
 stamp :: proc(c: ^Client, data: string) {
-	i := strings.index(data, "t=")
+	mark := "stamp:" if opt.room != "" else "t=" // a chat fragment is full of `t=`: hx-target="…"
+	i := strings.index(data, mark)
 	if i < 0 { return }
-	j := i + 2
+	i += len(mark)
+	j := i
 	for j < len(data) && data[j] >= '0' && data[j] <= '9' { j += 1 }
-	sent, ok := strconv.parse_i64(data[i + 2:j], 10)
+	sent, ok := strconv.parse_i64(data[i:j], 10)
 	if !ok { return }
 	append(c.lat, i64(time.tick_now()._nsec) - sent)
 	c.got^ += 1
@@ -282,6 +291,24 @@ publish_all :: proc() {
 	refused := 0
 	for i in 0 ..< opt.publish {
 		start := time.tick_now()
+		if opt.room != "" {
+			p: Pending
+			p.conn.user = &p
+			p.conn.on_close = proc(conn: ^sc.Conn, why: sc.End) {
+				p := (^Pending)(conn.user)
+				p.done, p.why = true, why
+			}
+			// The first line's member holds the sockets; the rest post.
+			cookie := opt.cookies[1 + i % (len(opt.cookies) - 1)] if len(opt.cookies) > 1 else opt.cookies[0]
+			extra := fmt.tprintf("Content-Type: application/x-www-form-urlencoded\r\nCookie: %s\r\n", cookie)
+			body := fmt.tprintf("body=stamp%%3A%d", time.tick_now()._nsec)
+			sc.open(&p.conn, opt.ep, sc.request("POST", opt.host, fmt.tprintf("/chat/r/%s", opt.room), extra, body), .Body)
+			for !p.done { nbio.tick(10 * time.Millisecond) }
+			if p.why != .Done || p.conn.head.status != 200 { refused += 1 }
+			sc.destroy(&p.conn)
+			free_all(context.temp_allocator)
+			continue
+		}
 		for target in ([2]string{"lab.feed", "lab.room"}) {
 			if (target == "lab.feed" && opt.sse == 0) || (target == "lab.room" && opt.ws == 0) { continue }
 			body := fmt.tprintf("id=m%d&text=t%%3D%d", i, time.tick_now()._nsec)
@@ -336,11 +363,18 @@ parse_args :: proc() {
 		case "--every":   opt.every = time.Duration(num(args, &i)) * time.Millisecond
 		case "--within":  opt.within = time.Duration(num(args, &i)) * time.Second
 		case "--for":     opt.hold = time.Duration(num(args, &i)) * time.Second
+		case "--room":    i += 1; opt.room = args[i] if i < len(args) else ""
+		case "--cookies":
+			i += 1
+			if i >= len(args) { usage() }
+			data, err := os.read_entire_file(args[i], context.allocator)
+			if err != nil { usage() }
+			opt.cookies = strings.split_lines(strings.trim_space(string(data)))
 		case:             usage()
 		}
 	}
 	rest := strings.trim_prefix(base, "http://")
-	if rest == base || opt.key == "" { usage() }
+	if rest == base || opt.key == "" || (opt.room != "" && len(opt.cookies) == 0) { usage() }
 	opt.host = strings.trim_suffix(rest, "/")
 	ep, ok := net.parse_endpoint(opt.host)
 	if !ok { usage() }
@@ -350,5 +384,6 @@ parse_args :: proc() {
 usage :: proc() -> ! {
 	fmt.eprintln("usage: streamload fanout|restart|hold [--sse N] [--ws N] [--threads T] [--publish K] [--every MS]")
 	fmt.eprintln("                  [--within S] [--for S] [--base http://127.0.0.1:8080] [--key K]")
+	fmt.eprintln("                  [--room SLUG --cookies FILE]")
 	os.exit(2)
 }

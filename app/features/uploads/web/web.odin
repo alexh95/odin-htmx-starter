@@ -24,7 +24,7 @@ ROUTES := [?]web.Route {
 	{.Get, "/uploads/(%d+)", progress, .Chat_Attach, {.Fragment}, 0},
 	{.Put, "/uploads/(%d+)", chunk, .Chat_Attach, {.Fragment}, uploads.MAX_CHUNK},
 	{.Post, "/uploads/(%d+)/finish", finish, .Chat_Attach, {.Fragment}, 0},
-	{.Get, "/uploads/blob/([0-9a-f]+)", blob, .Chat_Read, {.Fragment}, 0},
+	{.Get, "/uploads/blob/(%w+)", blob, .Chat_Read, {.Fragment}, 0},
 }
 
 JOBS := [?]workers.Job {
