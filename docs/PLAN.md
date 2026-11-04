@@ -5146,6 +5146,8 @@ all forward to `http://<APOLLO_LAN_IP>:8120`, never a container name (13 §4.3):
 over the SSH alias `<APOLLO_SSH_ALIAS>` (GitHub's runners can't reach apollo behind NAT; 08 §0, §5.4). Alex adds a
 permission rule for it, as for spark's; agents run it only when Alex asks. Targets: `apollo-lan`, `apollo`, later `vps`
 (08 §5.5).
+Promote only after the release run for the tag is green: before that its images aren't on GHCR, and the pull stops at
+`manifest unknown`.
 
 1. stage the compose file, the Caddyfile, `.env` (the tag) and `seccomp-io-uring.json` next to `compose.yaml`
    (RESOLUTIONS X21);
