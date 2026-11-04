@@ -69,7 +69,9 @@ Replay_Proc :: #type proc(key: string, after: i64, out: ^[dynamic]Replay_Item) -
 // members, a user's own notifications).
 Allow_Proc :: #type proc(key: string, viewer: authz.Viewer) -> bool
 
-// A server-side row runs once per publish on the publisher's thread (M7's bot.ask).
+// A server-side row: it runs once per publish on the publisher's thread, and is all the publish
+// does. Nothing subscribes to such a topic and no ring holds it, so what one feature hands another
+// never reaches a browser: bot.ask carries a private room's question.
 Deliver_Proc :: #type proc(topic, html: string, rowid: i64)
 
 // A page's #live subscribed to this key (`open`), or that stream ended: who is
@@ -217,7 +219,7 @@ cursor :: proc(seq: u64, allocator := context.temp_allocator) -> string {
 // From any thread: the message to every subscriber of `topic` on every loop,
 // and into its ring. A persisted topic passes the store's rowid, after its write
 // committed (D13); `.Latest` passes the element id it targets as `key` ("" = the
-// topic). Returns the hub sequence, 0 when refused.
+// topic). Returns the hub sequence, 0 when refused or for a server-side row.
 publish :: proc(topic, html: string, rowid: i64 = 0, key := "") -> u64 {
 	family, _ := split_topic(topic)
 	row := h.families[family]
@@ -228,7 +230,10 @@ publish :: proc(topic, html: string, rowid: i64 = 0, key := "") -> u64 {
 		obs.inc(h.dropped)
 		return 0
 	}
-	if row.deliver != nil { row.deliver(topic, html, rowid) }
+	if row.deliver != nil {
+		row.deliver(topic, html, rowid)
+		return 0
+	}
 	m := new_msg(.Html, row.policy, topic, key if key != "" else topic, html)
 	m.rowid = rowid
 	return post(m, row.ring if row.ring > 0 else h.ring_cap)

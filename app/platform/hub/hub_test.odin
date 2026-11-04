@@ -170,6 +170,28 @@ the_oldest_ring_goes_past_the_total_budget :: proc(t: ^testing.T) {
 the_hub :: proc(t: ^testing.T) {
 	an_inbox_holds_two_publishers_in_sequence_order(t)
 	every_ring_costs_its_overhead(t)
+	a_server_side_row_keeps_nothing(t)
+}
+
+// bot.ask carries a private room's question: delivered once, and neither sequenced nor ringed,
+// so no stream or replay can hand it out.
+@(private = "file")
+a_server_side_row_keeps_nothing :: proc(t: ^testing.T) {
+	@(static) delivered: [dynamic]string
+	row := Topic {
+		family = "x.ask",
+		deliver = proc(topic, html: string, rowid: i64) { append(&delivered, topic, html) },
+	}
+	families := make(map[string]^Topic)
+	defer delete(families)
+	defer delete(delivered)
+	families["x.ask"] = &row
+	h.families = families
+	defer h.families = nil
+	h.seq = 0
+	testing.expect_value(t, publish("x.ask:5", "the question", 9), 0)
+	testing.expectf(t, len(delivered) == 2 && delivered[0] == "x.ask:5" && delivered[1] == "the question", "delivered %v", delivered[:])
+	testing.expect_value(t, h.seq, 0)
 }
 
 // A ring costs RING_OVERHEAD against the total budget as well as its messages: one-byte

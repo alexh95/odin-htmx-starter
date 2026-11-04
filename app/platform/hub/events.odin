@@ -58,7 +58,7 @@ events :: proc(req: ^web.Request, res: ^web.Response) {
 		if entry == "" { continue }
 		w, ok := parse_wanted(entry)
 		row := find_row(table, w.topic)
-		if !ok || row == nil || n == MAX_TOPICS || (w.has_rowid && !row.persisted) {
+		if !ok || row == nil || row.deliver != nil || n == MAX_TOPICS || (w.has_rowid && !row.persisted) {
 			web.respond_status(res, .Bad_Request)
 			return
 		}

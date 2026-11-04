@@ -63,10 +63,12 @@ steps go through planning once the code can use them. Pushes are on the standing
       `bot.health`, in the nav and the bundle. *Check:* a storetest over both families, a conversation surviving a restart,
       another member's id a 404, `rbac.spec`'s rows, the catalog, both suites on `full`.
       Done (2026-11-05): bot's specs and k6 scenario now run on every identity; `/bot` says who can read a conversation.
-- [ ] **2. Server-side topic rows** (§6.2, X37): a row with `deliver` takes no subscriber and keeps no ring, so a member
+- [x] **2. Server-side topic rows** (§6.2, X37): a row with `deliver` takes no subscriber and keeps no ring, so a member
       can't read a private room's question off `/events?t=bot.ask:<room>`; a publish with no row is dropped and counted;
       `tools/check topics` holds every family published by literal name to a declared row. *Check:* hub tests, a spec that
       the subscribe is refused, a check test with a typo.
+      Done (2026-11-05): `deliver` is all such a publish does, `/events` answers 400 for one. The drop counter and the check
+      were already there; slice 7's spec holds the 400 on the real row.
 - [ ] **3. `tools/fakellama`** (§14.3): an Odin server on the starter's SSE encoder with llama's routes (`/v1/chat/completions`,
       `/health`, `/props`), scripted answers and faults: chunk boundaries inside `data:` lines, `[DONE]`, an OAI error, 503
       "Loading model", sleeping, a stall before the first token and between tokens, a dropped connection, a required key,
