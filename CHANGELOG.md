@@ -8,6 +8,21 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-11-04
+
+The starter's sixth milestone, M6: Comms. Houston gets chat, on SQLite: rooms public, private and announcements, DMs, four
+transports with Auto choosing and falling back, moderation in public rooms and reports everywhere else, retention, search,
+images, and an Inbox with mutes that survives a restart. A private room's owner can remove a member, and anyone can block
+anyone, which closes their DM. `uploads` takes images in resumable chunks and files them by their sha256; the server reads
+each one's header and decodes nothing (PLAN §17.6 says why), images are held only while something uses them, and a daily
+mirror keeps them beside the database's backups. A security audit by an agent that didn't write the code, with two re-reads
+of its fixes, closes with 0 CRITICAL and 0 HIGH open (`docs/audit/M6.md`): it found no way for a non-member or a moderator to
+read a private room or a DM. It did find a member able to hurt everyone's service, and each such path now has a limit.
+
+Measured directly, not yet through NPM: send to another member's DOM p95 5.3 ms, 1000 sockets × 20 messages all delivered at
+p99 17.5 ms, the writer 4.0× autocommit and 12,265 msgs/s at a retention cap (`docs/perf/CHAT-BUDGETS.md`). The run through
+NPM and the oldest-browser walk come after the promote, and the first invites wait on both.
+
 ### Added
 
 - **An owner's Remove**: a private room's owner removes a member from its list. Their streams end, no invite lets them back

@@ -309,7 +309,9 @@ response_send :: proc(r: ^Response, conn: ^Connection, loc := #caller_location) 
 			// Any read error should close the connection.
 			// F-16: the access line, written when the handler answered, has the handler's status.
 			log.infof("the unread request body was refused: %v, answering %v", err, body_error_status(err))
-			response_status(res, body_error_status(err))
+			// F-25: past the discard limit the handler's answer stands: an expired session's post
+			// is still sent to sign in, not told 413. Only the connection goes.
+			if err != .Too_Long { response_status(res, body_error_status(err)) }
 			headers_set_close(&res.headers)
 			will_close = true
 		}

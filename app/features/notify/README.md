@@ -19,4 +19,4 @@ profile that mounts it.
 
 It owns `/notify`, its own prefix.
 
-Audited: 5c5ebf2 2026-10-27 docs/audit/M2.md
+Audited: 5c5ebf2 2026-10-27 docs/audit/M2.md; 771e5ef 2026-11-04 docs/audit/M6.md

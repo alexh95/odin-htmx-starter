@@ -170,7 +170,7 @@ go; Alex's step is the last: the 2–3 invites (Q23), only after the audit.
       The suite is in (`e2e/tests/chat/xss.spec.ts`, 2026-11-04): messages over the four transports, edits, search, room
       names, the Inbox, invites, reports, the audit log, upload names. It found nothing. Closes after the promote, as
       M5's smoke did: the phone is Alex's (v2.5.0's steps), and the invites wait on the walk.
-- [ ] **12. Exit**: the slice gate for every new feature; the parity gate on both legs; `docs/audit/M6.md`, the
+- [x] **12. Exit** (2026-11-04: parity `docs/perf/PARITY-M6.md`, audit `docs/audit/M6.md`; the tag is Alex's, and 10 and 11 close after the promote): the slice gate for every new feature; the parity gate on both legs; `docs/audit/M6.md`, the
       focused security audit of accounts, sessions, chat and uploads, by an agent that didn't write the code, 0 open
       CRITICAL/HIGH, and a re-read of its fixes; `Audited:` stamps; CHANGELOG's 2.5.0 lead. Then, with Alex: the
       v2.5.0 tag, `starter-full` promoted, and Q23's 2–3 invites.

@@ -8,4 +8,4 @@ and never sees a new one take an old one's id; `PERSISTED` is false, so the room
 by id. A message's strings live on the heap from its post until the ring or the budget lets it go; a reader gets
 copies in its request arena, a writer's op in its own. A feature store.
 
-Audited: c490e2a 2026-10-30 docs/audit/M3.md
+Audited: c490e2a 2026-10-30 docs/audit/M3.md; 771e5ef 2026-11-04 docs/audit/M6.md

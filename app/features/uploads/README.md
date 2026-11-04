@@ -38,3 +38,5 @@ blob answers are counted to 64 MiB until they've gone.
 `blobs` (2, queue 32); past a queue, 503.
 
 It owns `/uploads`, its own prefix.
+
+Audited: 771e5ef 2026-11-04 docs/audit/M6.md
