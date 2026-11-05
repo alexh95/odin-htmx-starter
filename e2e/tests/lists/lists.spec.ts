@@ -80,14 +80,16 @@ test.describe('checklists', T, () => {
     await leave(ann);
   });
 
-  test("whoever is given an item hears of it", async ({ browser, baseURL }) => {
+  test("a first-timer can take an item, and whoever is given one hears of it, from any list", async ({ browser, baseURL }) => {
     const ann = await member(browser, baseURL!);
     const bob = await member(browser, baseURL!);
+    await newList(bob.page); // bob has used Checklists, on a list of his own
     const href = await newList(ann.page);
     await addItem(ann.page, 'firewood');
-    await bob.page.goto(href);
-    await addItem(bob.page, 'matches');
-    await ann.page.reload();
+    await item(ann, 'firewood').locator('select[name="who"]').selectOption({ label: ann.name });
+    await expect(item(ann, 'firewood').locator('.tag')).toHaveText(ann.name);
+    await expect(ann.page.locator('main')).toContainText('anyone who has used Checklists');
+    await ann.page.goto(href);
     await item(ann, 'firewood').locator('select[name="who"]').selectOption({ label: bob.name });
     await expect(item(ann, 'firewood').locator('.tag')).toHaveText(bob.name);
     await bob.page.goto('/notify');

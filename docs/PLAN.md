@@ -463,7 +463,7 @@ a send is in flight) (D13; §9). Each package declares its families in a `TOPICS
 | chat | `chat.room:<id>` (persisted); `chat.presence:<id>` (`.Latest`); `chat.typing:<id>` (`.Latest`); `chat.reply:<room>` (the bot's room answers, a server-side `deliver` row; §6.2) |
 | bot, ops, jobs | `bot.health`; `bot.ask:<room>` (room mode, a server-side `deliver` row; §6.2); `ops.panel`; `jobs.runs` (`.Latest`, publish key = the run id) |
 | games | `games.players` (`.Latest`); `games.board:<g>` |
-| polls, lists, calendar | `polls.poll:<id>` (`.Latest`); `lists.list:<id>` (persisted); `calendar.event:<id>` |
+| polls, lists, calendar | `polls.poll:<id>` (`.Latest`); `lists.list:<id>` (`.Latest` per column); `calendar.event:<id>` |
 | guestbook, c4, term | `guestbook.queue`; `c4.game:<id>`; `term.session:<sid>` |
 
 ### 2.11 Enums and modes
@@ -904,7 +904,8 @@ route ─► f_web handler ─► f service ─► store:f (the build's family) 
 
 Services stay pure, and views stay the only place HTML is built. Under store v3 a write commits on the writer task, so
 the tail of a write handler (publish, notify, respond) is the write's continuation, a named proc in the same web file
-(D16; LC §8; §11.1). Inside a feature, `static/` (`f.css`, `f._hs`) and `README.md` with fixed headings (§5.5) are files
+(D16; LC §8; §11.1). The exception (M8): a write that must render or read as it writes (a wiki save, a list change) runs in a
+`web.Scan` on the query pool under `write_now`, because a pool thread is the right side to wait on the writer's lock. Inside a feature, `static/` (`f.css`, `f._hs`) and `README.md` with fixed headings (§5.5) are files
 by convention, not packages; its SQLite migrations sit in its SQLite store, `app/stores/sqlite/<f>/migrations/`.
 
 ### 5.2 Platform packages
@@ -2314,7 +2315,7 @@ writes it a part per message whose `HX-Part-ID` is the rowid it was published wi
 | `bot.health`, `games.players`, `polls.poll:<id>`, `calendar.event:<id>` | `.Latest` | no | health badge, player counts, poll bars, RSVP counts |
 | `games.board:<g>`, `jobs.runs` (publish key = the run id) | `.Latest` | no | top-10 upserts, run progress |
 | `ops.panel` | `.Sample` | no | the 1 Hz ops render (§15) |
-| `lists.list:<id>` | `.Queue` | yes | item upserts keyed `data-pos` |
+| `lists.list:<id>` | `.Latest` per column | no | a column changed: each page fetches it |
 | `guestbook.queue`, `c4.game:<id>`, `term.session:<sid>` | `.Queue` | no | the moderation queue, spectator moves, watched terminal rows |
 | `bot.ask:<room>`, `chat.reply:<room>` | `.Queue` | no | the bot's room mode: the question, to bot's `deliver` row; the finished answer, to chat's, which stores it (§6.2) |
 
@@ -2732,7 +2733,7 @@ uploads_blobs(sha256 PK, mime, bytes, width, height, uploader, at); uploads_part
   -- owned by uploads, through app/stores/sqlite/uploads (X13)
 bot_conversations(id, user_id, title, created_at, updated_at); bot_messages(id, conv_id → bot_conversations, role, …)
 wiki_pages(id, slug UNIQUE, title, visibility, md, html, rev, author_name, updated_at); wiki_revs; wiki_fts
-lists_lists, lists_columns, lists_items(id, list_id, column_id, pos, text, done, assignee, …)
+lists, list_columns(id, list, name, pos, closes), list_items(id, list, col, body, assignee, pos), list_people(who PK, name); lists_fts
 polls_questions, polls_options, polls_votes(poll_id, user_id, option_id, at, PK(poll_id, user_id, option_id))
 calendar_events(…) INDEX(starts_at); calendar_rsvps(event_id, user_id, answer, …); calendar_feeds(user_id, token_hash)
 guestbook_notes(id, name, body, at, status, client_id, reviewed_by, reason)  INDEX(status, id)
@@ -2990,9 +2991,9 @@ on its behaviour (no API lists registered extensions, 11 §8.2); `bundle-race.sp
 | hx-prompt | every moderator and admin reason → `HX-Prompt` → the audit log | — |
 | hx-preload | boosted navigation; video cards on mouseover; wiki links; game tiles; find's wiki results (a chat room's GET counts as a member seen, so its hits don't). It sends no `HX-Preloaded` header (04 §4.5), so every GET stays side-effect free | — |
 | hx-ptag | chat transport C (the ptag is the cursor; 304 when nothing is new); ops and status poll variants; leaderboards | — |
-| hx-history-cache | opt-in per page: public wiki pages at M8, and later the video library and games catalog. It snapshots page HTML into sessionStorage (04 §5.10), and it checks for `hx-history="false"` across the document when it saves, while a boost replaces only the body's children. So the layout writes that attribute inside the swapped content on every page by default and leaves it off only for a page that opts in; a new page can't slip through. A public page's snapshot still holds a member's header, so sign-out clears `htmx-history-*` | — |
+| hx-history-cache | opt-in per page: public wiki pages at M8, and later the video library and games catalog. It snapshots page HTML into sessionStorage (04 §5.10), and it checks for `hx-history="false"` across the document when it saves, while a boost replaces only the body's children. So the layout writes that attribute inside the swapped content on every page by default and leaves it off only for a page that opts in and a viewer who's a guest; a new page can't slip through. A member's pages are never kept: a snapshot is the whole body, with their header and any widget's contents, and a sign-out reaches only its own tab. Sign-out and a revoke still clear `htmx-history-*`, and what a guest's palette found is cleared before a snapshot | — |
 | hx-head | boosted-navigation head merge (title, description, canonical, og; `og:video`) | — |
-| hx-upsert | chat (replay, edits, tombstones), presence, notifications, jobs, lists, c4 cells, leaderboards; keys are zero-padded strings because upsert sorts with `localeCompare` (07 §6.2) | — |
+| hx-upsert | chat (replay, edits, tombstones), presence, notifications, jobs, c4 cells, leaderboards; keys are zero-padded strings because upsert sorts with `localeCompare` (07 §6.2) | — |
 | hx-targets | unread badges `.unread-<room>`, `.notify-count`, user chips after a role or avatar change, RSVP counts `.rsvp-<id>` | — |
 | hx-download | CSV (audit, accounts), chat and bot transcripts, `.cast` recordings, wiki `.md`, calendar `.ics`, recovery codes; never video (it buffers the whole body in a Blob, 04 §5.14) | — |
 | hx-live | — | `/scripting/live`: the password-rules widget built three ways (app.js, hyperscript, hx-live). It needs eval: EvalError under the hash CSP (04 §5.4). As built (M2): the app.js way is the feature's `static/scripting.js`, the hyperscript way the `PasswordRules` behaviour, whose score hs-include sends to `POST /scripting/score` (hs-include's real use, and `bundle-race`'s proof that hyperscript, loaded last, registered it) |
@@ -3040,7 +3041,7 @@ behave :: proc(b: ^strings.Builder, x: Behaviour) { … } // _="install X" or da
 | `AutoScroll` / `auto-scroll` | keeps a log at the bottom unless the reader scrolled up (`measure`) | yes | chat |
 | `RelTime`, `CopyText` | "3 min ago" from `data-ts` every 30 s (the server renders the absolute time); `navigator.clipboard.writeText` | no | platform |
 | `ShowPassword`, `OtpInput` | toggles a password input's type; TOTP digits auto-advance and accept a paste | no | accounts |
-| `Draggable`, `DropZone` | HTML5 drag and drop of board cards → `POST /lists/<id>/items/<iid>/move`; move buttons are the no-JS path | no | lists |
+| `Draggable`, `DropZone` | HTML5 drag and drop of board cards → `POST /lists/<id>/move`; move buttons are the no-JS path | no | lists |
 | `Palette` | Ctrl-K opens a `<dialog>`; arrow keys and Enter | no | find |
 | `TermKeys`, `MeasureTerm` | keys from the labelled textarea → a hidden `hx-ws:send` form (custom trigger **UNVERIFIED (M11)**, fallback a 30-line app.js sender); columns and rows from `measure` → resize | no | term |
 | `Resume`, `Scrubber` | posts the watch position every 10 s (the page renders `data-resume`); thumbnails on seek-bar hover (VTT sprites) | no | video |
@@ -3585,7 +3586,7 @@ Each feature's README carries the full spec under D4's fixed headings. Accounts 
 - The embedded docs are an explicit list, never a directory walk, so `docs/private` can't reach a build; each fits the
   renderer's 64 KiB, and the list is small enough for `full`'s budget. PLAN and DECISIONS are too large on both counts:
   the wiki links to them on GitHub. DEVICES-SUMMARY and ANSWERS aren't manuals and stay out.
-- A public page opts in to the history cache (§12). A members' page is private by response: `no-store`, noindex, no snapshot.
+- A public page opts in to the history cache, for guests (§12). A members' page is private by response: `no-store`, noindex, no snapshot.
 - Perms `Wiki_Read` (everyone holds it, and a host with no identity serves the Manual, so the read rows are `.Public` and the domain
   refuses a members' page), `Wiki_Edit`. M8 adds a markdown fuzz (depth cap, 0 crashes) and a back/forward spec with zero
   server hits.
@@ -3619,8 +3620,9 @@ Each feature's README carries the full spec under D4's fixed headings. Accounts 
 - The checklist view adds items with hx-pending. The board view shows the same markup side by side; `Draggable` and
   `DropZone` fill a hidden form and send `POST /lists/<id>/move`, and move buttons, the same POST, are the no-JS path.
 - `lists.list:<id>` is `.Latest` per column and only says a column changed; each page then fetches it. A whole column can
-  pass the hub's 64 KiB, and positions never reach the client. Templates: groceries, packing. An item goes to someone who
-  has worked on the list: nothing else names members to a feature.
+  pass the hub's 64 KiB, and positions never reach the client. Templates: groceries, packing. An item goes to anyone who has
+  used Checklists, across all lists, and a member can always take one: nothing else names members to a feature, so someone
+  who never has can't be given one yet, and the page says so.
 - Perm `Lists_Edit`. M8 runs drag and drop with trusted mouse input and the button fallback; the board view is
   cut-list item 8.
 

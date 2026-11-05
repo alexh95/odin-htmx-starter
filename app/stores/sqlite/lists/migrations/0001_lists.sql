@@ -1,7 +1,8 @@
 -- Checklists (M8, §6, D36). An item has a column; one column of a list closes, and done means being in
 -- it, so there's no second truth to fall out of step. Positions keep gaps of 1024 within a column.
--- `list_people` is who has worked on a list: who an item can be given to. Search is FTS5 over item text,
--- as chat's is. Never edit it once a database has applied it.
+-- `list_people` is who has used Checklists: who an item can be given to, across every list, since every
+-- list is every member's. Search is FTS5 over item text, as chat's is. Never edit it once a database has
+-- applied it.
 CREATE TABLE lists (
   id      INTEGER PRIMARY KEY,
   title   TEXT NOT NULL,
@@ -27,11 +28,9 @@ CREATE TABLE list_items (
 CREATE INDEX list_items_col ON list_items(col, pos);
 CREATE INDEX list_items_list ON list_items(list);
 CREATE TABLE list_people (
-  list INTEGER NOT NULL,
-  who  INTEGER NOT NULL,
-  name TEXT NOT NULL,
-  PRIMARY KEY (list, who)
-) WITHOUT ROWID;
+  who  INTEGER PRIMARY KEY,
+  name TEXT NOT NULL
+);
 CREATE VIRTUAL TABLE lists_fts USING fts5(
   body, content = 'list_items', content_rowid = 'id', tokenize = 'unicode61 remove_diacritics 2', prefix = '2 3'
 );

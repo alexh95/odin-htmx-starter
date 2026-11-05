@@ -39,6 +39,12 @@ item_id :: proc(c: m.Column, text: string) -> i64 {
 	return 0
 }
 
+@(private = "file")
+cur_first :: proc(id, col: i64) -> m.Column {
+	c, _ := sql.column(id, col)
+	return c
+}
+
 @(test)
 lists_keep_their_order :: proc(t: ^testing.T) {
 	context.allocator = runtime.heap_allocator() // boot-time registrations, as in main
@@ -107,11 +113,16 @@ lists_keep_their_order :: proc(t: ^testing.T) {
 	_, _, merr = sql.toggle(other, a, ANN)
 	testing.expect_value(t, merr, m.Error.Not_Found)
 
-	// Only someone who worked on it can be given an item.
-	_, _, aerr := sql.assign(id, a, 99)
+	// Only someone who has used Checklists can be given an item, on any list, and anyone can take one.
+	_, _, aerr := sql.assign(id, a, 99, ANN)
 	testing.expect_value(t, aerr, m.Error.Not_Found)
-	_, text, aerr2 := sql.assign(id, a, 2)
+	_, text, aerr2 := sql.assign(id, a, 2, ANN)
 	testing.expectf(t, aerr2 == .None && text == "a", "%v %v", text, aerr2)
+	CID :: m.Actor{3, "cid"}
+	_, _, aerr = sql.assign(id, item_id(cur_first(id, first.id), "c"), 3, CID)
+	testing.expect_value(t, aerr, m.Error.None)
+	fresh, _ := sql.list(other)
+	testing.expectf(t, len(fresh.people) == 3, "people are across lists: %v", fresh.people)
 	cur, _ := sql.column(id, first.id)
 	for it in cur.items {
 		if it.id == a { testing.expect_value(t, it.assignee_name, "bob") }

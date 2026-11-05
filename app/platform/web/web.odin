@@ -149,8 +149,9 @@ set_canonical :: proc(path: string) {
 	if tl_ctx != nil { tl_ctx.canonical = path }
 }
 
-// This page holds nothing that should outlast the tab's sign-in, so hx-history-cache may snapshot it:
-// its opt-in, since a snapshot is page HTML in sessionStorage (§12). Before it renders.
+// This page holds nothing that should outlast the tab's sign-in, so hx-history-cache may snapshot it for a
+// guest: its opt-in, since a snapshot is page HTML in sessionStorage (§12). Never a member's: the body holds their
+// header and whatever a widget has shown them, and a sign-out reaches only its own tab. Before it renders.
 keep_in_history :: proc() {
 	if tl_ctx != nil { tl_ctx.history_cache = true }
 }

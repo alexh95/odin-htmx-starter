@@ -42,6 +42,9 @@ TOPICS := [?]hub.Topic {
 @(private) changes := web.Limit{n = 60, window = time.Minute}
 
 @(private)
+me :: proc(req: ^web.Request) -> m.Actor { return lists.actor(web.viewer(req)) }
+
+@(private)
 index :: proc(req: ^web.Request, res: ^web.Response) {
 	all := make([dynamic]m.Summary, context.temp_allocator)
 	if err := lists.summaries(&all); err != .None {
@@ -64,7 +67,7 @@ page :: proc(req: ^web.Request, res: ^web.Response) {
 		return
 	}
 	board := web.query_get(req, "view") == "board"
-	web.render_page(req, res, l.title, "/lists", "A shared checklist.", lists_views.page(l, board), live = {fmt.tprintf("lists.list:%d", id)})
+	web.render_page(req, res, l.title, "/lists", "A shared checklist.", lists_views.page(l, board, me(req)), live = {fmt.tprintf("lists.list:%d", id)})
 }
 
 @(private)
@@ -83,7 +86,7 @@ column :: proc(req: ^web.Request, res: ^web.Response) {
 	for c in l.columns {
 		if c.id != col { continue }
 		b := strings.builder_make(context.temp_allocator)
-		lists_views.column(&b, l, c)
+		lists_views.column(&b, l, c, me(req))
 		web.respond_html(res, strings.to_string(b))
 		return
 	}
@@ -140,7 +143,7 @@ work :: proc(scan: ^web.Scan) {
 	case .Move:   s.from, s.to, s.err = lists.move(s.list, s.item, s.col, s.after, s.viewer)
 	case .Toggle: s.from, s.to, s.err = lists.toggle(s.list, s.item, s.viewer)
 	case .Remove: s.from, s.err = lists.remove(s.list, s.item)
-	case .Assign: s.from, s.text, s.err = lists.assign(s.list, s.item, s.who)
+	case .Assign: s.from, s.text, s.err = lists.assign(s.list, s.item, s.who, s.viewer)
 	}
 	if s.err == .None && s.kind != .Create { s.list_now, s.err = lists.list(s.list) }
 }
@@ -187,7 +190,7 @@ answer :: proc(scan: ^web.Scan, req: ^web.Request, res: ^web.Response) {
 		}
 		b := strings.builder_make(context.temp_allocator)
 		for c in s.list_now.columns {
-			if c.id == s.from || c.id == s.to { lists_views.column_partial(&b, s.list_now, c) }
+			if c.id == s.from || c.id == s.to { lists_views.column_partial(&b, s.list_now, c, lists.actor(s.viewer)) }
 		}
 		web.respond_html(res, strings.to_string(b))
 	}

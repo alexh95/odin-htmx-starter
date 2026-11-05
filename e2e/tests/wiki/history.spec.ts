@@ -58,20 +58,29 @@ test.describe('nothing private is kept', T, () => {
     await leave(ann);
   });
 
-  test('a hard load of a private page leaves the next public page free to be kept', async ({ browser, baseURL }) => {
-    const ann = await member(browser, baseURL!);
-    await ann.page.goto('/chat');
-    await ann.page.locator('.nav-link[href="/wiki"]').click();
-    await ann.page.waitForURL('**/wiki');
-    await ann.page.locator('.wiki-pages a[href="/wiki/philosophy"]').click();
-    await ann.page.waitForURL('**/wiki/philosophy');
-    await expect(ann.page.locator('.wiki-body')).toBeVisible();
-    await ann.page.locator('.nav-link[href="/chat"]').click();
-    await ann.page.waitForURL('**/chat');
-    const hits = fetches(ann.page, /^\/wiki/);
-    await ann.page.goBack();
-    await expect(ann.page.locator('.wiki-body')).toBeVisible();
+  test("a guest's public page survives a private one between", async ({ page }) => {
+    await page.goto('/find');
+    await page.locator('.nav-link[href="/wiki"]').click();
+    await page.waitForURL('**/wiki');
+    await page.locator('.wiki-pages a[href="/wiki/philosophy"]').click();
+    await page.waitForURL('**/wiki/philosophy');
+    await expect(page.locator('.wiki-body')).toBeVisible();
+    await page.locator('.nav-link[href="/find"]').click();
+    await page.waitForURL('**/find');
+    await expect(page.locator('main')).toHaveAttribute('hx-history', 'false');
+    const hits = fetches(page, /^\/wiki/);
+    await page.goBack();
+    await expect(page.locator('.wiki-body')).toBeVisible();
     expect(hits).toEqual([]);
+  });
+
+  test("a member's pages are never kept, a public one included", async ({ browser, baseURL }) => {
+    const ann = await member(browser, baseURL!);
+    await ann.page.goto('/wiki/philosophy');
+    await expect(ann.page.locator('main')).toHaveAttribute('hx-history', 'false');
+    await ann.page.locator('.nav-link[href="/about"]').click();
+    await ann.page.waitForURL('**/about');
+    expect(await snapshots(ann.page)).toEqual([]);
     await leave(ann);
   });
 
@@ -93,17 +102,22 @@ test.describe('nothing private is kept', T, () => {
     await leave(ann);
   });
 
-  test('signing out clears the snapshots', async ({ browser, baseURL }) => {
-    const ann = await member(browser, baseURL!);
-    await ann.page.goto('/wiki/philosophy');
-    await ann.page.locator('.nav-link[href="/about"]').click();
-    await ann.page.waitForURL('**/about');
-    expect((await snapshots(ann.page)).length).toBeGreaterThan(0);
-    await ann.page.goto('/login');
-    await ann.page.evaluate(() => { (window as any).__stayed = 1; });
-    await ann.page.getByRole('button', { name: 'Sign out' }).click();
-    await ann.page.waitForURL((u) => !u.pathname.startsWith('/account'));
-    await expect.poll(() => snapshots(ann.page)).toEqual([]);
-    await leave(ann);
+  test("what a guest kept goes when they sign in and out in that tab", async ({ browser, baseURL }) => {
+    const context = await browser.newContext({ baseURL });
+    const page = await context.newPage();
+    await page.goto('/wiki/philosophy');
+    await page.locator('.nav-link[href="/about"]').click();
+    await page.waitForURL('**/about');
+    expect((await snapshots(page)).length).toBeGreaterThan(0);
+    await page.goto('/register');
+    await page.locator('#username').fill(uid('m'));
+    await page.locator('#password').fill('a-long-enough-password');
+    await page.locator('#again').fill('a-long-enough-password');
+    await page.getByRole('button', { name: 'Join' }).click();
+    await page.waitForURL((u) => u.pathname !== '/register');
+    await page.goto('/login');
+    await page.getByRole('button', { name: 'Sign out' }).click();
+    await expect.poll(() => snapshots(page)).toEqual([]);
+    await context.close();
   });
 });

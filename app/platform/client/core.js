@@ -36,6 +36,8 @@ document.addEventListener("htmx:history:cache:before:save", function () {
   if (results) results.replaceChildren();
   var q = document.getElementById("palette-q");
   if (q) { q.value = ""; q.removeAttribute("data-htmx-history-value"); }
+  var palette = document.getElementById("palette");
+  if (palette) palette.removeAttribute("open");
 });
 var leftAt = 0;
 addEventListener("beforeunload", function () { leftAt = Date.now(); });

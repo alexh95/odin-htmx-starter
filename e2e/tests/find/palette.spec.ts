@@ -51,13 +51,37 @@ test.describe('the palette', { tag: ['@find', '@find-hyperscript', '@wiki'] }, (
     await page.goto('/about');
     await page.locator('.nav-link[href="/status"]').click();
     await page.waitForURL('**/status');
+    await expect(page.locator('.nav-link[aria-current="page"]')).toHaveAttribute('href', '/status'); // the URL leads the swap
     await open(page);
     await expect(page.locator('#palette form')).toHaveAttribute('action', '/find');
   });
 });
 
-test.describe('the palette and the history cache', { tag: ['@find', '@find-hyperscript', '@chat', '@wiki-sqlite', '@accounts-accounts'] }, () => {
-  test('what it found leaves with the page, even a page that is kept', async ({ browser, baseURL }) => {
+test.describe('the palette and the history cache', { tag: ['@find', '@find-hyperscript', '@wiki'] }, () => {
+  test("what a guest found leaves with the page, and Back brings the page back shut", async ({ page }) => {
+    await page.goto('/wiki/philosophy');
+    await open(page);
+
+    await page.keyboard.type('brief');
+    await expect(page.locator('#palette-results a[href="/wiki/brief"]')).toBeVisible();
+    await page.locator('#palette-results a[href="/wiki/brief"]').click();
+    await page.waitForURL('**/wiki/brief');
+    const kept = await page.evaluate(() => JSON.stringify(sessionStorage));
+    expect(kept).toContain('wiki-body');
+    expect(kept).not.toContain('find-group');
+    expect(kept).not.toContain('find-snippet');
+
+    await page.goBack();
+    await expect(page.locator('.wiki-body')).toBeVisible();
+    await expect(page.locator('#palette')).toBeHidden();
+    await expect(page.locator('#palette-results')).toBeEmpty();
+    await page.keyboard.press('Control+k');
+    await expect(page.locator('#palette')).toBeVisible();
+  });
+});
+
+test.describe('the palette, for a member', { tag: ['@find', '@find-hyperscript', '@chat', '@wiki-sqlite', '@accounts-accounts'] }, () => {
+  test('nothing it found is kept: a member has no snapshots', async ({ browser, baseURL }) => {
     const ann = await member(browser, baseURL!);
     const word = uid('quokka');
     await ann.page.goto('/chat');
@@ -73,14 +97,9 @@ test.describe('the palette and the history cache', { tag: ['@find', '@find-hyper
     await open(ann.page);
     await ann.page.keyboard.type(word);
     await expect(ann.page.locator('#palette-results')).toContainText(word);
-    await ann.page.evaluate(() => {
-      // A boost out of a public page, with the dialog open: the snapshot mustn't take it.
-      (document.querySelector('.nav-link[href="/about"]') as HTMLElement).click();
-    });
+    await ann.page.evaluate(() => (document.querySelector('.nav-link[href="/about"]') as HTMLElement).click());
     await ann.page.waitForURL('**/about');
-    const kept = await ann.page.evaluate(() => JSON.stringify(sessionStorage));
-    expect(kept).toContain('wiki-body');
-    expect(kept).not.toContain(word);
+    expect(await ann.page.evaluate(() => JSON.stringify(sessionStorage))).not.toContain(word);
     await leave(ann);
   });
 });

@@ -107,8 +107,8 @@ Alex's answer on what an anonymous poll stores.
       attribute on `<body>` can't work: a boost drops it, and a hard load leaves it for the tab's life). A per-response private switch for a
       members' page. *Check, spec first:* boost public to `.Private` and away, no `htmx-history-*` key; `.Private` to public and back, zero
       hits; a guest's back/forward with zero server hits; a members' page and `/find` leaving nothing; sign-out clearing `htmx-history-*`.
-      Done (2026-11-05): `web.keep_in_history`, `web.set_private`, `web.set_canonical`. The index opts in for a guest only, since a member's lists
-      members' titles. A revoke clears snapshots too. A body's own links are in `hx-ignore`, so they load in full; the gate is over boosted ones.
+      Done (2026-11-05): `web.keep_in_history`, `web.set_private`, `web.set_canonical`. Only a guest's pages are kept (planning, 2026-11-05): a snapshot is
+      the body, and a sign-out reaches only its own tab. A revoke clears snapshots too. A body's own links are in `hx-ignore`, so they load in full; the gate is over boosted ones.
       `/find`'s spec is slice 6's.
 - [ ] **5. The markdown campaign** (§19.1.3, D44): `platform/fuzz` over `render` at a campaign's scale under ASan on Linux, and in the
       nightly; depth cap, input cap and the output's invariants (no raw tag, no unsafe href). *Check:* 0 crashes, the rounds and seed recorded.
@@ -136,8 +136,8 @@ Alex's answer on what an anonymous poll stores.
       /lists/<id>/items/<iid>/move`; move buttons as the no-JS path. *Check:* drag and drop with trusted mouse input on three browsers,
       the buttons on the vanilla client, a move racing another member's, both suites.
       Done (2026-11-05, 8 and 9): one markup for both views. `lists.list` is `.Latest` per column and only says one changed: a whole column can pass
-      the hub's 64 KiB, so each page fetches it (PLAN amended, planning told). An item goes to someone who's worked on the list, since nothing names
-      members to a feature. Find, lists and the wiki pass on Firefox and WebKit (2026-11-05).
+      the hub's 64 KiB, so each page fetches it (PLAN amended, planning told). An item goes to anyone who has used Checklists, and a member can always take one; there's no member directory at M8,
+      so a first-timer can't be given one yet, and the page says so. Find, lists and the wiki pass on Firefox and WebKit (2026-11-05).
 - [ ] **10. Polls** (cut-list item 9; holds on Alex's answer): `polls` on SQLite: a question with options or the Go/No-go preset, single or multiple choice,
       anonymous, a closing time on a job; votes 10 per minute, hx-pending; CSS bars by `style="--p:NN%"`; `polls.poll:<id>` `.Latest`; closing
       notifies the voters. *Check:* storetest, live results to a second member, a double vote refused, an anonymous poll's storage, `rbac.spec`,

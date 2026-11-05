@@ -78,7 +78,7 @@ index :: proc(req: ^web.Request, res: ^web.Response) {
 		return
 	}
 	web.impl(res, "wiki.store", wiki.IMPL)
-	if web.viewer(req).id == 0 { web.keep_in_history() } // a member's lists their pages' titles
+	web.keep_in_history()
 	web.render_page(req, res, copy.name, "/wiki", copy.description, wiki_views.index(copy.name, pages[:], may_edit(req)))
 }
 

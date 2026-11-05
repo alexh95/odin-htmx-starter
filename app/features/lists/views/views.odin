@@ -41,7 +41,7 @@ index :: proc(summaries: []m.Summary) -> string {
 	return strings.to_string(b)
 }
 
-page :: proc(l: m.List, board: bool) -> string {
+page :: proc(l: m.List, board: bool, me: m.Actor) -> string {
 	b := strings.builder_make(context.temp_allocator)
 	html.page_head(&b, "Lists", l.title, "")
 	fmt.sbprintf(&b, `<section class="block"><p class="lists-views"><a class="btn btn-outline" href="/lists/%d">Checklist</a> <a class="btn btn-outline" href="/lists/%d?view=board">Board</a></p>`, l.id, l.id)
@@ -51,8 +51,8 @@ page :: proc(l: m.List, board: bool) -> string {
 	fmt.sbprintf(&b, `><input id="list-item" name="text" required maxlength="%d" autocomplete="off" aria-label="New item" placeholder="Add an item"><button class="btn btn-primary" type="submit">Add</button><p class="field-msg form-error" id="list-error"></p></form>`, lists.MAX_TEXT)
 	w(&b, `<template id="list-pending"><li class="list-item muted">Adding…</li></template>`)
 	fmt.sbprintf(&b, `<div class="list-columns%s">`, " list-board" if board else "")
-	for c in l.columns { column_box(&b, l, c, board) }
-	w(&b, `</div></section>`)
+	for c in l.columns { column_box(&b, l, c, board, me) }
+	w(&b, `</div><p class="muted">An item can go to anyone who has used Checklists.</p></section>`)
 	return strings.to_string(b)
 }
 
@@ -64,14 +64,14 @@ changed :: proc(list_id, col: i64) -> string {
 }
 
 // A column, as a partial for whoever acted: what they did shows at once, the stream or no.
-column_partial :: proc(b: ^strings.Builder, l: m.List, c: m.Column) {
+column_partial :: proc(b: ^strings.Builder, l: m.List, c: m.Column, me: m.Actor) {
 	fmt.sbprintf(b, `<hx-partial hx-target="#col-%d" hx-swap="outerHTML">`, c.id)
-	column(b, l, c)
+	column(b, l, c, me)
 	w(b, `</hx-partial>`)
 }
 
 @(private)
-column_box :: proc(b: ^strings.Builder, l: m.List, c: m.Column, board: bool) {
+column_box :: proc(b: ^strings.Builder, l: m.List, c: m.Column, board: bool, me: m.Actor) {
 	w(b, `<section class="list-column`)
 	if c.closes { w(b, ` list-closing`) }
 	w(b, `"`)
@@ -83,13 +83,13 @@ column_box :: proc(b: ^strings.Builder, l: m.List, c: m.Column, board: bool) {
 		// What a drop fills in and submits: the same POST as the buttons.
 		fmt.sbprintf(b, `<form class="list-drop" hidden hx-post="/lists/%d/move" hx-swap="none"><input type="hidden" name="item"><input type="hidden" name="col" value="%d"><input type="hidden" name="after"></form>`, l.id, c.id)
 	}
-	column(b, l, c)
+	column(b, l, c, me)
 	w(b, `</section>`)
 }
 
-column :: proc(b: ^strings.Builder, l: m.List, c: m.Column) {
+column :: proc(b: ^strings.Builder, l: m.List, c: m.Column, me: m.Actor) {
 	fmt.sbprintf(b, `<ul id="col-%d" class="list-items" data-col="%d">`, c.id, c.id)
-	for it, i in c.items { item(b, l, c, it, i) }
+	for it, i in c.items { item(b, l, c, it, i, me) }
 	w(b, `</ul>`)
 }
 
@@ -108,7 +108,7 @@ move_fields :: proc(it: m.Item, col, after: i64) -> string {
 }
 
 @(private)
-item :: proc(b: ^strings.Builder, l: m.List, c: m.Column, it: m.Item, i: int) {
+item :: proc(b: ^strings.Builder, l: m.List, c: m.Column, it: m.Item, i: int, me: m.Actor) {
 	fmt.sbprintf(b, `<li id="li-%d" class="list-item" data-item="%d" data-pos="%012d" draggable="true"`, it.id, it.id, it.pos)
 	html.behave(b, .Draggable)
 	w(b, `><span class="list-text">`)
@@ -132,12 +132,21 @@ item :: proc(b: ^strings.Builder, l: m.List, c: m.Column, it: m.Item, i: int) {
 		if k < len(l.columns) - 1 { act(b, l, "/move", "Right", "→", move_fields(it, l.columns[k + 1].id, -1)) }
 	}
 	fmt.sbprintf(b, `<form class="list-act" method="post" action="/lists/%d/items/%d/assign" hx-post="/lists/%d/items/%d/assign" hx-trigger="change" hx-swap="none"><select name="who" aria-label="Who has it"><option value="0">Nobody</option>`, l.id, it.id, l.id, it.id)
+	// The viewer can always take it, first time here or not.
+	listed := false
 	for p in l.people {
-		fmt.sbprintf(b, `<option value="%d"%s>`, p.id, " selected" if p.id == it.assignee else "")
-		esc(b, p.name)
-		w(b, `</option>`)
+		listed = listed || p.id == me.id
+		person(b, p.id, p.name, it.assignee)
 	}
+	if !listed { person(b, me.id, me.name, it.assignee) }
 	w(b, `</select></form>`)
 	act(b, l, fmt.tprintf("/items/%d/delete", it.id), "Delete", "×")
 	w(b, `</span></li>`)
+}
+
+@(private)
+person :: proc(b: ^strings.Builder, id: u64, name: string, assignee: u64) {
+	fmt.sbprintf(b, `<option value="%d"%s>`, id, " selected" if id == assignee else "")
+	esc(b, name)
+	w(b, `</option>`)
 }

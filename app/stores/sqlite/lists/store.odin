@@ -28,12 +28,12 @@ MAX_ITEMS :: 500 // a list's
 @(private) SQL_LIST :: "SELECT title FROM lists WHERE id = ?"
 @(private) SQL_COLUMNS :: "SELECT id, name, closes FROM list_columns WHERE list = ? ORDER BY pos"
 @(private) SQL_COLUMN :: "SELECT id, name, closes FROM list_columns WHERE list = ? AND id = ?"
-@(private) SQL_ITEMS :: "SELECT i.id, i.col, i.body, i.assignee, i.pos, coalesce(p.name, '') FROM list_items i LEFT JOIN list_people p ON p.list = i.list AND p.who = i.assignee WHERE i.col = ? ORDER BY i.pos, i.id"
-@(private) SQL_PEOPLE :: "SELECT who, name FROM list_people WHERE list = ? ORDER BY name COLLATE NOCASE"
+@(private) SQL_ITEMS :: "SELECT i.id, i.col, i.body, i.assignee, i.pos, coalesce(p.name, '') FROM list_items i LEFT JOIN list_people p ON p.who = i.assignee WHERE i.col = ? ORDER BY i.pos, i.id"
+@(private) SQL_PEOPLE :: "SELECT who, name FROM list_people ORDER BY name COLLATE NOCASE LIMIT 500"
 @(private) SQL_ADD_LIST :: "INSERT INTO lists(title, by_name, at) VALUES(?, ?, ?)"
 @(private) SQL_ADD_COLUMN :: "INSERT INTO list_columns(list, name, pos, closes) VALUES(?, ?, ?, ?)"
 @(private) SQL_ADD_ITEM :: "INSERT INTO list_items(list, col, body, pos) VALUES(?, ?, ?, ?)"
-@(private) SQL_PERSON :: "INSERT INTO list_people(list, who, name) VALUES(?, ?, ?) ON CONFLICT(list, who) DO UPDATE SET name = excluded.name"
+@(private) SQL_PERSON :: "INSERT INTO list_people(who, name) VALUES(?, ?) ON CONFLICT(who) DO UPDATE SET name = excluded.name"
 @(private) SQL_COUNT :: "SELECT count(*) FROM list_items WHERE list = ?"
 @(private) SQL_FIRST :: "SELECT id FROM list_columns WHERE list = ? ORDER BY pos LIMIT 1"
 @(private) SQL_CLOSING :: "SELECT id FROM list_columns WHERE list = ? AND closes = 1 LIMIT 1"
@@ -46,7 +46,7 @@ MAX_ITEMS :: 500 // a list's
 @(private) SQL_RENUMBER :: "UPDATE list_items SET pos = (SELECT r.n * 1024 FROM (SELECT id, row_number() OVER (ORDER BY pos, id) AS n FROM list_items WHERE col = ?1) r WHERE r.id = list_items.id) WHERE col = ?1"
 @(private) SQL_REMOVE :: "DELETE FROM list_items WHERE id = ?"
 @(private) SQL_ASSIGN :: "UPDATE list_items SET assignee = ? WHERE id = ?"
-@(private) SQL_KNOWN :: "SELECT 1 FROM list_people WHERE list = ? AND who = ?"
+@(private) SQL_KNOWN :: "SELECT 1 FROM list_people WHERE who = ?"
 // By the index's order, newest first, as chat's: it sorts nothing. 57344 and 57345 are escape.MARK_ON and MARK_OFF.
 SQL_SEARCH :: "SELECT i.id, l.id, l.title, snippet(lists_fts, 0, char(57344), char(57345), '…', 32) FROM lists_fts f JOIN list_items i ON i.id = f.rowid JOIN lists l ON l.id = i.list " +
 	"WHERE lists_fts MATCH ?1 ORDER BY f.rowid DESC LIMIT ?2"
@@ -98,15 +98,14 @@ list :: proc(id: i64) -> (l: m.List, err: m.Error) {
 		if c.items, err = items_of(c.id); err != .None { return }
 	}
 	l.columns = columns[:]
-	l.people, err = people_of(id)
+	l.people, err = people_of()
 	return
 }
 
 @(private)
-people_of :: proc(id: i64) -> (out: []m.Person, err: m.Error) {
+people_of :: proc() -> (out: []m.Person, err: m.Error) {
 	q := db.read(SQL_PEOPLE)
 	defer db.reset(q)
-	db.bind_id(q, 1, id)
 	people := make([dynamic]m.Person, context.temp_allocator)
 	for db.next_row(q, &err) { append(&people, m.Person{u64(db.column_id(q, 0)), db.clone_col(q, 1)}) }
 	return people[:], err
@@ -163,9 +162,8 @@ exec :: proc(st: db.Stmt) -> bool {
 @(private)
 touch :: proc() -> bool {
 	st := db.writer_stmt(SQL_PERSON)
-	db.bind_id(st, 1, w.list)
-	db.bind_id(st, 2, i64(w.by.id))
-	db.bind_text(st, 3, w.by.name)
+	db.bind_id(st, 1, i64(w.by.id))
+	db.bind_text(st, 2, w.by.name)
 	return exec(st)
 }
 
@@ -317,12 +315,13 @@ remove :: proc(list_id, item: i64) -> (col: i64, err: m.Error) {
 	return w.from, done(ok)
 }
 
-assign :: proc(list_id, item: i64, who: u64) -> (col: i64, text: string, err: m.Error) {
-	w = {list = list_id, item = item, who = who}
+assign :: proc(list_id, item: i64, who: u64, by: m.Actor) -> (col: i64, text: string, err: m.Error) {
+	w = {list = list_id, item = item, who = who, by = by}
 	ok := db.write_now(proc() -> bool {
 		if !find_item() { return false }
+		if !touch() { return false } // they're someone now, so `who == by` is known too
 		if w.who != 0 {
-			if _, found := scalar(SQL_KNOWN, w.list, i64(w.who), true); !found {
+			if _, found := scalar(SQL_KNOWN, i64(w.who)); !found {
 				if w.err == .None { w.err = .Not_Found }
 				return false
 			}

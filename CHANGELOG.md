@@ -13,7 +13,8 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 - Chat's search runs on the query pool (M6-13) through `web.Scan`, in the index's own order rather than sorting every match, and shows a
   snippet with its hits marked: FTS5's `snippet()` on SQLite, `store.snippet` on memory, whose scan now is `store.contains_ci`.
   `escape.write_marked` treats the marks as a toggle, since a member can type them. `Store_Search` states the one kick rule.
-- Chat's FTS index has `prefix = '2 3'` (`0010_fts_prefix.sql`): a search's last word is a prefix, from two bytes, and that was 33 ms at 100k messages.
+- Chat's FTS index has `prefix = '2 3'`: a search's last word is a prefix, from two bytes, and that was 33 ms at 100k messages. `0010_fts_prefix.sql`
+  drops and rebuilds the index, once, at the promote: 355 ms per 100k messages.
 - `Find_Source` leaves `platform/store` for find's models, and `Search_Hit` loses `source` and `at` (PLAN §6).
 
 ### Fixed
@@ -26,13 +27,13 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
   of eleven with their links turned into pages or GitHub URLs (PLAN §6).
 - The wiki on SQLite, Houston's Logbook: pages public or members', revisions, a 409 with the line diff, a server-rendered preview, `.md` export,
   and the Manual brought up to the binary's at each boot. `web.set_private`, `web.respond_attachment`.
-- The history cache, opt-in per page: `hx-history="false"` is on every `<main>` unless a page calls `web.keep_in_history`, and only public wiki
-  pages do. Sign-out and a revoke clear the snapshots. hx-head and preload reach Main on `lab` and `full`, and a wiki page has its own canonical URL.
+- The history cache, opt-in per page and for guests alone: `hx-history="false"` is on every `<main>` unless a page calls `web.keep_in_history` and
+  the viewer is a guest, and only public wiki pages do. Sign-out and a revoke clear the snapshots. hx-head and preload reach Main on `lab` and `full`, and a wiki page has its own canonical URL.
 - `find`: `/find` over a profile's `FIND_SOURCES`, on `full` (FTS) and `streams` (a `contains_ci` scan, with the wiki's memory store): each row has
   a perm and an engine, boot refuses a mix, hits stay grouped by source, and the page is `.Private`. A member's `/bot` conversations are no source.
 - The Ctrl-K palette, hyperscript's alone: search and the pages the viewer can open, in a `<dialog>` that clears itself on close and before a snapshot.
 - `lists`, on SQLite: shared checklists and a board of the same items, with live columns, drag and drop and buttons for every move, templates, an
-  item given to someone who's worked on the list, and search over item text.
+  item taken by its reader or given to anyone who has used Checklists, and search over item text.
 - `markdown.plain`, and a `link` hook on the renderer's options.
 - `tools/findbench`: FTS5 at 100k messages through the real query, `docs/perf/FIND-BUDGETS.md`.
 - The weekly `chat.optimize` job on chat's FTS index (§11.8), which was planned and never built.

@@ -67,7 +67,8 @@ Store_Move :: proc(list, item, col, after: i64, by: Actor) -> (from, to: i64, er
 // Between the closing column and the first.
 Store_Toggle :: proc(list, item: i64, by: Actor) -> (from, to: i64, err: Error)
 Store_Remove :: proc(list, item: i64) -> (col: i64, err: Error)
-// Someone who has worked on the list; 0 takes it off whoever had it. `text`: the item's, for the notice.
-Store_Assign :: proc(list, item: i64, who: u64) -> (col: i64, text: string, err: Error)
+// Someone who has used Checklists, `by` among them; 0 takes it off whoever had it. `text`: the item's, for
+// the notice.
+Store_Assign :: proc(list, item: i64, who: u64, by: Actor) -> (col: i64, text: string, err: Error)
 
 Store_Search :: proc(words: []string, limit: int, out: ^[dynamic]store.Search_Hit) -> Error

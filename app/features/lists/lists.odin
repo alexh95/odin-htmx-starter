@@ -65,7 +65,9 @@ toggle :: proc(list_id, item: i64, v: authz.Viewer) -> (from, to: i64, err: m.Er
 }
 
 remove :: proc(list_id, item: i64) -> (i64, m.Error) { return lists_store.remove(list_id, item) }
-assign :: proc(list_id, item: i64, who: u64) -> (col: i64, text: string, err: m.Error) { return lists_store.assign(list_id, item, who) }
+assign :: proc(list_id, item: i64, who: u64, v: authz.Viewer) -> (col: i64, text: string, err: m.Error) {
+	return lists_store.assign(list_id, item, who, actor(v))
+}
 
 // A row of find's table. Lists are every member's, so its perm is the whole rule.
 find :: proc(_: authz.Viewer, q: string, limit: int, out: ^[dynamic]store.Search_Hit) -> m.Error {
