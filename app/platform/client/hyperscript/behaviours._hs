@@ -94,6 +94,48 @@ behavior Palette
   end
 end
 
+-- A card that can be dragged says which it is. The buttons beside it do the same with no script.
+behavior Draggable
+  on dragstart
+    call event.dataTransfer.setData('text/plain', my @data-item)
+    set event.dataTransfer.effectAllowed to 'move'
+  end
+end
+
+-- A column: a drop fills its hidden form and submits it, the POST the buttons send. On a card it lands
+-- above that card; anywhere else, at the bottom.
+behavior DropZone
+  on dragover
+    call event.preventDefault()
+    add .drop-over to me
+  end
+  on dragleave
+    if not me.contains(event.relatedTarget)
+      remove .drop-over from me
+    end
+  end
+  on drop
+    call event.preventDefault()
+    remove .drop-over from me
+    set form to first <form.list-drop/> in me
+    set item to event.dataTransfer.getData('text/plain')
+    set over to closest <.list-item/> to the target
+    if over is null
+      set after to '-1'
+    else
+      set above to the previousElementSibling of over
+      if above is null
+        set after to '0'
+      else
+        set after to above's @data-item
+      end
+    end
+    set value of first <input[name='item']/> in form to item
+    set value of first <input[name='after']/> in form to after
+    call form.requestSubmit()
+  end
+end
+
 -- A range input paints its filled portion through --fill (app.css reads it) and
 -- keeps its label's <output> in step.
 behavior RangeFill

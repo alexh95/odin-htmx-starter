@@ -3614,9 +3614,11 @@ Each feature's README carries the full spec under D4's fixed headings. Accounts 
   FTS, on `Lists_Edit`.
 - Columns come from the template at creation (To do / Doing / Done by default), with no column editor. One column per
   list closes, and done means being in it: ticking moves an item to the closing column, unticking to the first.
-- The checklist view adds items with hx-pending. The board view shows the columns; `Draggable` and `DropZone` send
-  `POST /lists/<id>/items/<iid>/move`, and move buttons are the no-JS path.
-- Changes ride `lists.list:<id>` (persisted) as upserts keyed `data-pos`. Templates: groceries, packing.
+- The checklist view adds items with hx-pending. The board view shows the same markup side by side; `Draggable` and
+  `DropZone` fill a hidden form and send `POST /lists/<id>/move`, and move buttons, the same POST, are the no-JS path.
+- `lists.list:<id>` is `.Latest` per column and only says a column changed; each page then fetches it. A whole column can
+  pass the hub's 64 KiB, and positions never reach the client. Templates: groceries, packing. An item goes to someone who
+  has worked on the list: nothing else names members to a feature.
 - Perm `Lists_Edit`. M8 runs drag and drop with trusted mouse input and the button fallback; the board view is
   cut-list item 8.
 

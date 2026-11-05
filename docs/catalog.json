@@ -15,6 +15,7 @@
     {"name": "jobs", "lines": 700, "stores": ["memory", "sqlite"], "sqlite": "any", "deps": ["notify", "audit"], "switched": [], "declares": ["ROUTES", "EXTS", "TOPICS", "JOBS", "init"], "profiles": ["full"]},
     {"name": "lab", "lines": 600, "stores": [], "sqlite": "none", "deps": [], "switched": [], "declares": ["ROUTES", "EXTS", "TOPICS", "JOBS", "init"], "profiles": ["lab"]},
     {"name": "landing", "lines": 300, "stores": [], "sqlite": "none", "deps": [], "switched": [], "declares": ["ROUTES", "EXTS", "init"], "profiles": ["lab"]},
+    {"name": "lists", "lines": 1000, "stores": ["sqlite"], "sqlite": "required", "deps": ["notify"], "switched": [], "declares": ["ROUTES", "EXTS", "TOPICS"], "profiles": ["full"]},
     {"name": "modules", "lines": 100, "stores": [], "sqlite": "none", "deps": [], "switched": [], "declares": ["ROUTES", "EXTS"], "profiles": ["full"]},
     {"name": "notes", "lines": 400, "stores": ["memory", "sqlite"], "sqlite": "any", "deps": [], "switched": [], "declares": ["ROUTES", "EXTS", "home_card"], "profiles": ["minimal", "streams"]},
     {"name": "notify", "lines": 1000, "stores": ["memory", "sqlite"], "sqlite": "any", "deps": [], "switched": [], "declares": ["ROUTES", "EXTS", "TOPICS", "JOBS", "init", "home_card"], "profiles": ["streams", "full"]},
@@ -35,6 +36,6 @@
     {"name": "skeleton", "store": "sqlite", "identity": "anonymous", "client": "vanilla", "theme": "full", "features": ["dashboard", "gallery", "contacts", "about"]},
     {"name": "lab", "store": "memory", "identity": "anonymous", "client": "hyperscript", "theme": "full", "features": ["landing", "lab", "scripting", "compat", "status", "wiki", "about"]},
     {"name": "streams", "store": "memory", "identity": "nick", "client": "vanilla", "theme": "lite", "features": ["home", "notes", "uploads", "chat", "notify", "bot", "find", "wiki", "ops", "status", "accounts", "about", "audit"]},
-    {"name": "full", "store": "sqlite", "identity": "accounts", "client": "hyperscript", "theme": "full", "features": ["home", "accounts", "uploads", "chat", "notify", "bot", "find", "wiki", "audit", "modules", "ops", "jobs", "dbview", "status", "about"]}
+    {"name": "full", "store": "sqlite", "identity": "accounts", "client": "hyperscript", "theme": "full", "features": ["home", "accounts", "uploads", "chat", "notify", "bot", "find", "lists", "wiki", "audit", "modules", "ops", "jobs", "dbview", "status", "about"]}
   ]
 }

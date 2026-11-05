@@ -27,6 +27,7 @@ import home_web "../../features/home/web"
 import jobs_web "../../features/jobs/web"
 import lab_web "../../features/lab/web"
 import landing_web "../../features/landing/web"
+import lists_web "../../features/lists/web"
 import modules_web "../../features/modules/web"
 import notify_web "../../features/notify/web"
 import ops_web "../../features/ops/web"
@@ -48,6 +49,7 @@ ROUTES := [?]app.Mount {
 	{"notify", notify_web.ROUTES[:]},   // /notify: the Inbox
 	{"bot", bot_web.ROUTES[:]},         // /bot: the assistant
 	{"find", find_web.ROUTES[:]},       // /find: search
+	{"lists", lists_web.ROUTES[:]},     // /lists: Checklists
 	{"wiki", wiki_web.EDIT_ROUTES[:]},  // /wiki: writing, before the read rows
 	{"wiki", wiki_web.ROUTES[:]},       // /wiki: the Logbook
 	{"bot", bot_web.ADMIN_ROUTES[:]},   // /admin/bot: its default, LAN only
@@ -62,6 +64,7 @@ ROUTES := [?]app.Mount {
 
 // Mounted by main with hub.mount("main", ..TOPICS[:]).
 TOPICS := [?][]hub.Topic {
+	lists_web.TOPICS[:], // lists.list: a column changed
 	identity.TOPICS[:], // the identity's member topics: what a revoke ends
 	chat_web.TOPICS[:],   // chat.room, chat.presence, chat.typing
 	notify_web.TOPICS[:], // notify.user

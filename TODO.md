@@ -122,14 +122,17 @@ Alex's answer on what an anonymous poll stores.
       to `/find`, focus back where it was, no stream of its own.
       Done (2026-11-05): Chromium here, Firefox and WebKit at the exit's run. What it found is cleared before a snapshot is taken: the body holds
       the palette, and a public page may be kept. Typing a nav item's name goes there; pages come from the nav and the viewer's perms.
-- [ ] **8. Lists, the checklist** (§6): `lists` on SQLite: lists, columns from the template (To do / Doing / Done by default, no editor),
+- [x] **8. Lists, the checklist** (§6): `lists` on SQLite: lists, columns from the template (To do / Doing / Done by default, no editor),
       items (≤ 200 runes, a column, an assignee → `notify_web.send`, position with gaps of 1024, renumbered by the server); one column closes
       and done means being in it: ticking moves to it, unticking to the first; hx-pending; `lists.list:<id>` persisted, upserts keyed `data-pos`;
       `lists.find`, FTS over item text on `Lists_Edit`. *Check:* storetest, two members live, the renumbering at the gap's end, the assignee's
       notice, a removed item gone from the index, both suites.
-- [ ] **9. Lists, the board** (cut-list item 8): the columns shown; `Draggable` and `DropZone`, which have no definition yet; `POST
+- [x] **9. Lists, the board** (cut-list item 8): the columns shown; `Draggable` and `DropZone`, which have no definition yet; `POST
       /lists/<id>/items/<iid>/move`; move buttons as the no-JS path. *Check:* drag and drop with trusted mouse input on three browsers,
       the buttons on the vanilla client, a move racing another member's, both suites.
+      Done (2026-11-05, 8 and 9): one markup for both views. `lists.list` is `.Latest` per column and only says one changed: a whole column can pass
+      the hub's 64 KiB, so each page fetches it (PLAN amended, planning told). An item goes to someone who's worked on the list, since nothing names
+      members to a feature. Firefox and WebKit at the exit's run.
 - [ ] **10. Polls** (cut-list item 9; holds on Alex's answer): `polls` on SQLite: a question with options or the Go/No-go preset, single or multiple choice,
       anonymous, a closing time on a job; votes 10 per minute, hx-pending; CSS bars by `style="--p:NN%"`; `polls.poll:<id>` `.Latest`; closing
       notifies the voters. *Check:* storetest, live results to a second member, a double vote refused, an anonymous poll's storage, `rbac.spec`,
