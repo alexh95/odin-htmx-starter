@@ -66,6 +66,64 @@ copy-and-start ergonomics and good defaults matter more than feature depth.
       `Turİng`; it passed on the rerun. Found: it searched the seed's Turing, which can be the first row, and
       crud.spec renames and deletes the first row on the same worker's server. The case adds its own row now.
 
+## M8 — Plan (v2.7.0)
+
+The starter's eighth milestone ([`docs/PLAN.md`](docs/PLAN.md) §22.3, M8's row; §6 the four features; §11.8 FTS; D16, D20, D36). Its exit
+gate: the slice gate; FTS MATCH ≤ 3 ms at 100k messages; find respects membership; a wiki markdown fuzz (depth cap) with 0 crashes; board
+drag and drop (trusted mouse input) and the button fallback both pass; history-cache back/forward with zero server hits on the wiki.
+Pushes are on the standing go. The plan was checked against the code on 2026-11-05: points **P1–P10** in the notes folder's
+`m8-plan-points.md`, with planning. Slices that lean on an open point say so, and nothing is built on one until it's answered.
+
+- [ ] **1. Chat's search made ready for find** (M6-13, D16): `SQL_SEARCH` sorts every match in a temp b-tree (`EXPLAIN QUERY PLAN`
+      settles M6-13's guess); `ORDER BY f.rowid DESC` doesn't. Search moves to the query pool, its strings in the task's arena. One
+      read rule for the room page, SQLite's search and memory's (P1). The memory store scans with `store.contains_ci`, which its comment
+      claims and its code doesn't. A snippet with marks: FTS5's `snippet()` around private-use sentinels, then escaped, so the marks match
+      what FTS folded (`cafe` marks `café`), and `write_highlighted` over all the words on memory. The weekly `optimize` job (§11.8),
+      which was never built. *Check:* the membership cases below on `/chat/search` and both families' storetest, `cafe` on each family, a
+      plan-shape test holding the query to no temp b-tree.
+- [ ] **2. Wiki, read-only** (§6, §7): `wiki` with the memory store `source_files` on `lab`. The embedded docs are an explicit list, never a
+      directory walk, and `docs/private` can't reach it (P3). Each input fits the renderer's 64 KiB; `.dockerignore` names each one; links
+      between them become `/wiki/<slug>`, the rest the repo's URL. `hx-ignore` + `data-disable-scripting` round a body; each page's head
+      through hx-head; `Wiki_Read`. *Check:* the docs render with no refused link, a build outside the repo's private folder is byte-equal,
+      the image builds, the hygiene grep covers the list, `x-impl`, both suites on `lab`.
+- [ ] **3. Wiki on SQLite** (§6, §11.5): pages (slug, title, visibility), Markdown and rendered HTML and plain text, revisions, FTS over
+      title and plain text; rendered at write time, off the loop; saving over a newer revision answers 409 with the line diff, computed on
+      the query pool; the server-rendered preview; `.md` through hx-download; Houston's Manual pages seeded read-only at boot from slice 2's
+      list and replaced when the binary's differ. *Check:* storetest, a restart, a guest refused a members' page and its `.md`, a Manual
+      page refusing an edit, the 409 spec, the XSS suite over a page and a title, `rbac.spec`'s rows, both suites on `full`.
+- [ ] **4. History cache, preload, head** (§12, 04 §5.10; P2): the extensions enter Main, and so reach every page of a build. A list of
+      every non-`.Private` page in `full` and what a snapshot of it would keep; a per-response way to make a members' wiki page private on a
+      row that also serves public ones. *Check:* the gate's back/forward spec with zero server hits on a public page, a members' page and
+      `/find` leaving nothing in sessionStorage, sign-out with no snapshot left behind.
+- [ ] **5. The markdown campaign** (§19.1.3, D44): `platform/fuzz` over `render` at a campaign's scale under ASan on Linux, and in the
+      nightly; depth cap, input cap and the output's invariants (no raw tag, no unsafe href). *Check:* 0 crashes, the rounds and seed recorded.
+- [ ] **6. Find** (§6, D6, D16; P4–P6): `/find`, `FIND_SOURCES`, each source's own perm before its `search`; on the query pool; 10 per second
+      per user; a list that never mixes engines, held at boot; `hx-sync="this:replace"`; a plain GET form with no client. Mounted on `full`
+      (FTS) and `streams` (memory). *Check:* the membership suite below, `cafe` on each family, the limit, `rbac.spec`, the XSS suite over
+      snippets, both suites. **Membership suite**, on both families: a guest sees no chat at all; a non-member finds nothing of a private
+      room or another's DM; a member who left, a removed member and a kicked one find nothing; a bot's answer in a private room is found by
+      its members and nobody else; a failed ask left nothing; an edited, removed or aged-out message is gone from the index; a member's
+      `/bot` conversation is found by nobody, its owner included (P5).
+- [ ] **7. The palette** (§6, D22): the `Palette` behaviour opening the Ctrl-K `<dialog>`, results and the pages the viewer may open. The
+      behaviour is a name in `behave.odin` with no definition yet. *Check:* keyboard only on three browsers, the vanilla client's plain link
+      to `/find`, focus back where it was, no stream of its own.
+- [ ] **8. Lists, the checklist** (§6; P7, P8): `lists` on SQLite: lists, items (≤ 200 runes, done, an assignee → `notify_web.send`, position
+      with gaps of 1024, renumbered by the server), templates; hx-pending; `lists.list:<id>` persisted, upserts keyed `data-pos`. *Check:*
+      storetest, two members live on every transport the topic has, the renumbering at the gap's end, the assignee's notice, both suites.
+- [ ] **9. Lists, the board** (cut-list item 8; P8): columns; `Draggable` and `DropZone`, which have no definition yet; `POST
+      /lists/<id>/items/<iid>/move`; move buttons as the no-JS path. *Check:* drag and drop with trusted mouse input on three browsers,
+      the buttons on the vanilla client, a move racing another member's, both suites.
+- [ ] **10. Polls** (cut-list item 9; P7, P9): `polls` on SQLite: a question with options or the Go/No-go preset, single or multiple choice,
+      anonymous, a closing time on a job; votes 10 per minute, hx-pending; CSS bars by `style="--p:NN%"`; `polls.poll:<id>` `.Latest`; closing
+      notifies the voters. *Check:* storetest, live results to a second member, a double vote refused, an anonymous poll's storage, `rbac.spec`,
+      both suites.
+- [ ] **11. Budgets** (§18): MATCH ≤ 3 ms at 100k messages through the real query with its membership rows, a common word for a member of
+      few rooms included, and bm25's cost beside it. *Check:* `docs/perf/FIND-BUDGETS.md`, k6 scenarios for each new route, `tools/check parity`.
+- [ ] **12. Exit**: the slice gate for every new feature; the parity gate on both legs; `docs/audit/M8.md`, a security audit of find's
+      membership, the wiki's rendering and visibility, lists and polls, by an agent that didn't write the code, 0 open CRITICAL/HIGH, and a
+      re-read of its fixes; `Audited:` stamps; CHANGELOG's 2.7.0 lead; the generator and the catalog know the four features. Then the tag
+      target goes to planning: the v2.7.0 tag and promote are Alex's.
+
 ## M7 — Ask (v2.6.0)
 
 The starter's seventh milestone ([`docs/PLAN.md`](docs/PLAN.md) §22.3, M7's row; §14.3 the bot; §6.2 room mode; D8, D31;
@@ -124,6 +182,11 @@ steps go through planning once the code can use them. Pushes are on the standing
       the code; `Audited:` stamps; CHANGELOG's 2.6.0 lead. Then, with Alex: the llama.cpp compose project on apollo's GPU,
       the power-supply check, the v2.6.0 tag and promote, `BOT_LLAMA_URL` set, the tokens/s from the server's `timings` recorded (§14.3's
       40–60 is UNVERIFIED), and a smoke against the real server.
+      v2.6.0 tagged on `564b862`, release run 42031871216 green, all five apollo services promoted by Alex, Fly's skeleton on it through
+      `FLY_DEPLOY` (2026-11-05). `deploy/npm-smoke.mjs --houston --version v2.6.0` 21/21, read only, run by planning from the dev PC after
+      the promotes. Houston's first minutes on it: `0001_bot.sql` ran, 0 5xx, no warn or error lines, 0 restarts. Houston is on the mock bot.
+- [ ] **The real model on apollo** (Alex's steps, `BOT_LLAMA_URL` on Houston): the smoke against the real server and the tokens/s from
+      its `timings` into `docs/perf/BOT-BUDGETS.md` (§14.3's 40–60 is UNVERIFIED). M8 doesn't wait for it.
 
 ## M6 — Comms, and the family beta (v2.5.0)
 
