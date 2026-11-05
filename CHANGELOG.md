@@ -29,6 +29,8 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 - **`/admin/bot`** (M7): the default, in memory and audited, gone at a restart, with counts and timings of everyone's use and
   no text. `/admin/modules` shows the default and links there.
 
+- **The `botmock` drill** (M7): 1000 concurrent mock generations ≤ 1 core and ≤ +30 MB, on every push (`docs/perf/BOT-BUDGETS.md`).
+
 ### Changed
 
 - **What a backend is given** stops at 16 KiB of a conversation's newest turns as well as its last 20: past its context

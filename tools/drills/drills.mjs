@@ -3,7 +3,7 @@
 //   node tools/drills/drills.mjs <profile> [phase …] [--wsl DIR]
 //
 // Phases (default: all): release pure dirty burst hang logstall malformed slowread wsdata streamcrash
-// shutdown streamdrain latewrite restart fdceiling streamfd opsviewers backup dbview budgets.
+// shutdown streamdrain latewrite restart fdceiling streamfd opsviewers botmock backup dbview budgets.
 // It builds the profile twice through build.{sh,bat}: a TEST_ROUTES build, which mounts
 // /__test/crash/<kind> and /__test/shutdown (platform/web/drills.odin), and the release build at
 // -o:speed, which must answer 404 there and is the one the budgets measure. Every server is fresh,
@@ -35,7 +35,7 @@ if (!PROFILE) {
 const WIN = process.platform === 'win32' && !WSL;
 const LINUX = !WIN;
 const EXE = WIN ? '.exe' : '';
-const ALL = ['release', 'pure', 'dirty', 'burst', 'hang', 'logstall', 'malformed', 'slowread', 'wsdata', 'streamcrash', 'shutdown', 'streamdrain', 'latewrite', 'restart', 'fdceiling', 'streamfd', 'opsviewers', 'backup', 'dbview', 'budgets'];
+const ALL = ['release', 'pure', 'dirty', 'burst', 'hang', 'logstall', 'malformed', 'slowread', 'wsdata', 'streamcrash', 'shutdown', 'streamdrain', 'latewrite', 'restart', 'fdceiling', 'streamfd', 'opsviewers', 'botmock', 'backup', 'dbview', 'budgets'];
 const phases = PHASES.length ? PHASES : ALL;
 
 // PLAN §18.4 (ANSWERS round 7): binaries in MiB, Windows -o:speed, as CI reads them; idle memory
@@ -806,6 +806,50 @@ async function phaseOpsViewers(f) {
   await stop(s);
 }
 
+// PLAN §18.4: 1000 concurrent mock generations, 20 tokens a second each, ≤ 1 core and ≤ +30 MB. Each
+// answer is a guest's, on a stream of its own, and a new one starts as one ends, so there are 1000
+// at once for the whole window. A mock answer is shorter than the budget's 200 tokens; its cost is
+// per token, so the rate is what matters. The client's CPU isn't the server's: `cpuMs` reads the server.
+async function phaseBotMock(f) {
+  if (!f.features.includes('bot') || f.identity !== 'nick') return console.log('skip  botmock: no bot on the nick identity');
+  const s = start(RELEASE_BIN, { ...STREAMS_ENV, LOG_LEVEL: 'warn', BOT_GUEST_PER_HOUR: '100000000', BOT_DELAY_MS: '50' });
+  if (!(await ready(s))) return record('botmock: server starts', false);
+  await sleep(500);
+  const base = rss(s);
+  let going = true, answers = 0, tokens = 0, failed = 0, live = 0, least = Infinity;
+  const ask = () => {
+    if (!going) return;
+    live += 1;
+    const req = http.request({ host: '127.0.0.1', port: s.port, path: '/bot/ask', method: 'POST', agent: false,
+      headers: { 'content-type': 'application/x-www-form-urlencoded' } }, (r) => {
+      if (r.statusCode !== 200) failed += 1;
+      r.setEncoding('utf8');
+      r.on('data', (c) => { tokens += (c.match(/hx-swap="beforeend"/g) || []).length; });
+      r.on('end', () => { live -= 1; answers += 1; ask(); });
+      r.on('error', () => { live -= 1; });
+    });
+    req.on('error', () => { live -= 1; if (going) failed += 1; });
+    req.end('q=hello&delivery=sse');
+  };
+  for (let i = 0; i < 1000; i += 1) {
+    ask();
+    if (i % 100 === 99) await sleep(50);
+  }
+  await sleep(4000);
+  const c0 = cpuMs(s), t0 = tokens, a0 = answers;
+  for (let i = 0; i < 10; i += 1) {
+    await sleep(1000);
+    least = Math.min(least, live);
+  }
+  const perS = (cpuMs(s) - c0) / 10;
+  const grew = rss(s) - base;
+  going = false;
+  record('botmock: 1000 concurrent mock generations cost at most a core and 30 MB',
+    perS <= 1000 && grew <= 30e6 && least >= 990 && failed === 0,
+    `${perS.toFixed(0)} ms CPU/s, +${(grew / 1e6).toFixed(1)} MB, at least ${least} at once, ${((tokens - t0) / 10).toFixed(0)} frames/s, ${((answers - a0) / 10).toFixed(0)} answers/s, ${failed} failed`);
+  await stop(s);
+}
+
 // Files beside the server: under the checkout, in WSL's when the servers run there.
 function onDisk(cmd, ...args) {
   return WSL ? spawnSync('wsl', ['--cd', WSL, '-e', cmd, ...args], { encoding: 'utf8' }).stdout ?? ''
@@ -1002,7 +1046,7 @@ if (!WIN && f.features.includes('lab') && phases.includes('streamfd')) {
 console.log(`${PROFILE} on ${WSL ? 'Linux (WSL)' : process.platform}: store ${f.store}; phases: ${phases.join(' ')}`);
 const PH = {
   release: phaseRelease, pure: phasePure, dirty: () => phaseDirty(f), burst: phaseBurst, hang: phaseHang, logstall: phaseLogStall,
-  malformed: phaseMalformed, slowread: phaseSlowRead, wsdata: () => phaseWsData(f), streamcrash: () => phaseStreamCrash(f), shutdown: phaseShutdown, streamdrain: () => phaseStreamDrain(f), latewrite: () => phaseLateWrite(f), restart: phaseRestart, fdceiling: phaseFdCeiling, streamfd: () => phaseStreamFd(f), opsviewers: () => phaseOpsViewers(f), backup: () => phaseBackup(f), dbview: () => phaseDbview(f), budgets: phaseBudgets,
+  malformed: phaseMalformed, slowread: phaseSlowRead, wsdata: () => phaseWsData(f), streamcrash: () => phaseStreamCrash(f), shutdown: phaseShutdown, streamdrain: () => phaseStreamDrain(f), latewrite: () => phaseLateWrite(f), restart: phaseRestart, fdceiling: phaseFdCeiling, streamfd: () => phaseStreamFd(f), opsviewers: () => phaseOpsViewers(f), botmock: () => phaseBotMock(f), backup: () => phaseBackup(f), dbview: () => phaseDbview(f), budgets: phaseBudgets,
 };
 for (const p of phases) {
   if (!PH[p]) { console.error(`unknown phase ${p}`); process.exit(2); }

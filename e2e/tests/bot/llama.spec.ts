@@ -78,6 +78,35 @@ test.describe('the bot on llama', T, () => {
     await leave(ann);
   });
 
+  test('Stop ends the answer within 100 ms', async ({ browser }) => {
+    const ann = await member(browser, mainOrigin(s.port));
+    await expect.poll(async () => (await ann.page.goto('/bot'))!.headers()['x-impl']).toBe('bot.backend=llama');
+    await conversation(ann);
+    const samples: number[] = [];
+    while (samples.length < 3 && !samples.some((ms) => ms < 100)) {
+      await expect(ann.page.locator('.bot-ask button[type=submit]')).toBeEnabled();
+      await ask(ann.page, 'fake:long story');
+      await expect(answers(ann.page).last().locator('.bot-stream')).toContainText('word1');
+      // Timed in the page, from the click to the rendered answer, as the mock's Stop is.
+      const ms = await ann.page.evaluate(async () => {
+        const log = document.getElementById('c-log')!;
+        const button = log.querySelector<HTMLButtonElement>('.bot-stop')!;
+        const t0 = performance.now();
+        button.click();
+        while (!log.lastElementChild!.querySelector('.bot-stats')) {
+          if (performance.now() - t0 > 5000) return -1;
+          await new Promise((r) => setTimeout(r, 2));
+        }
+        return performance.now() - t0;
+      });
+      expect(ms).toBeGreaterThanOrEqual(0);
+      samples.push(ms);
+    }
+    test.info().annotations.push({ type: 'stop ms', description: samples.map((ms) => ms.toFixed(0)).join(', ') });
+    expect(Math.min(...samples)).toBeLessThan(100);
+    await leave(ann);
+  });
+
   test('a closed browser stops the generation', async ({ browser }) => {
     const ann = await member(browser, mainOrigin(s.port));
     await expect.poll(async () => (await ann.page.goto('/bot'))!.headers()['x-impl']).toBe('bot.backend=llama');

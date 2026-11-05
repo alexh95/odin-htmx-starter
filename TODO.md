@@ -97,8 +97,9 @@ steps go through planning once the code can use them. Pushes are on the standing
       drops and counts; a question from a non-member is impossible; the XSS suite over the bot's text.
       Done (2026-11-05): `e2e/tests/bot/room.spec.ts` on `full` and `streams`. The bubble rides `chat.typing`, not `chat.room`: every
       transport's page reads it, it isn't persisted, and `.Latest` suits a frame that holds the whole text so far.
-- [ ] **8. Budgets** (§18): 1000 concurrent mock generations ≤ 1 core and ≤ +30 MB; Stop ≤ 100 ms on llama against
+- [x] **8. Budgets** (§18): 1000 concurrent mock generations ≤ 1 core and ≤ +30 MB; Stop ≤ 100 ms on llama against
       fakellama. *Check:* recorded in `docs/perf/`, the k6 scenarios beside them.
+      Done (2026-11-05): `docs/perf/BOT-BUDGETS.md`: 511 ms of CPU a second and +11.9 MB at 1000 at once; the `botmock` drill holds it.
 - [ ] **9. Exit**: the slice gate for every new feature; the parity gate on both legs; a focused audit of the llama binding,
       `platform/stream/client` (M2's audit debt: a server path uses it now) and room mode, by an agent that didn't write
       the code; `Audited:` stamps; CHANGELOG's 2.6.0 lead. Then, with Alex: the llama.cpp compose project on apollo's GPU,
