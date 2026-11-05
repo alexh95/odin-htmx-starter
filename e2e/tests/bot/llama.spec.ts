@@ -71,7 +71,7 @@ test.describe('the bot on llama', T, () => {
     await conversation(ann);
     await ask(ann.page, 'fake:long story');
     await expect(answers(ann.page).locator('.bot-stream')).toContainText('word1');
-    await answers(ann.page).locator('.bot-stop').click();
+    await answers(ann.page).locator('.bot-stop').evaluate((b: HTMLElement) => b.click()); // it moves as the text grows
     await expect(answers(ann.page).locator('.bot-stats')).toContainText('Stopped');
     await expect(answers(ann.page).locator('.bot-body')).toContainText('word1');
     await expect.poll(async () => (await fakeStats(fake)).closed).toBe(1);
@@ -142,7 +142,7 @@ test.describe('the bot on llama', T, () => {
     await expect(answers(ann.page).locator('.bot-stream')).toContainText('word1');
     await ask(bob.page, 'my turn');
     await expect(answers(bob.page).locator('.bot-queued')).toHaveText('Queued (#1)');
-    await answers(ann.page).locator('.bot-stop').click();
+    await answers(ann.page).locator('.bot-stop').evaluate((b: HTMLElement) => b.click()); // it moves as the text grows
     await expect(answers(bob.page).locator('.bot-body')).toContainText('You asked: my turn');
     await expect(answers(bob.page).locator('.bot-stats')).toBeVisible();
     expect((await fakeStats(fake)).peak).toBe(1);
