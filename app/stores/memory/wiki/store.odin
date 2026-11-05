@@ -51,7 +51,7 @@ search :: proc(words: []string, _: bool, limit: int, out: ^[dynamic]store.Search
 }
 
 // Nothing here can be written: `source_files` is the Manual. No route reaches it.
-save :: proc(_: m.Save) -> (m.Page, bool, m.Error) { return {}, false, .Constraint }
+save :: proc(_: m.Save) -> (m.Page, bool, bool, m.Error) { return {}, false, false, .Constraint }
 history :: proc(_: string, _: ^[dynamic]m.Revision) -> m.Error { return .None }
 revision :: proc(_: string, _: i64) -> (m.Revision, m.Error) { return {}, .Not_Found }
 

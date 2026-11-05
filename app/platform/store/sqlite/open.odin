@@ -23,6 +23,7 @@ import "../../guard"
 import "../../obs"
 import "../../sqlite"
 import "../../store"
+import "../../workers"
 import "../../sys"
 
 APP_ID :: 0x4F485354 // 'OHST' in the header's application_id (12 §5)
@@ -129,6 +130,7 @@ open_db :: proc(path: string, m: Mode, profile: string, legacy := "", adopt_prof
 	if !hooked && m != .Single {
 		hooked = true
 		store.on_handler(handler_began, handler_ended)
+		workers.after_crash = pool_crashed
 	}
 	return ""
 }

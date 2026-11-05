@@ -22,10 +22,11 @@ MIGRATIONS := [?]store.Migration {
 
 // A page's history keeps this many.
 KEEP_REVISIONS :: 50
+MAX_PAGES :: 5000 // the rate limit alone would let one member fill the disk
 
 @(private) COLS :: "slug, title, visibility, manual, md, html, plain, rev, at, by_name"
 @(private) SQL_PAGE :: "SELECT " + COLS + " FROM wiki_pages WHERE slug = ?"
-@(private) SQL_LIST :: "SELECT slug, title, visibility, manual FROM wiki_pages WHERE visibility = 0 OR ?1 ORDER BY manual, title COLLATE NOCASE"
+@(private) SQL_LIST :: "SELECT slug, title, visibility, manual FROM wiki_pages WHERE visibility = 0 OR ?1 ORDER BY manual, title COLLATE NOCASE LIMIT ?2"
 @(private) SQL_ADD :: "INSERT INTO wiki_pages(slug, title, visibility, md, html, plain, at, by_name) VALUES(?, ?, ?, ?, ?, ?, ?, ?)"
 @(private) SQL_KEEP :: "INSERT INTO wiki_revisions(page, rev, title, md, at, by_name) SELECT id, rev, title, md, at, by_name FROM wiki_pages WHERE slug = ?"
 @(private) SQL_SET :: "UPDATE wiki_pages SET title = ?, visibility = ?, md = ?, html = ?, plain = ?, rev = rev + 1, at = ?, by_name = ? WHERE slug = ? AND manual = 0"
@@ -38,6 +39,7 @@ KEEP_REVISIONS :: 50
 // come from a members' page. 57344 and 57345 are escape.MARK_ON and MARK_OFF.
 SQL_SEARCH :: "SELECT p.slug, p.title, snippet(wiki_fts, -1, char(57344), char(57345), '…', 32) FROM wiki_fts f JOIN wiki_pages p ON p.id = f.rowid " +
 	"WHERE wiki_fts MATCH ?1 AND (p.visibility = 0 OR ?2) ORDER BY bm25(wiki_fts, 8.0, 1.0) LIMIT ?3"
+@(private) SQL_COUNT :: "SELECT count(*) FROM wiki_pages"
 @(private) SQL_MANUAL_ALL :: "SELECT slug FROM wiki_pages WHERE manual = 1"
 @(private) SQL_DROP :: "DELETE FROM wiki_pages WHERE slug = ? AND manual = 1"
 
@@ -63,6 +65,7 @@ list :: proc(members: bool, out: ^[dynamic]m.Page) -> (err: m.Error) {
 	q := db.read(SQL_LIST)
 	defer db.reset(q)
 	db.bind_int(q, 1, 1 if members else 0)
+	db.bind_int(q, 2, m.INDEX_LIMIT)
 	for db.next_row(q, &err) {
 		vis, _ := store.enum_from_int(m.Visibility, db.column_int(q, 2))
 		append(out, m.Page{slug = db.clone_col(q, 0), title = db.clone_col(q, 1), visibility = vis, manual = db.column_int(q, 3) != 0})
@@ -88,25 +91,35 @@ search :: proc(words: []string, members: bool, limit: int, out: ^[dynamic]store.
 	input:    m.Save,
 	current:  m.Page,
 	conflict: bool,
+	full:     bool,
 	err:      m.Error,
 	manual:   []m.Page,
 }
 
 // A page with no base_rev is new, and .Constraint means its slug is taken. `current` is the page as
 // it is now: the saved one, or on a conflict the one that's newer.
-save :: proc(input: m.Save) -> (current: m.Page, conflict: bool, err: m.Error) {
+save :: proc(input: m.Save) -> (current: m.Page, conflict, full: bool, err: m.Error) {
 	saving = {input = input}
 	ok := db.write_now(proc() -> bool {
 		if saving.input.base_rev == 0 { save_new() } else { save_over() }
 		return saving.err == .None
 	})
-	if !ok && saving.err == .None { return {}, false, .Failed }
-	return saving.current, saving.conflict, saving.err
+	if !ok && saving.err == .None { return {}, false, false, .Failed }
+	return saving.current, saving.conflict, saving.full, saving.err
 }
 
 @(private)
 save_new :: proc() {
 	in_ := saving.input
+	{
+		q := db.writer_stmt(SQL_COUNT)
+		defer db.reset(q)
+		if db.next_row(q, &saving.err) && db.column_int(q, 0) >= MAX_PAGES {
+			saving.full = true
+			saving.err = .Constraint
+		}
+		if saving.err != .None { return }
+	}
 	st := db.writer_stmt(SQL_ADD)
 	defer db.reset(st)
 	db.bind_text(st, 1, in_.slug)

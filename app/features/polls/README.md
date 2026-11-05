@@ -12,6 +12,8 @@ someone chose, that person included: after voting the page says "You voted". Who
 stays in the form body and goes no further than the counters: no access log, audit entry, obs line or notice has it. `anonymous` is set at
 creation and a trigger holds it there.
 
-What this doesn't promise, and the poll says so: with one voter, or where everyone agrees, the bars show how people voted. Whoever changes
-the server's code could log votes from then on. Someone watching the bars while one person votes can guess theirs. SQLite's WAL holds a vote's two
-pages together until the next checkpoint, so the file on disk could pair a voter with a tally for a short while (`docs/audit/M8.md`).
+What this doesn't promise. The poll says the first two. With one voter, or where everyone agrees, the bars show how people voted.
+Whoever changes the server's code could log votes from then on. The rest, which `docs/audit/M8.md` sets out: someone watching the bars
+while one person votes can guess theirs; the site keeps who has voted, and an admin's dbview can read that; and whoever can read the
+server's disk can compare two moments. SQLite's WAL holds a vote's two pages side by side until later writes overwrite them, which can be
+days on a quiet house, and a checkpoint doesn't erase them.

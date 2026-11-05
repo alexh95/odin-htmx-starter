@@ -44,6 +44,10 @@ copy-and-start ergonomics and good defaults matter more than feature depth.
 - [ ] **An upstream report**: `core:encoding/json` could take a `max_depth` (M7-01). Alex's go.
 
 ## Found in M8, not fixed
+      From the audit's M8-07, small, none a way in: a heading's unprefixed `id` can take `#toasts` or `#palette-results` on its page (prefixing has to take the
+      Manual's `#fragment` links with it); a title with no Latin letters slugs to `section`, so a second one is "taken"; the palette opens on `full`'s lab host, where
+      `/find/results` isn't mounted; lists' `scalar` drops its read error; a list of 500 items and 500 people writes 250,000 `<option>`s; `chat.optimize` steps with no `db.reset`;
+      `web.form_values`, `store.snippet` and `store.search_words` have unit cases and no fuzz; a close that commits and then crashes loses its notices.
 
 - [ ] **Chat's Send button can't be clicked at Playwright's WebKit size**: the attach label's file input lies over it (`.chat-attach`). Enter sends, which
       is what the specs press; a tap on a narrow Safari is the case to check. Seen on M8's WebKit run, 2026-11-05.

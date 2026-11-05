@@ -7,6 +7,7 @@ package wiki_storetest
 
 import "base:runtime"
 import "core:strings"
+import "core:fmt"
 import "core:testing"
 
 import "../../../platform/guard"
@@ -59,19 +60,19 @@ writing :: proc(t: ^testing.T) {
 	testing.expect_value(t, err, m.Error.Not_Found)
 
 	input := m.Save{slug = "mine", title = "Mine", md = "one", html = "<p>one</p>", plain = "one", visibility = .Members, by = "ann"}
-	saved, conflict, serr := sql.save(input)
+	saved, conflict, _, serr := sql.save(input)
 	testing.expectf(t, serr == .None && !conflict && saved.rev == 1 && saved.by == "ann" && saved.visibility == .Members, "%v %v %v", saved, conflict, serr)
-	_, _, serr = sql.save(input)
+	_, _, _, serr = sql.save(input)
 	testing.expect_value(t, serr, m.Error.Constraint) // the slug's taken
 
 	over := input
 	over.md, over.base_rev, over.by = "two", 1, "bob"
-	saved, conflict, serr = sql.save(over)
+	saved, conflict, _, serr = sql.save(over)
 	testing.expectf(t, serr == .None && !conflict && saved.rev == 2 && saved.md == "two", "%v %v %v", saved, conflict, serr)
 
 	stale := over
 	stale.md = "three"
-	saved, conflict, serr = sql.save(stale) // rev 1 again
+	saved, conflict, _, serr = sql.save(stale) // rev 1 again
 	testing.expectf(t, serr == .None && conflict && saved.rev == 2 && saved.md == "two", "a conflict answers with the newer page: %v %v %v", saved, conflict, serr)
 	p, _ = sql.page("mine")
 	testing.expect_value(t, p.md, "two")
@@ -84,7 +85,7 @@ writing :: proc(t: ^testing.T) {
 
 	for i in 0 ..< sql.KEEP_REVISIONS + 5 {
 		over.base_rev, over.md = i64(i + 2), "more"
-		_, conflict, serr = sql.save(over)
+		_, conflict, _, serr = sql.save(over)
 		testing.expectf(t, serr == .None && !conflict, "%d: %v %v", i, conflict, serr)
 	}
 	clear(&revisions)
@@ -106,13 +107,31 @@ writing :: proc(t: ^testing.T) {
 	testing.expectf(t, len(all) == 2, "a member's: %v", all[:])
 
 	manual := m.Save{slug = "a", title = "x", md = "x", html = "x", plain = "x", base_rev = 1}
-	_, _, serr = sql.save(manual)
+	_, _, _, serr = sql.save(manual)
 	testing.expect_value(t, serr, m.Error.Constraint)
 
 	// A page already holding a slug the Manual comes to want keeps it.
 	testing.expect_value(t, sql.seed_manual({doc("a", "Alpha 2"), doc("mine", "Theirs")}), m.Error.None)
 	p, _ = sql.page("mine")
 	testing.expectf(t, !p.manual && p.md == "more", "%v", p)
+
+	// One more than the cap: a clear no, and an edit still goes through.
+	full, last := false, ""
+	for i in 0 ..< sql.MAX_PAGES {
+		last = fmt.tprintf("filler-%d", i)
+		_, _, full, serr = sql.save({slug = last, title = last, md = "x", html = "x", plain = "x"})
+		if full { break }
+		testing.expect_value(t, serr, m.Error.None)
+	}
+	testing.expect(t, full, "past MAX_PAGES a new page is refused")
+	testing.expect_value(t, serr, m.Error.Constraint)
+	mine, _ := sql.page("mine")
+	_, _, full, serr = sql.save({slug = "mine", title = "Theirs", md = "still", html = "still", plain = "still", base_rev = mine.rev})
+	testing.expect(t, !full)
+	testing.expect_value(t, serr, m.Error.None)
+	clear(&all)
+	_ = sql.list(true, &all)
+	testing.expect_value(t, len(all), m.INDEX_LIMIT)
 }
 
 @(test)

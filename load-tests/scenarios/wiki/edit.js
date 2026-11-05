@@ -37,8 +37,8 @@ export default function () {
   const history = http.get(`${BASE}/wiki/${slug}/history`, { tags: { name: 'GET /wiki/(page)/history' } });
   check(history, { 'history': (r) => r.status === 200 });
   if (rev > 1) {
-    const one = http.get(`${BASE}/wiki/${slug}/history/${rev - 1}`, { tags: { name: 'GET /wiki/(page)/history/(rev)' } });
-    check(one, { 'a diff': (r) => r.status === 200 });
+    const one = http.get(`${BASE}/wiki/${slug}/history/${rev - 1}`, { tags: { name: 'GET /wiki/(page)/history/(rev)' }, ...LIMITED });
+    check(one, { 'a diff': (r) => r.status === 200 || r.status === 429 });
   }
   check(http.get(`${BASE}/wiki/${slug}/edit`, { tags: { name: 'GET /wiki/(page)/edit' } }), { 'editor': (r) => r.status === 200 });
   check(http.get(`${BASE}/wiki/new`, { tags: { name: 'GET /wiki/new' } }), { 'new': (r) => r.status === 200 });

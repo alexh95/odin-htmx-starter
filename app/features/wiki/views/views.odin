@@ -31,6 +31,7 @@ index :: proc(name: string, pages: []m.Page, may_edit: bool) -> string {
 		w(&b, `</li>`)
 	}
 	w(&b, `</ul>`)
+	if len(pages) >= m.INDEX_LIMIT { w(&b, `<p class="muted">Only the first pages are listed. Search finds the rest.</p>`) }
 	if len(pages) == 0 { w(&b, `<p class="muted">Nothing written yet.</p>`) }
 	w(&b, `</section>`)
 	return strings.to_string(b)

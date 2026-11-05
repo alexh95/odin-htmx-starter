@@ -8,7 +8,7 @@ package wiki
 
 import "core:strings"
 
-MAX_DIFF_LINES :: 1000
+MAX_DIFF_LINES :: 400
 
 Diff_Kind :: enum {
 	Same,

@@ -109,7 +109,7 @@ move_fields :: proc(it: m.Item, col, after: i64) -> string {
 
 @(private)
 item :: proc(b: ^strings.Builder, l: m.List, c: m.Column, it: m.Item, i: int, me: m.Actor) {
-	fmt.sbprintf(b, `<li id="li-%d" class="list-item" data-item="%d" data-pos="%012d" draggable="true"`, it.id, it.id, it.pos)
+	fmt.sbprintf(b, `<li id="li-%d" class="list-item" data-item="%d" draggable="true"`, it.id, it.id)
 	html.behave(b, .Draggable)
 	w(b, `><span class="list-text">`)
 	esc(b, it.text)

@@ -186,9 +186,9 @@ slug_of :: proc(title: string) -> string {
 }
 
 // A save, off the loop: renders, then writes. .Constraint on a new page: its slug is taken.
-save :: proc(v: authz.Viewer, slug, title, md: string, visibility: m.Visibility, base_rev: i64) -> (current: m.Page, conflict: bool, err: m.Error) {
+save :: proc(v: authz.Viewer, slug, title, md: string, visibility: m.Visibility, base_rev: i64) -> (current: m.Page, conflict, full: bool, err: m.Error) {
 	r, ok := render(md, "")
-	if !ok { return {}, false, .Constraint }
+	if !ok { return {}, false, false, .Constraint }
 	return wiki_store.save({
 		slug = slug if slug != "" else slug_of(title), title = strings.trim_space(title), md = md, html = r.html, plain = r.plain,
 		visibility = visibility, base_rev = base_rev, by = v.name,

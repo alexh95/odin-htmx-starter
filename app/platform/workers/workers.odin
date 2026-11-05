@@ -179,6 +179,9 @@ take :: proc(p: ^Pool) -> ^Task {
 	return t
 }
 
+// The store's, set at open: lets go of whatever this thread was reading.
+after_crash: proc()
+
 // A worker task is an entry point (D15 rule 1): each run is guarded.
 @(private)
 worker :: proc(p: ^Pool) {
@@ -192,6 +195,8 @@ worker :: proc(p: ^Pool) {
 			} else {
 				t.crashed = true
 				obs.inc(p.crashes)
+				// A thread can sit idle after this, and a read it left open would pin the WAL (D15 rule 3).
+				if after_crash != nil { after_crash() }
 			}
 		}
 		// One op per result: at most `threads` posts in flight per pool. A loop that has

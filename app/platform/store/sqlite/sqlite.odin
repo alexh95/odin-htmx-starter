@@ -288,6 +288,12 @@ pull_reset :: proc(r: ^Conn) {
 	if n := guard.recoveries(); n != r.seen { reset_reader(r, n) }
 }
 
+// A pool thread has no timer, and may sit idle after a crash with a read left open.
+@(private)
+pool_crashed :: proc() {
+	if tl_reader != nil && tl_generation == db.generation { pull_reset(tl_reader) }
+}
+
 // A crash skips handler_ended, so the crashed handler's transaction goes too: left
 // open, every read on the loop outside a handler (a write's continuation) met its
 // snapshot, and the WAL couldn't checkpoint past it until the next handler (M2-10).

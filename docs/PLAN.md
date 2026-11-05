@@ -3650,7 +3650,7 @@ Each feature's README carries the full spec under D4's fixed headings. Accounts 
 - The poll discloses this as `/bot` does: votes aren't stored with names and can't be changed; with one voter, or where
   everyone agrees, the bars show how people voted anyway; whoever changes the server's code could log votes from then on.
   It claims no more. The WAL's short window is a known limit, in `docs/audit/M8.md`.
-- Perms `Polls_Create`, `Polls_Vote`; votes 10 per minute per user. SQLite only. Polls are cut-list item 9.
+- Perms `Polls_Create`, `Polls_Vote`; votes 10 per minute per user. The maker can close a poll early. SQLite only. Polls are cut-list item 9.
 
 **`calendar`** (Calendar, `/calendar`; M10; D36):
 - A server-rendered month grid and event pages. The create wizard makes each step a URL through `HX-Push-Url`, with a

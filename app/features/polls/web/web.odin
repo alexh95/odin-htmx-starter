@@ -107,8 +107,8 @@ tell :: proc(c: m.Closed) {
 @(private)
 close_due :: proc() {
 	closed, err := polls.close_due()
-	if err != .None { return }
 	for c in closed { tell(c) }
+	if err != .None { workers.fail("the sweep stopped: %v", err) }
 }
 
 // ---- changes ---------------------------------------------------------------------------------------

@@ -102,6 +102,13 @@ test.describe('nothing private is kept', T, () => {
     await leave(ann);
   });
 
+  test("a member's index, which holds members' titles, isn't stored", async ({ browser, baseURL }) => {
+    const ann = await member(browser, baseURL!);
+    const res = await ann.page.request.get('/wiki');
+    expect(res.headers()['cache-control']).toContain('no-store');
+    await leave(ann);
+  });
+
   test("what a guest kept goes when they sign in and out in that tab", async ({ browser, baseURL }) => {
     const context = await browser.newContext({ baseURL });
     const page = await context.newPage();

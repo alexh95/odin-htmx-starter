@@ -43,6 +43,8 @@ EDIT_ROUTES := [?]web.Route {
 // A member's saves and previews. The editor previews as they type, every half second at most.
 @(private) saves := web.Limit{n = 30, window = time.Minute}
 @(private) previews := web.Limit{n = 5, window = time.Second}
+// A diff is the costliest read here, on the pool every write now shares.
+@(private) diffs := web.Limit{n = 30, window = time.Minute}
 
 // The profile's words.
 Copy :: struct {
@@ -78,7 +80,8 @@ index :: proc(req: ^web.Request, res: ^web.Response) {
 		return
 	}
 	web.impl(res, "wiki.store", wiki.IMPL)
-	web.keep_in_history()
+	// A member's holds the titles of members' pages.
+	if web.viewer(req).id != 0 { web.set_private(res) } else { web.keep_in_history() }
 	web.render_page(req, res, copy.name, "/wiki", copy.description, wiki_views.index(copy.name, pages[:], may_edit(req)))
 }
 
@@ -134,6 +137,7 @@ Saving :: struct {
 	base_rev:   i64,
 	current:    m.Page,
 	conflict:   bool,
+	full:       bool,
 	lines:      []wiki.Diff_Line,
 	err:        m.Error,
 }
@@ -154,14 +158,15 @@ save :: proc(req: ^web.Request, res: ^web.Response, slug: string) {
 		web.respond_html(res, html.field_msg(false, problem), .Unprocessable_Content)
 		return
 	}
-	base, _ := strconv.parse_i64(f["rev"], 10)
+	base: i64
+	if slug != "" { base, _ = strconv.parse_i64(f["rev"], 10) } // a new page has none, whatever's sent
 	if slug != "" && base <= 0 {
 		web.respond_html(res, html.field_msg(false, "Reload the page and try again."), .Unprocessable_Content)
 		return
 	}
 	s := web.new_scan(Saving, req, res, proc(scan: ^web.Scan) {
 		s := (^Saving)(scan)
-		s.current, s.conflict, s.err = wiki.save(s.viewer, s.slug, s.title, s.md, s.visibility, s.base_rev)
+		s.current, s.conflict, s.full, s.err = wiki.save(s.viewer, s.slug, s.title, s.md, s.visibility, s.base_rev)
 		if s.conflict { s.lines = wiki.diff(s.current.md, s.md) }
 	}, saved)
 	if s == nil { return }
@@ -176,6 +181,8 @@ saved :: proc(scan: ^web.Scan, req: ^web.Request, res: ^web.Response) {
 	switch {
 	case s.conflict:
 		web.respond_html(res, wiki_views.conflict(s.current, s.lines), .Conflict)
+	case s.full:
+		web.respond_html(res, html.field_msg(false, "The wiki is full."), .Unprocessable_Content)
 	case s.err == .Constraint && s.slug == "":
 		web.respond_html(res, html.field_msg(false, "That title is taken."), .Unprocessable_Content)
 	case s.err != .None:
@@ -249,6 +256,10 @@ Diffing :: struct {
 // A revision against what replaced it, the next one or the page itself.
 @(private)
 revision :: proc(req: ^web.Request, res: ^web.Response) {
+	if allowed, retry := web.limit_hit(&diffs, web.viewer(req).id); !allowed {
+		web.respond_limited(res, retry, "Too many at once: wait a moment.")
+		return
+	}
 	rev, ok := web.parse_id(req.url_params[1])
 	if !ok {
 		web.not_found(req, res)

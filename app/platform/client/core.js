@@ -18,7 +18,7 @@
 // a moment, and a page that has started leaving meanwhile goes where it was going.
 // Leaving is a moment, not a state: a beforeunload with no unload after it (an attachment, a
 // page back from the bfcache) mustn't leave the page deaf to a later kick (M5-21).
-// A snapshot of a public page still holds the member's header, so it goes with their session (§12).
+// What a guest kept goes when a session starts or ends in that tab: nothing of a member's is kept (§12).
 function dropSnapshots() {
   try {
     Object.keys(sessionStorage).forEach(function (k) {
