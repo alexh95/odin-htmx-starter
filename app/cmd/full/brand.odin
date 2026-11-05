@@ -35,6 +35,7 @@ NAV := [?]html.Nav_Item {
 	{"/bot", "Bot", "bolt"},
 	{"/wiki", "Logbook", "edit"},
 	{"/lists", "Checklists", "check"},
+	{"/polls", "Go/No-go", "bolt"},
 	{"/find", "Search", "search"},
 	{"/login", "Account", "users"},
 	{"/status", "Status", "check"},

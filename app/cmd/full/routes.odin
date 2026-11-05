@@ -28,6 +28,7 @@ import jobs_web "../../features/jobs/web"
 import lab_web "../../features/lab/web"
 import landing_web "../../features/landing/web"
 import lists_web "../../features/lists/web"
+import polls_web "../../features/polls/web"
 import modules_web "../../features/modules/web"
 import notify_web "../../features/notify/web"
 import ops_web "../../features/ops/web"
@@ -50,6 +51,7 @@ ROUTES := [?]app.Mount {
 	{"bot", bot_web.ROUTES[:]},         // /bot: the assistant
 	{"find", find_web.ROUTES[:]},       // /find: search
 	{"lists", lists_web.ROUTES[:]},     // /lists: Checklists
+	{"polls", polls_web.ROUTES[:]},     // /polls: Go/No-go
 	{"wiki", wiki_web.EDIT_ROUTES[:]},  // /wiki: writing, before the read rows
 	{"wiki", wiki_web.ROUTES[:]},       // /wiki: the Logbook
 	{"bot", bot_web.ADMIN_ROUTES[:]},   // /admin/bot: its default, LAN only
@@ -65,6 +67,7 @@ ROUTES := [?]app.Mount {
 // Mounted by main with hub.mount("main", ..TOPICS[:]).
 TOPICS := [?][]hub.Topic {
 	lists_web.TOPICS[:], // a list: a column changed
+	polls_web.TOPICS[:], // a poll: its bars changed
 	identity.TOPICS[:], // the identity's member topics: what a revoke ends
 	chat_web.TOPICS[:],   // chat.room, chat.presence, chat.typing
 	notify_web.TOPICS[:], // notify.user
@@ -106,6 +109,7 @@ JOBS := [?][]workers.Job {
 	uploads_web.JOBS[:],       // uploads.sweep: what nobody finished
 	chat_web.JOBS[:],          // chat.presence: away after the debounce, gone after 5 min; chat.retention: past the age
 	notify_web.JOBS[:],        // notify.prune: read items after 30 days
+	polls_web.JOBS[:],         // polls.close: past their time, and tell the voters
 	ops_web.JOBS[:],           // ops.sample: the panel, once a second
 	jobs_web.JOBS[:],          // jobs.sync: the runs into the store and the live page
 	store_sqlite.JOBS[:],      // store.backup: nightly, the newest 7 kept

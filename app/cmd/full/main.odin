@@ -27,6 +27,7 @@ import lab_web "../../features/lab/web"
 import landing_web "../../features/landing/web"
 import "../../features/lists"
 import lists_web "../../features/lists/web"
+import polls_web "../../features/polls/web"
 import modules_web "../../features/modules/web"
 import notify_web "../../features/notify/web"
 import ops_web "../../features/ops/web"
@@ -41,6 +42,7 @@ import uploads_store "store:uploads"
 import contacts_store "store:contacts"
 import jobs_store "store:jobs"
 import lists_store "store:lists"
+import polls_store "store:polls"
 import notify_store "store:notify"
 import wiki_store "store:wiki"
 import identity "identity:."
@@ -57,7 +59,7 @@ FIND_SOURCES := [?]find_m.Source {
 
 // Every extension the main bundle needs (D19), both hosts' pages. Boot refuses a bundle whose
 // header says otherwise.
-BUNDLE_EXTS :: uploads_web.EXTS + home_web.EXTS + about_web.EXTS + audit_web.EXTS + chat_web.EXTS + notify_web.EXTS + bot_web.EXTS + modules_web.EXTS + ops_web.EXTS + jobs_web.EXTS + dbview_web.EXTS + status_web.EXTS + wiki_web.EXTS + find_web.EXTS + lists_web.EXTS + identity.EXTS +
+BUNDLE_EXTS :: uploads_web.EXTS + home_web.EXTS + about_web.EXTS + audit_web.EXTS + chat_web.EXTS + notify_web.EXTS + bot_web.EXTS + modules_web.EXTS + ops_web.EXTS + jobs_web.EXTS + dbview_web.EXTS + status_web.EXTS + wiki_web.EXTS + find_web.EXTS + lists_web.EXTS + polls_web.EXTS + identity.EXTS +
 	landing_web.EXTS + dashboard_web.EXTS + gallery_web.EXTS + contacts_web.EXTS + lab_web.EXTS +
 	scripting_web.EXTS + compat_web.EXTS
 
@@ -95,6 +97,7 @@ main :: proc() {
 	store_sqlite.migrate("contacts", contacts_store.MIGRATIONS[:])
 	store_sqlite.migrate("jobs", jobs_store.MIGRATIONS[:])
 	store_sqlite.migrate("lists", lists_store.MIGRATIONS[:])
+	store_sqlite.migrate("polls", polls_store.MIGRATIONS[:])
 	store_sqlite.migrate("notify", notify_store.MIGRATIONS[:])
 	store_sqlite.migrate("uploads", uploads_store.MIGRATIONS[:])
 	store_sqlite.migrate("wiki", wiki_store.MIGRATIONS[:])

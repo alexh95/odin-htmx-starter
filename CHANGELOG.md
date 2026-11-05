@@ -23,6 +23,10 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 
 ### Added
 
+- `polls`, Houston's Go/No-go at `/polls`: options or the Go/No-go preset, one choice or several, a closing time, live bars, and a notice to
+  whoever voted when it closes. A named poll shows names and a vote can change. An anonymous one keeps counters and who voted, with nothing that
+  joins them, and a vote is final; nobody is shown what someone chose, the voter included, and the poll says what that does and doesn't promise (PLAN §15.1, Q36).
+  `web.form_values` reads a key a form repeats.
 - `wiki`: `/wiki` on the `lab` profile, its memory store `source_files` holding the starter's docs as a read-only Manual, an explicit list
   of eleven with their links turned into pages or GitHub URLs (PLAN §6).
 - The wiki on SQLite, Houston's Logbook: pages public or members', revisions, a 409 with the line diff, a server-rendered preview, `.md` export,

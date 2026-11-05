@@ -215,6 +215,17 @@ form :: proc(req: ^Request) -> map[string]string {
 	return c.form
 }
 
+// Every value of a key a form repeats (checkboxes of one name), which `form`'s map keeps one of.
+form_values :: proc(req: ^Request, key: string) -> []string {
+	out := make([dynamic]string, context.temp_allocator)
+	s := ctx().body
+	for part in strings.split_by_byte_iterator(&s, '&') {
+		eq := strings.index_byte(part, '=')
+		if eq >= 0 && form_decode(part[:eq]) == key { append(&out, form_decode(part[eq + 1:])) }
+	}
+	return out[:]
+}
+
 // Parses an application/x-www-form-urlencoded body. Unlike http.body_url_encoded
 // it decodes '+' as a space: htmx 4 sends spaces as '+' (the form-encoding
 // standard), and odin-http's parser only percent-decodes.

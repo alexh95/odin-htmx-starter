@@ -75,8 +75,7 @@ copy-and-start ergonomics and good defaults matter more than feature depth.
 The starter's eighth milestone ([`docs/PLAN.md`](docs/PLAN.md) §22.3, M8's row; §6 the four features; §11.8 FTS; D16, D20, D36). Its exit
 gate: the slice gate; FTS MATCH ≤ 3 ms at 100k messages; find respects membership; a wiki markdown fuzz (depth cap) with 0 crashes; board
 drag and drop (trusted mouse input) and the button fallback both pass; history-cache back/forward with zero server hits on the wiki.
-Pushes are on the standing go. Planning answered the plan points on 2026-11-05 and PLAN carries them. Only polls wait: slice 10 holds on
-Alex's answer on what an anonymous poll stores.
+Pushes are on the standing go. Planning answered the plan points on 2026-11-05 and PLAN carries them. Alex answered P9 the same day (Q36).
 
 - [x] **1. Chat's search made ready for find** (M6-13, D16): `SQL_SEARCH` sorts every match in a temp b-tree (`EXPLAIN QUERY PLAN`
       settles M6-13's guess); `ORDER BY f.rowid DESC` doesn't. Search moves to the query pool, its strings in the task's arena. One
@@ -140,10 +139,13 @@ Alex's answer on what an anonymous poll stores.
       Done (2026-11-05, 8 and 9): one markup for both views. `lists.list` is `.Latest` per column and only says one changed: a whole column can pass
       the hub's 64 KiB, so each page fetches it (PLAN amended, planning told). An item goes to anyone who has used Checklists, and a member can always take one; there's no member directory at M8,
       so a first-timer can't be given one yet, and the page says so. Find, lists and the wiki pass on Firefox and WebKit (2026-11-05).
-- [ ] **10. Polls** (cut-list item 9; holds on Alex's answer): `polls` on SQLite: a question with options or the Go/No-go preset, single or multiple choice,
+- [x] **10. Polls** (cut-list item 9): `polls` on SQLite: a question with options or the Go/No-go preset, single or multiple choice,
       anonymous, a closing time on a job; votes 10 per minute, hx-pending; CSS bars by `style="--p:NN%"`; `polls.poll:<id>` `.Latest`; closing
       notifies the voters. *Check:* storetest, live results to a second member, a double vote refused, an anonymous poll's storage, `rbac.spec`,
       both suites.
+      Done (2026-11-05): Alex's P9, Q36: "Unlinked, votes final". An anonymous poll keeps `poll_tally` and `poll_voters` and nothing that joins
+      them, and a spec walks the database, the audit log and the server log for a link. The topic's frame only says the poll changed, as lists' does.
+      The maker gets a Close now button, which is also how the specs reach closing; the job's own path is the store test's `close_due`.
 - [x] **11. Budgets** (§18): MATCH ≤ 3 ms at 100k messages through the real query with its membership rows, a common word for a member of
       few rooms included, and bm25's cost beside it. `snippet()`'s cost beside it. *Check:* `docs/perf/FIND-BUDGETS.md`, k6 scenarios for each new route, `tools/check parity`.
       Done (2026-11-05): every search under 0.5 ms at its worst, `tools/findbench`. The run found the last word's prefix costing 33 ms, and each index

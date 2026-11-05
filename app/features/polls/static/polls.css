@@ -1,0 +1,17 @@
+/* polls: a form, and bars whose width is the server's --p */
+.polls-new { display: grid; gap: 6px; margin: 0 0 18px; max-width: 42rem; }
+.polls-new .btn { justify-self: start; margin-top: 6px; }
+.polls-check { display: flex; gap: 8px; align-items: baseline; }
+.polls-all { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.poll-note { margin: 0 0 14px; max-width: 42rem; }
+.poll-bars { display: flex; flex-direction: column; gap: 10px; margin: 0 0 16px; max-width: 42rem; }
+.poll-row { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; }
+.poll-n { font-variant-numeric: tabular-nums; }
+.poll-bar { grid-column: 1 / -1; display: block; height: 10px; border-radius: 5px; overflow: hidden; background: var(--surface-2); }
+.poll-bar::before { content: ""; display: block; height: 100%; width: var(--p); background: var(--grad); transition: width 180ms var(--ease); }
+.poll-names { grid-column: 1 / -1; font-size: .875em; overflow-wrap: anywhere; }
+.poll-count { margin: 0; }
+.poll-act { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.poll-vote { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.poll-state { margin: 0; font-weight: 600; }
+.poll-vote .form-error { margin: 0; }
