@@ -147,11 +147,17 @@ services:
       # TOTP secrets are sealed with the key FULL_TOTP_KEY names in .env (a 32-byte file beside
       # compose.yaml, as admin-hash: owner 10001, mode 400); unset, they stay plaintext, said at boot.
       ACCOUNTS_TOTP_KEY_FILE: ${FULL_TOTP_KEY:+/run/keys/totp}
+      # The bot (M7): FULL_BOT_BACKEND and FULL_BOT_LLAMA_URL in .env, and FULL_BOT_LLAMA_KEY naming
+      # the key's file beside compose.yaml, as FULL_TOTP_KEY does. Unset, it stays on the mock.
+      BOT_BACKEND: ${FULL_BOT_BACKEND:-mock}
+      BOT_LLAMA_URL: ${FULL_BOT_LLAMA_URL:-}
+      BOT_LLAMA_KEY_FILE: ${FULL_BOT_LLAMA_KEY:+/run/keys/llama}
     secrets: [admin_hash]
     volumes:
       - full-data:/data
       - ${FULL_BACKUPS:-full-backups}:/backups
       - ${FULL_TOTP_KEY:-/dev/null}:/run/keys/totp:ro
+      - ${FULL_BOT_LLAMA_KEY:-/dev/null}:/run/keys/llama:ro
 
 networks:
   stack:

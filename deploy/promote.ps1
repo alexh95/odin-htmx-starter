@@ -132,8 +132,10 @@ $prev = @{}
 # backups' directory and its TOTP key's file. Promote leaves them as they are, absolute paths with
 # no `..`; anything else it doesn't know is refused, as a bad tag is.
 $tagKeys = @($SERVICES.Values | ForEach-Object { $_.Key })
-$STACK_PATHS = @('FULL_BACKUPS', 'FULL_TOTP_KEY')
+$STACK_PATHS = @('FULL_BACKUPS', 'FULL_TOTP_KEY', 'FULL_BOT_LLAMA_KEY')
 $PATH_RULE = '\A/[A-Za-z0-9._/-]+\z'
+# The bot's two settings (M7): values, not paths, each to a rule of its own.
+$STACK_VALUES = @{ FULL_BOT_BACKEND = '\A(mock|llama)\z'; FULL_BOT_LLAMA_URL = '\Ahttp://[A-Za-z0-9.-]+:[0-9]{1,5}\z' }
 foreach ($line in @(Invoke-Host "cat $dir/.env 2>/dev/null || true")) {
 	if ($line -match '^([A-Z_]+)=(.*)$') {
 		$k, $v = $Matches[1], $Matches[2]
@@ -141,6 +143,8 @@ foreach ($line in @(Invoke-Host "cat $dir/.env 2>/dev/null || true")) {
 			if ($v -cnotmatch $TAG_RULE -or $v -ceq 'latest') { throw "the host's .env has $k=$v, not a tag promote would set: fix it by hand first" }
 		} elseif ($STACK_PATHS -contains $k) {
 			if ($v -cnotmatch $PATH_RULE -or $v -match '(^|/)\.\.(/|$)') { throw "the host's .env has $k=$v, not an absolute host path: fix it by hand first" }
+		} elseif ($STACK_VALUES.ContainsKey($k)) {
+			if ($v -cnotmatch $STACK_VALUES[$k]) { throw "the host's .env has $k=$v, which isn't what it should hold: fix it by hand first" }
 		} elseif ($k -ne 'IMAGE_PREFIX') {
 			throw "the host's .env has $k, which promote doesn't know: fix it by hand first"
 		}

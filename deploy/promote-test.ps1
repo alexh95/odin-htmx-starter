@@ -32,6 +32,8 @@ function Env([string] $text) {
 $cases = @(
 	# The stack's own host paths sit beside the tags and are left alone (M4-12).
 	@{ Name = 'tags, FULL_BACKUPS and FULL_TOTP_KEY'; Ok = $true; Env = "IMAGE_PREFIX=local/starter`nTAG_FULL=sha-0000000`nFULL_BACKUPS=/mnt/storage/odin-htmx-starter/backups`nFULL_TOTP_KEY=/srv/stack/totp-key`n" },
+	@{ Name = "the bot's settings"; Ok = $true; Env = "TAG_FULL=sha-0000000`nFULL_BOT_BACKEND=llama`nFULL_BOT_LLAMA_URL=http://10.0.0.9:8130`nFULL_BOT_LLAMA_KEY=/srv/stack/llama-key`n" },
+	@{ Name = 'a bot URL with more in it'; Ok = $false; Env = "TAG_FULL=sha-0000000`nFULL_BOT_LLAMA_URL=http://x:1/`$(id)`n" },
 	@{ Name = 'a relative path'; Ok = $false; Env = "TAG_FULL=sha-0000000`nFULL_BACKUPS=backups`n" },
 	@{ Name = 'a path with ..'; Ok = $false; Env = "TAG_FULL=sha-0000000`nFULL_TOTP_KEY=/srv/../etc/shadow`n" },
 	@{ Name = 'a key promote does not know'; Ok = $false; Env = "TAG_FULL=sha-0000000`nSOMETHING=else`n" },
