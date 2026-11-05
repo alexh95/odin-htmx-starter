@@ -1,0 +1,8 @@
+# wiki
+
+Pages rendered from Markdown when written, and the starter's own docs as a read-only Manual (PLAN §6, D36). Packages: `wiki`
+(the domain and the Manual's list), `models`, `views`, `web`, `storetest`. Its store follows the family: memory is `source_files`,
+the Manual alone. It owns `/wiki`, its own prefix.
+
+The Manual is an explicit list in `wiki.odin`: a new doc needs a line there, in `.dockerignore` and in the Dockerfile. Each must fit
+`markdown.MAX_INPUT` (64 KiB) and hold nothing private. PLAN and DECISIONS don't fit, so the docs link to them on GitHub.

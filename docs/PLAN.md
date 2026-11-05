@@ -3584,7 +3584,8 @@ Each feature's README carries the full spec under D4's fixed headings. Accounts 
   renderer's 64 KiB, and the list is small enough for `full`'s budget. PLAN and DECISIONS are too large on both counts:
   the wiki links to them on GitHub. DEVICES-SUMMARY and ANSWERS aren't manuals and stay out.
 - A public page opts in to the history cache (§12). A members' page is private by response: `no-store`, noindex, no snapshot.
-- Perms `Wiki_Read`, `Wiki_Edit`. M8 adds a markdown fuzz (depth cap, 0 crashes) and a back/forward spec with zero
+- Perms `Wiki_Read` (everyone holds it, and a host with no identity serves the Manual, so the read rows are `.Public` and the domain
+  refuses a members' page), `Wiki_Edit`. M8 adds a markdown fuzz (depth cap, 0 crashes) and a back/forward spec with zero
   server hits.
 
 **`find`** (Search (Ctrl-K), `/find`; M8; D36):

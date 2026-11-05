@@ -82,11 +82,14 @@ Alex's answer on what an anonymous poll stores.
       plan-shape test holding the query to no temp b-tree.
       Done (2026-11-05): `web.Scan` is the off-the-loop read, and `workers.query` runs it at once where the store is memory. The optimize
       job wakes hourly and runs Sunday at 03:00 UTC, so a restart can't keep putting it off. Found by the check: a forged mark needs a toggle.
-- [ ] **2. Wiki, read-only** (§6, §7): `wiki` with the memory store `source_files` on `lab`. The embedded docs are an explicit list, never a
+- [x] **2. Wiki, read-only** (§6, §7): `wiki` with the memory store `source_files` on `lab`. The embedded docs are an explicit list, never a
       directory walk, and `docs/private` can't reach it (P3). Each input fits the renderer's 64 KiB; `.dockerignore` names each one; links
       between them become `/wiki/<slug>`, the rest the repo's URL. `hx-ignore` + `data-disable-scripting` round a body; each page's head
       through hx-head; `Wiki_Read`. *Check:* the docs render with no refused link, a build outside the repo's private folder is byte-equal,
       the image builds, the hygiene grep covers the list, `x-impl`, both suites on `lab`.
+      Done (2026-11-05): 11 docs, 113 KB, +178 KB on `lab`; `wiki_test` holds the list to the cap and to 200 KB. The head through hx-head is
+      slice 4's. Read rows are `.Public`: everyone holds `Wiki_Read`, and a host with no identity can't mount a perm's row. An explicit list
+      needs no byte-equal check: nothing walks a directory. Editing rows will be a table of their own.
 - [ ] **3. Wiki on SQLite** (§6, §11.5): pages (slug, title, visibility), Markdown and rendered HTML and plain text, revisions, FTS over
       title and plain text; rendered at write time, off the loop; saving over a newer revision answers 409 with the line diff, computed on
       the query pool; the server-rendered preview; `.md` through hx-download; Houston's Manual pages seeded read-only at boot from slice 2's

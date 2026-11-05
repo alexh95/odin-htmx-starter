@@ -17,6 +17,9 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 
 ### Added
 
+- `wiki`: `/wiki` on the `lab` profile, its memory store `source_files` holding the starter's docs as a read-only Manual, an explicit list
+  of eleven with their links turned into pages or GitHub URLs (PLAN §6).
+- `markdown.plain`, and a `link` hook on the renderer's options.
 - The weekly `chat.optimize` job on chat's FTS index (§11.8), which was planned and never built.
 
 ## [2.6.0] - 2026-11-05

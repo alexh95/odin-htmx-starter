@@ -28,6 +28,8 @@ Options :: struct {
 	doc_prefix:    string, // "name.md#x" links to doc_prefix + "name#x"; "" makes them text
 	image_prefix:  string, // "file.png" shows image_prefix + "file.png"; "" shows the alt text
 	heading_shift: int,    // added to every heading level
+	link:          proc(base, url: string) -> (href: string, external: bool), // a relative link, from the file at `base`; "" makes it text
+	base:          string,
 }
 
 Toc_Entry :: struct {
@@ -60,6 +62,22 @@ render :: proc(b: ^strings.Builder, src: string, opts := Options{}) -> (toc: []T
 	}
 	md_blocks(&md, b, lines)
 	return md.toc[:], true
+}
+
+// What a page says with its markup gone, in the temp allocator: for search and its snippets. Line by
+// line: it only has to read well, not to match the rendering, and code stays, which is worth finding.
+plain :: proc(src: string) -> string {
+	b := strings.builder_make(context.temp_allocator)
+	it := src
+	for line in strings.split_lines_iterator(&it) {
+		t := strings.trim_space(line)
+		if is_fence(t) || is_rule(t) { continue }
+		t = strings.trim_left(t, "#>|-*+ ")
+		if t == "" { continue }
+		strings.write_string(&b, plain_text(t))
+		strings.write_byte(&b, '\n')
+	}
+	return strings.to_string(b)
 }
 
 // ---- blocks ---------------------------------------------------------------
@@ -610,6 +628,10 @@ resolve_link :: proc(md: ^Md, url: string) -> (href: string, external, ok: bool)
 		return url, false, true
 	case strings.has_prefix(url, "/") && !strings.has_prefix(url, "//"):
 		return url, false, true
+	}
+	if md.link != nil {
+		h, ext := md.link(md.base, url)
+		return h, ext, h != ""
 	}
 	path, frag := url, ""
 	if h := strings.index_byte(url, '#'); h >= 0 {

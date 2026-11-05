@@ -1,0 +1,8 @@
+/* wiki: pages and their prose */
+.wiki-pages { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.wiki-body { max-width: 78ch; overflow-wrap: anywhere; line-height: 1.6; }
+.wiki-body pre { overflow-x: auto; padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+.wiki-body table { display: block; overflow-x: auto; border-collapse: collapse; }
+.wiki-body th, .wiki-body td { padding: 4px 10px; border: 1px solid var(--line); text-align: left; }
+.wiki-toc { margin: 0 0 18px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 8px; }
+.wiki-toc ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; }

@@ -16,6 +16,8 @@ import "core:strings"
 
 // The Dockerfile's copy of the catalog, which only `landing` reads.
 DOCKER_CATALOG :: "# The lab's landing page embeds the generator's catalog.\nCOPY docs/catalog.json /src/docs/catalog.json\n"
+DOCKER_MANUAL :: "# The wiki embeds these (features/wiki/wiki.odin).\nCOPY README.md PHILOSOPHY.md CLAUDE.md /src/\nCOPY docs/README.md docs/BRIEF.md docs/USE_CASES.md docs/DATA.md /src/docs/\nCOPY docs/perf/PARITY.md /src/docs/perf/\nCOPY e2e/README.md /src/e2e/\nCOPY load-tests/README.md /src/load-tests/\n"
+IGNORE_MANUAL :: "!README.md\n!PHILOSOPHY.md\n!CLAUDE.md\n!docs/README.md\n!docs/BRIEF.md\n!docs/USE_CASES.md\n!docs/DATA.md\n!docs/perf/PARITY.md\n!e2e/README.md\n!load-tests/README.md\n"
 
 new_project :: proc(s: Selection, opt: Options) -> Profile_Text {
 	text := compose(s)
@@ -69,6 +71,11 @@ new_project :: proc(s: Selection, opt: Options) -> Profile_Text {
 			{"THIRD_PARTY_NOTICES and docs/catalog.json (the lab's landing page embeds it): everything", "and THIRD_PARTY_NOTICES: everything"},
 			{"!docs/catalog.json\n", ""},
 		})
+	}
+	// Only the wiki reads these in the image.
+	if !slice.contains(s.features, "wiki") {
+		edit("Dockerfile", {{DOCKER_MANUAL, ""}})
+		edit(".dockerignore", {{IGNORE_MANUAL, ""}})
 	}
 	put("UPSTREAM.md", upstream_md(s, opt))
 	put("CHANGELOG.md", fmt.aprintf(

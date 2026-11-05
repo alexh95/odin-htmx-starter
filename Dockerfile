@@ -60,6 +60,12 @@ COPY tools/bundle /src/tools/bundle
 COPY build.sh THIRD_PARTY_NOTICES /src/
 # The lab's landing page embeds the generator's catalog.
 COPY docs/catalog.json /src/docs/catalog.json
+# The wiki embeds these (features/wiki/wiki.odin).
+COPY README.md PHILOSOPHY.md CLAUDE.md /src/
+COPY docs/README.md docs/BRIEF.md docs/USE_CASES.md docs/DATA.md /src/docs/
+COPY docs/perf/PARITY.md /src/docs/perf/
+COPY e2e/README.md /src/e2e/
+COPY load-tests/README.md /src/load-tests/
 WORKDIR /src
 # Invoke via `sh` (not ./) so the build doesn't depend on the exec bit, which a
 # Windows-origin build context (e.g. local `flyctl deploy`) wouldn't carry.

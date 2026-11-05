@@ -1,12 +1,23 @@
 # The build context is the repo root, but the Dockerfile needs only app/, tools/bundle, build.sh,
-# THIRD_PARTY_NOTICES and docs/catalog.json (the lab's landing page embeds it): everything else stays
-# out (node_modules, the rest of docs, results).
+# THIRD_PARTY_NOTICES, docs/catalog.json (the lab's landing page embeds it) and the wiki's Manual: everything
+# else stays out (node_modules, the rest of docs, results). The Manual is named file by file, as in
+# features/wiki/wiki.odin: a docs/ line here could let docs/private into an image.
 *
 !app
 !tools/bundle
 !build.sh
 !THIRD_PARTY_NOTICES
 !docs/catalog.json
+!README.md
+!PHILOSOPHY.md
+!CLAUDE.md
+!docs/README.md
+!docs/BRIEF.md
+!docs/USE_CASES.md
+!docs/DATA.md
+!docs/perf/PARITY.md
+!e2e/README.md
+!load-tests/README.md
 
 # Inside app/, what prepare re-creates in the image. Do NOT ignore app/vendor/odin-http: the
 # vendored HTTP library must be in the build context, and so must app/vendor/htmx/PINS, the digests

@@ -8,6 +8,7 @@ package main
 
 import "../../platform/html"
 import about_web "../../features/about/web"
+import wiki_web "../../features/wiki/web"
 
 BRAND := html.Brand {
 	wordmark    = "odin<b>·</b>htmx lab",
@@ -27,8 +28,15 @@ NAV := [?]html.Nav_Item {
 	{"/lab/streams", "Streams", "bolt"},
 	{"/scripting", "Scripting", "code"},
 	{"/compat", "Compat", "layers"},
+	{"/wiki", "Docs", "edit"},
 	{"/status", "Status", "check"},
 	{"/about", "About", "info"},
+}
+
+WIKI := wiki_web.Copy {
+	name        = "Docs",
+	description = "The starter's own docs: what it is, how to work in it, how its gates run.",
+	repo        = "https://github.com/alexh95/odin-htmx-starter",
 }
 
 ABOUT := about_web.Copy {
