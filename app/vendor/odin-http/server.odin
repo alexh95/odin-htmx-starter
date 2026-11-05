@@ -300,7 +300,7 @@ _server_thread_init :: proc(s: ^Server, ttd: ^Server_Thread) {
 	if td != &s.threads[0] {
 		err := nbio.acquire_thread_event_loop()
 		// TODO: error handling.
-		assert(err == nil)
+		fmt.assertf(err == nil, "acquire_thread_event_loop: %v", err)
 	}
 
 	sync.atomic_store(&td.event_loop, nbio.current_thread_event_loop())

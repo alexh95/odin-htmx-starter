@@ -119,7 +119,7 @@ test.describe('room mode', T, () => {
 
   test('the asker\'s limits hold in a room, and are said to them alone', async ({ browser }) => {
     const config = test.info().config;
-    const s = await startServer(config, { BOT_MEMBER_PER_HOUR: '1' });
+    const s = await startServer(config, { THREADS: '2', BOT_MEMBER_PER_HOUR: '1' });
     try {
       const ann = await member(browser, mainOrigin(s.port));
       const slug = await newRoom(ann.page);
@@ -143,7 +143,7 @@ test.describe('room mode on llama', T, () => {
   test.beforeEach(async () => {
     test.skip(!has('@bot') || !!PROXY, 'its own servers, beside the bot');
     fake = await startFake();
-    s = await startServer(test.info().config, { BOT_BACKEND: 'llama', BOT_LLAMA_URL: fake.url, BOT_LLAMA_PROBE: '100ms', BOT_CONCURRENCY: '1', BOT_LLAMA_FIRST_TOKEN: '1s' });
+    s = await startServer(test.info().config, { THREADS: '2', BOT_BACKEND: 'llama', BOT_LLAMA_URL: fake.url, BOT_LLAMA_PROBE: '100ms', BOT_CONCURRENCY: '1', BOT_LLAMA_FIRST_TOKEN: '1s' });
   });
 
   test.afterEach(async () => {

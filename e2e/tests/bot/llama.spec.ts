@@ -9,7 +9,9 @@ import { signIn } from '../../helpers/accounts';
 // member's answer and its x-impl, a guest's mock, Stop, the queue at one slot, each state of the
 // badge with no reload, a member's choice, and the admin's default.
 const T = { tag: ['@bot'] };
-const LLAMA = { BOT_BACKEND: 'llama', BOT_LLAMA_PROBE: '100ms', BOT_CONCURRENCY: '1' };
+// Two loops, for a server per test: a ring per core each, under a parallel run, can run a CI box out
+// ("acquire_thread_event_loop" at boot), and two still crosses loops.
+const LLAMA = { THREADS: '2', BOT_BACKEND: 'llama', BOT_LLAMA_PROBE: '100ms', BOT_CONCURRENCY: '1' };
 
 async function conversation(m: Member): Promise<string> {
   await m.page.goto('/bot');
@@ -231,7 +233,7 @@ test("the admin's default: audited, shown on /admin/modules, and gone at a resta
   test.skip(!BUILD.features.includes('bot') || BUILD.identity !== 'accounts', 'an admin needs accounts');
   const config = test.info().config;
   const fake = await startFake();
-  const env = { BOT_LLAMA_URL: fake.url, BOT_LLAMA_PROBE: '100ms', BOT_CONCURRENCY: '1' };
+  const env = { THREADS: '2', BOT_LLAMA_URL: fake.url, BOT_LLAMA_PROBE: '100ms', BOT_CONCURRENCY: '1' };
   let s = await startServer(config, env);
   try {
     const ann = await member(browser, mainOrigin(s.port));

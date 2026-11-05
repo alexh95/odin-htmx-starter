@@ -45,6 +45,12 @@ copy-and-start ergonomics and good defaults matter more than feature depth.
 
 ## Known flakes (seen once, passed on a rerun: not fixed)
 
+- **WebKit's `page.goto: WebKit encountered an internal error`**, on CI's Linux WebKit jobs in about two runs of three since at
+  least 2026-11-01 (v2.4.0's tree), at any page, nearly always passing on its retry. Older than M7 and not understood; a
+  browser-side error with no server log. It failed `E2E (streams, webkit)` outright once, at `ce6a8ce`.
+- **`acquire_thread_event_loop` at boot** in a spec's own server, under a parallel run on CI (`b045bb8`, `eccc146`). M7's specs now
+  boot two loops each. The assertion names the error now: if it comes back, that says what ran out.
+
 - `contacts/crud.spec:4` on Firefox (skeleton): "Invited" stayed where "Disabled" was due, both attempts of one run on
   69df7b9. Watch it.
 
