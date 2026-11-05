@@ -17,6 +17,11 @@ keeps the menu or the half-typed edit open in it; a saved edit closes its form w
 (`swapEmpty`). What differs per viewer is asked for (the menu, `GET /chat/m/<id>/menu`) or marked on the client
 (`AutoScroll` sets `.mine` where `data-author` is the log's `data-me`).
 
+**The bot in a room.** A message with `@bot` as its own word, in any room but a DM, goes to `bot.ask:<room>` by name, with
+the question: without bot nothing mounts that topic, and the publish is dropped and counted. `chat.reply:<room>` is chat's
+own server-side row, which stores what comes back as a message from author 0, "Capcom", cut to 2,000 runes. Such a
+message mentions nobody, asks nothing, and can't be blocked or DMed; it can be reported and removed like any other.
+
 **The page's version.** Every fragment also sets `#ver-<room>`, a hidden field holding the newest room version the page
 has seen. A reconnect sends it back (a socket's first frame, from the field's form on hx-ws's `after:connection`; SSE's
 resync, by `hx-include`), and the answer is what changed since it, or, when the room has let go of something that

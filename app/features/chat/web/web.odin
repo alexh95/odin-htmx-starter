@@ -80,11 +80,13 @@ ROUTES := [?]web.Route {
 // chat.room:<id>: a room's messages (the SSE transport's on #live, the socket's and
 // multipart's on their own streams). chat.presence:<id> and chat.typing:<id> ride
 // every room page's #live, keyed per member (.Latest); presence learns who is there
-// from those streams opening and closing (`watch`).
+// from those streams opening and closing (`watch`). chat.reply: the bot's room answers, which
+// arrive by name and are stored; nothing subscribes to it.
 TOPICS := [?]hub.Topic {
 	{family = "chat.room", policy = .Queue, persisted = chat.PERSISTED, perm = .Chat_Read, allow = room_readable, replay = replay_room},
 	{family = "chat.presence", policy = .Latest, perm = .Chat_Read, allow = room_readable, watch = watch_room},
 	{family = "chat.typing", policy = .Latest, ring = 64, perm = .Chat_Read, allow = room_readable},
+	{family = "chat.reply", policy = .Queue, perm = .Chat_Read, deliver = store_reply},
 }
 
 JOBS := [?]workers.Job {
@@ -442,12 +444,31 @@ posted :: proc(o: ^store.Op) {
 	web.finish(&op.deferred, res)
 }
 
+// chat.reply:<room>'s row: the bot's answer, as a message from it, cut to what a message may hold.
+// It may have come out of a question nobody here wrote, so it goes where any message goes, escaped.
+@(private)
+store_reply :: proc(topic, text: string, _: i64) {
+	_, key := hub.split_topic(topic)
+	id, ok := strconv.parse_i64(key, 10)
+	if !ok { return }
+	r, err := chat.room_by_id(id)
+	if err != .None { return }
+	op := posting({name = chat.BOT_NAME}, r, chat.cut_body(text), "")
+	if !chat.post(op) { store.free_op(op) }
+}
+
 // A new message to the room, the Inbox of whoever it mentions, and the unread counts
 // of everyone who has read the room (theirs on every page, through notify.user). Only to
 // those who may read it: a private room's mention of someone outside it says nothing to them.
 @(private)
 announce :: proc(slug, room_name: string, kind: m.Room_Kind, msg: m.Message) {
 	hub.publish(chat.room_topic(msg.room), chat_views.one(msg.room, slug, msg), msg.id)
+	if msg.author != 0 && kind != .Dm {
+		if q, asked := chat.asks_bot(msg.body); asked {
+			// By name: without bot nothing mounts it, and the publish is dropped and counted (X37).
+			hub.publish(fmt.tprintf("bot.ask:%d", msg.room), fmt.tprintf("%d\n%s", msg.author, q), msg.id)
+		}
+	}
 	r := m.Room{id = msg.room, kind = kind}
 	ref := fmt.tprintf("/chat/r/%s#m-%d", slug, msg.id)
 	scope := chat.room_topic(msg.room) // what a member mutes a room by
@@ -462,7 +483,8 @@ announce :: proc(slug, room_name: string, kind: m.Room_Kind, msg: m.Message) {
 			if mem.who != msg.author && !chat.blocking(mem.who, msg.author) { notify_web.send(mem.who, "chat.dm", ref, line, scope) }
 		}
 	} else {
-		chat.mentioned(msg.body, msg.author, &who)
+		// A bot's text is a model's: it names nobody into their Inbox.
+		if msg.author != 0 { chat.mentioned(msg.body, msg.author, &who) }
 		if len(who) > 0 {
 			line := chat_views.mention_line(msg.name, room_name, msg.body)
 			for id in who {

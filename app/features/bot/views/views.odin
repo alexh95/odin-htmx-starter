@@ -246,3 +246,29 @@ admin_panel :: proc(b: ^strings.Builder, default: bot.Backend, health: m.Bot_Hea
 	}
 	w(b, `</section>`)
 }
+
+// ---- a room's answer as it comes (room mode) -----------------------------------------------------
+
+// The answer so far, under the room's typing line: `#typing-<room>` upserts by id on every room
+// page. The bot's own markup, in a page it doesn't own: the two ids are all it knows of it.
+bubble :: proc(room: i64, mid, text: string, queued: int) -> string {
+	b := strings.builder_make(context.temp_allocator)
+	fmt.sbprintf(&b, `<hx-partial hx-target="#typing-%d" hx-swap="upsert"><article id="bl-`, room)
+	w(&b, mid)
+	w(&b, `" class="chat-msg bot-live"><header><b class="chat-name">Capcom</b></header><div class="chat-body" hx-ignore data-disable-scripting>`)
+	switch {
+	case queued > 0: fmt.sbprintf(&b, `Queued (#%d)`, queued)
+	case text == "": w(&b, `…`)
+	case:            esc(&b, text)
+	}
+	w(&b, `</div></article></hx-partial>`)
+	return strings.to_string(b)
+}
+
+bubble_gone :: proc(mid: string) -> string {
+	b := strings.builder_make(context.temp_allocator)
+	w(&b, `<hx-partial hx-target="#bl-`)
+	w(&b, mid)
+	w(&b, `" hx-swap="delete"></hx-partial>`)
+	return strings.to_string(b)
+}

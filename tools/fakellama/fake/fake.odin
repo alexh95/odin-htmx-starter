@@ -21,6 +21,7 @@ package fakellama
 //   fake:drop        two deltas, then the socket closes, with no [DONE]
 //   fake:error       200, then an OAI error event in the stream
 //   fake:long        200 deltas, slower
+//   fake:wall        500 deltas at once: 5,000 characters
 //   fake:length      ends with finish_reason "length"
 //   fake:garbage     a data line that isn't JSON
 
@@ -240,7 +241,7 @@ send :: proc(sock: net.TCP_Socket, text: string) -> bool {
 // ---- an answer ---------------------------------------------------------------------------------
 
 @(private)
-Fault :: enum { None, Split, Stall, Stall_Mid, Drop, Error, Long, Length, Garbage }
+Fault :: enum { None, Split, Stall, Stall_Mid, Drop, Error, Long, Wall, Length, Garbage }
 
 @(private)
 question_of :: proc(body: string) -> (q: string, fault: Fault) {
@@ -260,6 +261,7 @@ question_of :: proc(body: string) -> (q: string, fault: Fault) {
 	case "fake:drop":      fault = .Drop
 	case "fake:error":     fault = .Error
 	case "fake:long":      fault = .Long
+	case "fake:wall":      fault = .Wall
 	case "fake:length":    fault = .Length
 	case "fake:garbage":   fault = .Garbage
 	}
@@ -354,6 +356,8 @@ complete :: proc(sock: net.TCP_Socket, body: string) {
 	switch fault {
 	case .Long:
 		for i in 0 ..< 200 { append(&words, fmt.tprintf("word%d ", i)) }
+	case .Wall:
+		for _ in 0 ..< 500 { append(&words, "wallwalls ") }
 	case .None, .Split, .Stall, .Stall_Mid, .Drop, .Error, .Length, .Garbage:
 		append(&words, "You ", "asked: ")
 		rest := q
@@ -396,7 +400,7 @@ complete :: proc(sock: net.TCP_Socket, body: string) {
 			gone()
 			return
 		}
-		pause()
+		if fault != .Wall { pause() }
 		if fault == .Long { pause() }
 	}
 

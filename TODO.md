@@ -90,11 +90,13 @@ steps go through planning once the code can use them. Pushes are on the standing
       Done (2026-11-05, slices 5 and 6): `e2e/tests/bot/llama.spec.ts` against a real fakellama: a member's model and a guest's
       mock, Stop and a closed browser reaching it as a close, the queue at one slot, stalls and a dropped socket, a key, every
       state of the badge. The probe has a thread of its own: a dead host mustn't hold the scheduler's other jobs.
-- [ ] **7. Room mode** (§6.2, X37): `@bot` in a room publishes on `bot.ask:<room>`; bot's `deliver` row starts the backend
+- [x] **7. Room mode** (§6.2, X37): `@bot` in a room publishes on `bot.ask:<room>`; bot's `deliver` row starts the backend
       under the asker's limits and streams a live bubble to the room; `chat.reply:<room>`'s row stores the answer as a
       message from the bot, cut to chat's 2,000 runes, and publishes it. *Check:* the answer is a stored message on all four
       transports, a poll reader sees it, a reload keeps it, `full` and `streams` both; a selection with chat and no bot
       drops and counts; a question from a non-member is impossible; the XSS suite over the bot's text.
+      Done (2026-11-05): `e2e/tests/bot/room.spec.ts` on `full` and `streams`. The bubble rides `chat.typing`, not `chat.room`: every
+      transport's page reads it, it isn't persisted, and `.Latest` suits a frame that holds the whole text so far.
 - [ ] **8. Budgets** (§18): 1000 concurrent mock generations ≤ 1 core and ≤ +30 MB; Stop ≤ 100 ms on llama against
       fakellama. *Check:* recorded in `docs/perf/`, the k6 scenarios beside them.
 - [ ] **9. Exit**: the slice gate for every new feature; the parity gate on both legs; a focused audit of the llama binding,

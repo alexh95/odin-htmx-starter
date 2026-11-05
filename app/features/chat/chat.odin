@@ -592,7 +592,7 @@ dm_peer :: proc(r: m.Room, me: u64) -> u64 {
 
 // Stores op's message; op.done runs once it is. false: the store is busy.
 post :: proc(op: ^m.Post) -> bool {
-	seen(op.author, op.name)
+	if op.author != 0 { seen(op.author, op.name) } // the bot isn't anyone to mention
 	return chat_store.post(op)
 }
 
@@ -611,6 +611,36 @@ too_many_rooms :: proc(v: authz.Viewer) -> bool {
 // store answers again when they do.
 may_change :: proc(msg: m.Message, who: u64) -> bool {
 	return !msg.gone && who != 0 && msg.author == who && now() - msg.at <= i64(EDIT_WINDOW / time.Second)
+}
+
+// ---- the bot ------------------------------------------------------------------------------------
+
+// Whose name the bot's answers go under (author 0: no member's).
+BOT_NAME :: "Capcom"
+
+// Whether `body` asks the bot, and the question: `@bot`, as its own word and without case,
+// taken out.
+asks_bot :: proc(body: string) -> (question: string, asked: bool) {
+	word :: proc(r: rune) -> bool { return unicode.is_letter(r) || unicode.is_digit(r) || r == '_' || r == '-' || r == '.' }
+	for at := 0; at + 4 <= len(body); at += 1 {
+		if !strings.equal_fold(body[at:at + 4], "@bot") { continue }
+		before, _ := utf8.decode_last_rune_in_string(body[:at])
+		after, _ := utf8.decode_rune_in_string(body[at + 4:])
+		if at > 0 && word(before) || at + 4 < len(body) && word(after) && after != '.' { continue }
+		return strings.trim_space(strings.concatenate({body[:at], body[at + 4:]}, context.temp_allocator)), true
+	}
+	return "", false
+}
+
+// A message's worth of `text`: its first MAX_BODY runes.
+cut_body :: proc(text: string) -> string {
+	trimmed := strings.trim_space(text)
+	n := 0
+	for _, i in trimmed {
+		if n == MAX_BODY - 1 { return strings.concatenate({trimmed[:i], "…"}, context.temp_allocator) }
+		n += 1
+	}
+	return trimmed
 }
 
 // ---- mentions -----------------------------------------------------------------------------

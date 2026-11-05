@@ -23,6 +23,9 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
   following Ready, Loading, Sleeping and Offline with no reload, and `/status` reporting degraded, never unready.
 - **Choosing a backend** (M7): per request among the healthy. Guests get the mock, members the default or, while both can
   answer, what they pick, and a llama that can't answer gives way to the mock.
+- **`@bot` in a chat room** (M7): a bubble grows for everyone in the room on any transport, and the finished answer is a
+  stored message from "Capcom", cut to 2,000 runes. It counts against the asker's limits, the model sees the question and
+  nothing else of the room, a DM doesn't ask it, and with chat and no bot the publish is dropped and counted.
 - **`/admin/bot`** (M7): the default, in memory and audited, gone at a restart, with counts and timings of everyone's use and
   no text. `/admin/modules` shows the default and links there.
 

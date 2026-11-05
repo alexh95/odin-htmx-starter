@@ -1,10 +1,12 @@
 package hub
 
+import "base:runtime"
 import "core:fmt"
 import "core:strings"
 import "core:testing"
 import "core:thread"
 
+import "../obs"
 import "../sys"
 
 @(private = "file")
@@ -171,6 +173,24 @@ the_hub :: proc(t: ^testing.T) {
 	an_inbox_holds_two_publishers_in_sequence_order(t)
 	every_ring_costs_its_overhead(t)
 	a_server_side_row_keeps_nothing(t)
+	a_publish_with_no_row_is_dropped_and_counted(t)
+}
+
+// chat with no bot in the selection: nothing mounts bot.ask, and asking costs one counter (X37).
+@(private = "file")
+a_publish_with_no_row_is_dropped_and_counted :: proc(t: ^testing.T) {
+	context.allocator = runtime.heap_allocator() // a thread's counter block lasts as long as the process
+	h.dropped = obs.register_counter("test_hub_dropped_total", "", "for this test")
+	h.families = make(map[string]^Topic)
+	defer {
+		delete(h.families)
+		h.families = nil
+	}
+	h.seq = 0
+	before := obs.counter_value(h.dropped)
+	testing.expect_value(t, publish("bot.ask:5", "a question", 9), 0)
+	testing.expect_value(t, obs.counter_value(h.dropped), before + 1)
+	testing.expect_value(t, h.seq, 0)
 }
 
 // bot.ask carries a private room's question: delivered once, and neither sequenced nor ringed,

@@ -1,5 +1,6 @@
 package chat
 
+import "core:strings"
 import "core:testing"
 
 @(private = "file")
@@ -38,6 +39,16 @@ the_room_knows_who_is_there :: proc(t: ^testing.T) {
 	changes := make([dynamic]Presence_Change, context.temp_allocator)
 	sweep_presence(&changes) // inside the debounce: still online
 	testing.expect_value(t, len(changes), 0)
+
+	// The bot: `@bot` as its own word, without case, taken out of the question.
+	for c in ([][3]string{{"@bot why?", "why?", "y"}, {"hey @BOT, why?", "hey , why?", "y"}, {"why @bot", "why", "y"}, {"@bot.", ".", "y"},
+		{"me@bot.example", "", ""}, {"@bottom", "", ""}, {"@bot-x", "", ""}, {"no one", "", ""}}) {
+		q, asked := asks_bot(c[0])
+		testing.expectf(t, q == c[1] && asked == (c[2] != ""), "%q: %q %v", c[0], q, asked)
+	}
+	testing.expect_value(t, cut_body("  short  "), "short")
+	long := cut_body(strings.repeat("é", 3 * MAX_BODY, context.temp_allocator))
+	testing.expect_value(t, strings.rune_count(long), MAX_BODY)
 
 	// Mentions: by the name a member last used, without case, never the author.
 	seen(7, "ann")

@@ -1207,13 +1207,15 @@ domain and is mounted only in SQLite profiles (§17.7).
 
 **4. Hub topics named by string**, for genuine broadcasts (D13) and for the bot's room mode. Room mode runs over two
 static topic rows, one each way: `bot.ask`, consumed by bot, and `chat.reply`, consumed by chat, which stores the
-answer as a chat message. That is what ANSWERS round 3's "a hub topic with a static `TOPICS` row" needs in practice,
+answer as a chat message. Both are server-side rows: `deliver` is all a publish to one does, and `/events` refuses
+them, or a member could read a private room's question off `bot.ask:<room>`. That is what ANSWERS round 3's "a hub topic with a static `TOPICS` row" needs in practice,
 and RESOLUTIONS X37 settles it so: neither feature imports the other, and each works alone. `chat_web` publishes a
 message that mentions the bot on `bot.ask:<room>`, by name. `bot_web.TOPICS`
 holds the row `{"bot.ask", .Queue, 64, false, nil, room_ask}`, whose `deliver` proc the hub runs once per publish, as
-the router runs a route's handler (§9.2). `room_ask` starts the backend and streams upserts of `#m-<id>` to
-`chat.room:<room>`; the finished answer goes back on `chat.reply:<room>`, chat's own row, which stores it as a message
-from the bot and publishes the persisted bubble. Without bot nothing mounts `bot.ask`, so the publish reaches no row
+the router runs a route's handler (§9.2). `room_ask` starts the backend and upserts a bubble into `#typing-<room>` on
+`chat.typing:<room>`, the topic every room page reads whatever its transport, whose `.Latest` keeps each bubble's newest
+(`chat.room` is persisted, and its cursors would have to skip frames with no row); the finished answer goes back on
+`chat.reply:<room>`, chat's own row, which stores it as a message from the bot and publishes the persisted bubble. Without bot nothing mounts `bot.ask`, so the publish reaches no row
 and is dropped and counted; `tools/check topics` requires every family a package publishes to by literal name to be
 declared by some package, so a typo fails CI (**NEW**: the `deliver` field and that check are not prototyped). A
 subscription made in `main` at run time would be the observer pattern (14 (5)); a static row is a dispatch table.
@@ -3526,8 +3528,10 @@ The response is `text/event-stream` with four frames:
 **Delivery** is a form choice per request (D8): the same backend stream rendered for another transport. A is POST →
 SSE (the four frames above). B is POST → multipart: the same four as parts, plus `#conv-title` and `#usage` parts.
 Room mode: `@bot` in a chat room → chat publishes on `bot.ask:<room>` → bot's `deliver` row starts the backend and
-streams upserts of `#m-<id>` to `chat.room:<room>` for every member → the finished answer goes back on
-`chat.reply:<room>`, whose row in chat stores it as a message from the bot. These are two static topic rows, one each
+upserts a bubble on `chat.typing:<room>` for every member → the finished answer goes back on `chat.reply:<room>`, whose
+row in chat stores it as a message from the bot (author 0, "Capcom"), cut to a message's 2,000 runes. It counts against
+the asker's limits, a refusal reaches them alone as a toast, the model is given the question and nothing else of the room,
+DMs don't ask it, there is no Stop in a room, and a bot's message mentions nobody and asks nothing. These are two static topic rows, one each
 way, so neither feature imports the other and each works alone; without bot the publish is dropped and counted (§6.2;
 LC §9; RESOLUTIONS X37).
 

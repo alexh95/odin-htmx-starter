@@ -49,9 +49,10 @@ ADMIN_ROUTES := [?]web.Route {
 }
 
 // bot.health: the badge, on a member's bot pages' #live, published when the llama server's state
-// changes. A guest's badge is the mock's, which never does.
+// changes. A guest's badge is the mock's, which never does. bot.ask: chat's questions, server-side.
 TOPICS := [?]hub.Topic {
 	{family = "bot.health", policy = .Latest, perm = .Bot_Use},
+	{family = "bot.ask", policy = .Queue, perm = .Bot_Use, deliver = room_ask}, // room.odin
 }
 
 // A question is 4,000 runes; URL-encoded, a rune can take 12 bytes.
