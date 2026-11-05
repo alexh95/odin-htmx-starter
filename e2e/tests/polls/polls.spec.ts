@@ -48,6 +48,7 @@ test.describe('polls', T, () => {
     await expect(bob.page.locator('.poll-row').first().locator('.poll-n')).toHaveText('1');
     await expect(bob.page.locator('.poll-row').first().locator('.poll-names')).toHaveText(ann.name);
     expect(await bob.page.locator('.poll-row').first().locator('.poll-bar').getAttribute('style')).toBe('--p:100%');
+    expect(await bob.page.locator('.poll-bar').first().evaluate((e) => getComputedStyle(e, '::before').backgroundImage)).toContain('gradient'); // a bar you can see
     await expect(ann.page.locator('.poll-act')).toContainText('You voted');
     await choose(ann.page, 'No-go');
     await expect(bob.page.locator('.poll-row').nth(1).locator('.poll-names')).toHaveText(ann.name);
