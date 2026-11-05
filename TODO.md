@@ -119,7 +119,7 @@ steps go through planning once the code can use them. Pushes are on the standing
 - [x] **8. Budgets** (§18): 1000 concurrent mock generations ≤ 1 core and ≤ +30 MB; Stop ≤ 100 ms on llama against
       fakellama. *Check:* recorded in `docs/perf/`, the k6 scenarios beside them.
       Done (2026-11-05): `docs/perf/BOT-BUDGETS.md`: 511 ms of CPU a second and +11.9 MB at 1000 at once; the `botmock` drill holds it.
-- [x] **9. Exit** (2026-11-05: parity `docs/perf/PARITY-M7.md`, Windows `write@mem` waiting on Alex; audit `docs/audit/M7.md`; the tag is Alex's): the slice gate for every new feature; the parity gate on both legs; a focused audit of the llama binding,
+- [x] **9. Exit** (2026-11-05: parity `docs/perf/PARITY-M7.md`, Windows `write@mem` accepted by Alex at a floor of 0.96; audit `docs/audit/M7.md`; the tag is Alex's): the slice gate for every new feature; the parity gate on both legs; a focused audit of the llama binding,
       `platform/stream/client` (M2's audit debt: a server path uses it now) and room mode, by an agent that didn't write
       the code; `Audited:` stamps; CHANGELOG's 2.6.0 lead. Then, with Alex: the llama.cpp compose project on apollo's GPU,
       the power-supply check, the v2.6.0 tag and promote, `BOT_LLAMA_URL` set, the tokens/s from the server's `timings` recorded (§14.3's
