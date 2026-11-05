@@ -127,6 +127,7 @@ request :: proc(conv: i64, user: u64, turns: []m.Turn, question: string) -> m.Bo
 			append(&history, m.Bot_Turn{t.role, t.text})
 		}
 	}
+	if len(history) > 0 && history[0].role == .Assistant { ordered_remove(&history, 0) } // the window cut a pair
 	if n := len(history); n > 0 && history[n - 1].role == .User {
 		history[n - 1].text = question
 	} else {

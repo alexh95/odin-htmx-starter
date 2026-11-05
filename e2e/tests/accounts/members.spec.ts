@@ -97,6 +97,9 @@ test.describe('members', T, () => {
       const bot = await join(browser, `${base}/register`, 'Capcom');
       await expect(bot.page.locator('#register-error')).toContainText("the bot's");
       await bot.context.close();
+      const shown = await join(browser, `${base}/register`, 'sam2', 'Capcom');
+      await expect(shown.page.locator('#register-error')).toContainText("the bot's");
+      await shown.context.close();
       const bidi = await join(browser, `${base}/register`, 'sam', 'evil‮eman');
       await expect(bidi.page.locator('#register-error')).toContainText("can't show");
       const short = await request.post(`${base}/register`, { form: { username: 'al', password: 'a-long-enough-password', again: 'a-long-enough-password' } });

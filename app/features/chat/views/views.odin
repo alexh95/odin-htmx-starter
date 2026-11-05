@@ -52,7 +52,8 @@ Dm_Peer :: struct {
 Menu :: struct {
 	may_change:   bool, // their own, in the edit window
 	may_dm:       bool, // a DM with its author
-	may_moderate: bool, // remove it, mute or kick its author
+	may_moderate: bool, // remove it
+	may_discipline: bool, // mute or kick its author: the bot has none to mute
 	may_report:   bool, // someone else's
 	may_block:    bool, // its author
 	blocked:      bool, // ... already
@@ -418,7 +419,10 @@ message :: proc(b: ^strings.Builder, msg: m.Message, slug: string, newest: bool)
 	html.avatar(b, i64(msg.author % (1 << 53)), msg.name)
 	w(b, `<b class="chat-name">`)
 	esc(b, msg.name)
-	w(b, `</b> <time datetime="`)
+	w(b, `</b> `)
+	// A mark no name can fake: names are free, and letters that look like the bot's aren't refused.
+	if msg.author == 0 { w(b, `<span class="badge chat-bot">bot</span> `) }
+	w(b, `<time datetime="`)
 	w(b, iso(msg.at))
 	w(b, `">`)
 	esc(b, html.time_ago(msg.at))
@@ -538,6 +542,8 @@ menu :: proc(msg: m.Message, slug: string, acts: Menu) -> string {
 	}
 	if acts.may_moderate {
 		fmt.sbprintf(&b, `<button class="btn btn-ghost" type="button" hx-post="/chat/m/%d/remove" hx-prompt="Why remove it?" hx-target="#mm-%d">Remove</button>`, msg.id, msg.id)
+	}
+	if acts.may_discipline {
 		for kind in ([]string{"mute", "kick"}) {
 			w(&b, `<form hx-post="/chat/r/`)
 			esc(&b, slug)

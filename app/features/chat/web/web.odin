@@ -533,7 +533,7 @@ menu :: proc(req: ^web.Request, res: ^web.Response) {
 	acts := chat_views.Menu{
 		may_change = chat.may_change(msg, v.id), may_dm = authz.can(v, .Chat_Dm) && other,
 		// The bot's aren't a member's, but what it said can be reported and removed like anyone's.
-		may_moderate = chat.may_moderate(r, v) && msg.author != v.id, may_report = msg.author != v.id && v.id != 0,
+		may_moderate = chat.may_moderate(r, v) && msg.author != v.id, may_discipline = chat.may_moderate(r, v) && other, may_report = msg.author != v.id && v.id != 0,
 		may_block = other && v.id != 0, blocked = other && chat.blocking(v.id, msg.author),
 	}
 	web.respond_html(res, chat_views.menu(msg, r.slug, acts))

@@ -74,6 +74,11 @@ Reply :: struct {
 	status: int,
 }
 
+// Not on a stack: a closed Conn's recv can outlast its frame by a moment, and its buffer is in here
+// (M7-R2). Only the probe's thread touches it.
+@(private)
+reply: Reply
+
 // One GET, waited for on this thread's own loop.
 @(private)
 get :: proc(path: string, r: ^Reply) {
@@ -96,7 +101,10 @@ get :: proc(path: string, r: ^Reply) {
 	t0 := sys.mono_ns()
 	for !r.done {
 		_ = nbio.tick(50 * time.Millisecond)
-		if !r.done && sys.mono_ns() - t0 > i64(PROBE_WAIT) { sc.close(&r.conn) }
+		if !r.done && sys.mono_ns() - t0 > i64(PROBE_WAIT) {
+			sc.close(&r.conn)
+			_ = nbio.tick(0) // the close's cancel goes out now, not a probe from now (M7-R2)
+		}
 	}
 	sc.destroy(&r.conn)
 }
@@ -108,16 +116,16 @@ probe :: proc() {
 	state := m.Bot_Health_State.Offline
 	slots := 0
 	model := ""
-	r: Reply
+	r := &reply
 	guard.lock(&st.mu)
 	known := st.resolved
 	guard.unlock(&st.mu)
 	if known {
-		get("/health", &r)
+		get("/health", r)
 		switch {
 		case r.why == .Done && r.status == 200:
 			state = .Ready
-			get("/props", &r)
+			get("/props", r)
 			if r.why == .Done && r.status == 200 {
 				sleeping: bool
 				slots, sleeping, model = read_props(string(r.body[:]))

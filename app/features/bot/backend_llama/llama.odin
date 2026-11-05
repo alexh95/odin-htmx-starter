@@ -213,7 +213,8 @@ shallow :: proc(text: string) -> bool {
 		case escaped:
 			escaped = false
 		case quoted:
-			if c == '\\' { escaped = true } else if c == '"' { quoted = false }
+			// A raw line feed ends a string for the tokenizer too, and the parse goes on (M7-R1, M2-30).
+			if c == '\\' { escaped = true } else if c == '"' || c == '\n' { quoted = false }
 		case c == '"':
 			quoted = true
 		case c == '{' || c == '[':
@@ -527,8 +528,16 @@ end :: proc(g: ^Gen) {
 	guard.unlock(&st.mu)
 	if ran { pump() }
 
+	// The Gen holds the Conn and the buffer the kernel may be reading into: through the ring, so
+	// behind the cancel `close` queued, not on the next tick's completed list (M7-03). Armed before
+	// the sink runs, so a trap there leaks nothing. Its last words are guarded apart: whatever they
+	// do, the last event below is what lets the member ask again.
+	nbio.timeout_poly(time.Millisecond, g, proc(_: ^nbio.Operation, g: ^Gen) { destroy(g) })
+	guard.call(proc(data: rawptr) {
+		g := (^Gen)(data)
+		emit(g, sys.mono_ns())
+	}, g)
 	now := sys.mono_ns()
-	emit(g, now)
 	first := int((g.first - g.t0) / 1e6) if g.first != 0 else 0
 	total := int((now - g.t0) / 1e6) if g.t0 != 0 else 0
 	tokens := g.predicted if g.predicted > 0 else g.tokens
@@ -542,9 +551,6 @@ end :: proc(g: ^Gen) {
 	case:
 		g.sink.on_event(g.sink.user, g.id, m.Bot_Done{stop = g.stop, tokens = tokens, ms_first_token = first, ms_total = total})
 	}
-	// The Gen holds the Conn and the buffer the kernel may be reading into: through the ring, so
-	// behind the cancel `close` queued, not on the next tick's completed list (M7-03).
-	nbio.timeout_poly(time.Millisecond, g, proc(_: ^nbio.Operation, g: ^Gen) { destroy(g) })
 }
 
 @(private)
@@ -600,11 +606,16 @@ on_slot :: proc(_: ^nbio.Operation, box: ^m.Bot_Gen_Id) {
 		nbio.remove(g.timer)
 		g.timer = nil
 	}
+	// Apart: a trap in the sink's line mustn't cost the generation, which holds a slot now.
 	guard.call(proc(data: rawptr) {
 		g := (^Gen)(data)
 		g.sink.on_event(g.sink.user, g.id, m.Bot_Queued{0})
-		run(g)
 	}, g)
+	if !guard.call(proc(data: rawptr) { run((^Gen)(data)) }, g) {
+		g.phase = .Running
+		g.problem = "The answer was cut off."
+		guard.call(proc(data: rawptr) { end((^Gen)(data)) }, g)
+	}
 	free_all(context.temp_allocator)
 }
 

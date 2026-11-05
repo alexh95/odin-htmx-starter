@@ -82,7 +82,7 @@ jobs:
         run: |
           echo "FUZZ_SEED=$FUZZ_SEED FUZZ_SCALE=$FUZZ_SCALE"
           mkdir -p app/bin
-          for d in app/platform/signed app/platform/escape app/platform/totp app/platform/password app/platform/stream app/features/uploads; do
+          for d in tools/fakellama/suite app/platform/signed app/platform/escape app/platform/totp app/platform/password app/platform/stream app/features/uploads; do
             echo "== $d"
             odin test "$d" -collection:store=app/stores/memory -collection:identity=app/platform/authz/anonymous \
               -collection:client=app/platform/client/vanilla -collection:theme=app/platform/theme/lite \

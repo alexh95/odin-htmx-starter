@@ -101,6 +101,7 @@ test.describe('room mode', T, () => {
     await open(ann, slug, 'sse');
     await say(ann, '@bot hello');
     await expect(fromBot(ann)).toHaveCount(1);
+    await expect(fromBot(ann).locator('.chat-bot')).toHaveText('bot'); // a mark no member's name can fake
     await fromBot(ann).locator('.chat-more').click();
     await expect(fromBot(ann).getByRole('button', { name: 'Report' })).toBeVisible();
     await expect(fromBot(ann).getByRole('button', { name: /^Block/ })).toHaveCount(0);

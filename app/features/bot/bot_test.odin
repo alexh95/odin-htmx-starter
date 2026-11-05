@@ -26,6 +26,10 @@ a_failed_turn_leaves_roles_alternating :: proc(t: ^testing.T) {
 	r = request(1, 2, turns, "again")
 	testing.expect_value(t, roles(r), "uau")
 	testing.expect_value(t, r.history[2].text, "again")
+
+	// The window may open on an answer: the template wants a question first (M7-R5).
+	turns = {{role = .Assistant, text = "two"}, {role = .User, text = "three"}, {role = .Assistant, text = "four"}}
+	testing.expect_value(t, roles(request(1, 2, turns, "five")), "uau")
 }
 
 // A prompt stops at PROMPT_BYTES of the newest turns, the question always in.

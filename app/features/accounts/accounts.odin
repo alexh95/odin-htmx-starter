@@ -178,6 +178,7 @@ clean_name :: proc(raw: string) -> (name, problem: string) {
 	}
 	switch {
 	case n == 0:          return "", "Pick a name to show."
+	case authz.reserved_name(strings.to_string(b)): return "", "That name is the bot's."
 	case n > MAX_DISPLAY: return "", fmt.tprintf("A name is at most %d characters.", MAX_DISPLAY)
 	}
 	return strings.to_string(b), ""

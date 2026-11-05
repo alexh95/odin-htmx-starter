@@ -114,8 +114,14 @@ room_event :: proc(user: rawptr, _: m.Bot_Gen_Id, ev: m.Bot_Event) {
 		tell(a.who.key, e.message)
 		room_done(a, "")
 	case m.Bot_Done:
+		if e.stop == .Length && !a.cut { // the model ran out of tokens: marked, as a cut is
+			strings.write_string(&a.answer, "…")
+			a.cut = true
+		}
 		text := strings.trim_space(strings.to_string(a.answer))
 		switch {
+		case a.cut:
+			room_done(a, text) // what the bubble already shows, whatever ended the model after it
 		case e.stop == .Error:
 			tell(a.who.key, "The answer was cut off.")
 			room_done(a, "")

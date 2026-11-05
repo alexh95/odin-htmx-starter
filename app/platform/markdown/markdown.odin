@@ -514,15 +514,15 @@ md_emphasis :: proc(md: ^Md, b: ^strings.Builder, s: string, i: int) -> int {
 	return from + end + n
 }
 
+// A link's text and a link's target each: past this it's text, not a link.
+@(private = "file")
+MAX_LINK :: 2048
+@(private = "file")
+MAX_LINK_NESTING :: 8
+
 // "[text](url)" starting at s[i] == '['. Brackets in the text may nest, and so may parentheses in the url
 // ("javascript:alert(1)" is one url, rejected whole); a space ends the url (a "title" after it is dropped).
 @(private = "file")
-// A link's text and a link's target each: past this it's text, not a link.
-@(private)
-MAX_LINK :: 2048
-@(private)
-MAX_LINK_NESTING :: 8
-
 link_at :: proc(s: string, i: int) -> (text, url: string, end: int, ok: bool) {
 	depth := 0
 	close := -1
@@ -554,6 +554,9 @@ link_at :: proc(s: string, i: int) -> (text, url: string, end: int, ok: bool) {
 	for j := close + 2; j < min(len(s), close + 2 + MAX_LINK); j += 1 {
 		if s[j] == '(' {
 			parens += 1
+			if parens > MAX_LINK_NESTING {
+				return
+			}
 		} else if s[j] == ')' {
 			if parens == 0 {
 				paren = j - (close + 2)

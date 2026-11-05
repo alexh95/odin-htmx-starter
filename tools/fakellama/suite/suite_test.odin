@@ -108,6 +108,13 @@ deltas_parse :: proc(t: ^testing.T) {
 	d, ok = llama.parse_delta(text)
 	testing.expectf(t, ok && len(d.content) == 100, "brackets in a word: %v", ok)
 	testing.expect(t, llama.shallow(`{"a":"\"[[[[[[[["}`))
+	// M7-R1: a raw line feed ends a string for the tokenizer, and the parse goes on past it.
+	lf := strings.concatenate({`["x`, "\n,", strings.repeat("[", 5000, context.temp_allocator)}, context.temp_allocator)
+	testing.expect(t, !llama.shallow(lf), "a line feed doesn't hide a bomb")
+	_, ok = llama.parse_delta(lf)
+	testing.expect(t, !ok)
+	slots, _, _ := llama.read_props(lf)
+	testing.expect_value(t, slots, 0)
 }
 
 // Rubric 7: a server's bytes, through every parser it reaches (FUZZ_SCALE in the nightly).
