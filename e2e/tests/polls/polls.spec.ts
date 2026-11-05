@@ -200,6 +200,7 @@ test.describe('what an anonymous vote leaves', { tag: ['@polls', '@dbview', '@au
     for (const l of lines) {
       expect(l).not.toContain('option');
       expect(l).not.toContain('Marker');
+      expect(l).toContain('route="POST /polls/(%d+)/vote"');
       // By field, since a request id or a duration can hold the option's digits by chance.
       const fields = [...l.matchAll(/(?:^| )(\w+)=/g)].map((m) => m[1]);
       expect(fields.filter((f) => !['ts', 'lvl', 'mod', 'ev', 'id', 'm', 'route', 'st', 'us', 'loop', 'cid'].includes(f))).toEqual([]);

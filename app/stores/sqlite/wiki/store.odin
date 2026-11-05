@@ -22,7 +22,7 @@ MIGRATIONS := [?]store.Migration {
 
 // A page's history keeps this many.
 KEEP_REVISIONS :: 50
-MAX_PAGES :: 5000 // the rate limit alone would let one member fill the disk
+MAX_PAGES :: 5000 // with KEEP_REVISIONS this bounds the wiki, at about 18 GiB at worst, and no route deletes a page (M8-02)
 
 @(private) COLS :: "slug, title, visibility, manual, md, html, plain, rev, at, by_name"
 @(private) SQL_PAGE :: "SELECT " + COLS + " FROM wiki_pages WHERE slug = ?"

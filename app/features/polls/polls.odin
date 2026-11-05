@@ -3,7 +3,7 @@ package polls
 // ---- polls: Go/No-go (PLAN §15.1, D36, Q36) --------------------------------------------------------
 //
 // A named poll keeps who chose what, and a vote can change. An anonymous one keeps counters and who has
-// voted, nothing that joins them, and a vote is final: Alex's "Unlinked, votes final". So the chosen option
+// voted, nothing in one copy of the file that joins them, and a vote is final: Alex's "Unlinked, votes final". So the chosen option
 // stops at the store's counters: it's in no log, no audit row and no notice, and only the form body carries it.
 // What a poll is doesn't change after creation, and neither does `anonymous`.
 

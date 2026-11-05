@@ -24,7 +24,7 @@
     {"name": "scripting", "lines": 300, "stores": [], "sqlite": "none", "deps": [], "switched": [], "declares": ["ROUTES", "EXTS", "BUNDLES"], "profiles": ["lab"]},
     {"name": "status", "lines": 500, "stores": [], "sqlite": "none", "deps": [], "switched": [], "declares": ["ROUTES", "EXTS", "init"], "profiles": ["lab", "streams", "full"]},
     {"name": "uploads", "lines": 1300, "stores": ["memory", "sqlite"], "sqlite": "any", "deps": [], "switched": [], "declares": ["ROUTES", "EXTS", "JOBS", "init"], "profiles": ["streams", "full"]},
-    {"name": "wiki", "lines": 1100, "stores": ["memory", "sqlite"], "sqlite": "any", "deps": [], "switched": [], "declares": ["ROUTES", "EXTS", "init"], "profiles": ["lab", "streams", "full"]}
+    {"name": "wiki", "lines": 1200, "stores": ["memory", "sqlite"], "sqlite": "any", "deps": [], "switched": [], "declares": ["ROUTES", "EXTS", "init"], "profiles": ["lab", "streams", "full"]}
   ],
   "families": {
     "store": ["memory", "sqlite"],

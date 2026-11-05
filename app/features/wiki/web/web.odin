@@ -42,6 +42,8 @@ EDIT_ROUTES := [?]web.Route {
 
 // A member's saves and previews. The editor previews as they type, every half second at most.
 @(private) saves := web.Limit{n = 30, window = time.Minute}
+// The pages are a shared cap and no route deletes one, so one member can't reach it in an afternoon.
+@(private) creates := web.Limit{n = 20, window = time.Hour}
 @(private) previews := web.Limit{n = 5, window = time.Second}
 // A diff is the costliest read here, on the pool every write now shares.
 @(private) diffs := web.Limit{n = 30, window = time.Minute}
@@ -151,6 +153,12 @@ save :: proc(req: ^web.Request, res: ^web.Response, slug: string) {
 	if ok, retry := web.limit_hit(&saves, v.id); !ok {
 		web.respond_limited(res, retry, "Too many saves: wait a moment.")
 		return
+	}
+	if slug == "" {
+		if ok, retry := web.limit_hit(&creates, v.id); !ok {
+			web.respond_limited(res, retry, "Too many new pages: try again later.")
+			return
+		}
 	}
 	f := web.form(req)
 	title, md := f["title"], f["md"]

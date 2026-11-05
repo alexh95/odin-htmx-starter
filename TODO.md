@@ -48,6 +48,12 @@ copy-and-start ergonomics and good defaults matter more than feature depth.
       Manual's `#fragment` links with it); a title with no Latin letters slugs to `section`, so a second one is "taken"; the palette opens on `full`'s lab host, where
       `/find/results` isn't mounted; lists' `scalar` drops its read error; a list of 500 items and 500 people writes 250,000 `<option>`s; `chat.optimize` steps with no `db.reset`;
       `web.form_values`, `store.snippet` and `store.search_words` have unit cases and no fuzz; a close that commits and then crashes loses its notices.
+      The rest of M8-07: a failed read after a committed vote answers 500 and skips `say_changed` (lists alike), so pages lag and the retry reads "already voted"; `strconv.parse_i64` on a
+      wiki save's `rev` where `parse_digits` belongs; `lists.column` and `lists_store.column` have no caller; `ping` can read a long `write_now` as store Down for a second; a vote's body length
+      says a little about its option to whoever sees bytes; a job's `db.read` can meet `close` at shutdown, the class M5-06 fixed for `write_now`.
+      From the re-read of the fixes: **the wiki's shared cap has no way back: no route deletes a page**, so a filled wiki needs a shell (MEDIUM: an admin's delete, or a member's share); 500 public
+      pages push the Manual off `/wiki`, as `manual` sorts last; a member's view of a public page isn't private by response as their `/wiki` is; no test holds `after_crash`; the nav's hidden scrollbar shows
+      a mouse nothing, and 72 px is under a wrapped phone bar.
 
 - [ ] **Chat's Send button can't be clicked at Playwright's WebKit size**: the attach label's file input lies over it (`.chat-attach`). Enter sends, which
       is what the specs press; a tap on a narrow Safari is the case to check. Seen on M8's WebKit run, 2026-11-05.

@@ -19,6 +19,8 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 
 ### Fixed
 
+- New wiki pages are limited to 20 an hour per member, since the 5,000-page cap is shared and no route deletes a page. `/polls` lists open polls first.
+  A job that crashes mid-read lets go of it at once, as a pool thread does, and the hook that does it is guarded. The nav's focus outline stays inside the scrolling bar.
 - An anonymous poll says what its promise covers: one copy of the file can't pair a voter with an option, a series of backups can, the site keeps
   who has voted, and an admin can see that (M8-01, M8-04, Q36).
 - The top bar keeps the theme picker on screen when the nav outgrows it, and what the keyboard or a fragment reaches isn't left under the bar.
@@ -29,8 +31,8 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 - The wiki holds 5,000 pages (a clear 422 past that), its index lists 500, a diff is limited to 30 a minute per member and compares 400 lines
   at most, and a member's `/wiki` is private by response (M8-02, M8-03, M8-05). A pool thread that crashes lets go of its read at once (M8-06).
 - `polls`, Houston's Go/No-go at `/polls`: options or the Go/No-go preset, one choice or several, a closing time, live bars, and a notice to
-  whoever voted when it closes. A named poll shows names and a vote can change. An anonymous one keeps counters and who voted, with nothing that
-  joins them, and a vote is final; nobody is shown what someone chose, the voter included, and the poll says what that does and doesn't promise (PLAN §15.1, Q36).
+  whoever voted when it closes. A named poll shows names and a vote can change. An anonymous one keeps counters and who voted, with nothing in one
+  copy of the file that joins them, and a vote is final; nobody is shown what someone chose, the voter included, and the poll says what that does and doesn't promise (PLAN §15.1, Q36).
   `web.form_values` reads a key a form repeats.
 - `wiki`: `/wiki` on the `lab` profile, its memory store `source_files` holding the starter's docs as a read-only Manual, an explicit list
   of eleven with their links turned into pages or GitHub URLs (PLAN §6).

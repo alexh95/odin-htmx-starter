@@ -873,7 +873,8 @@ direction:
 - **The pure-trap reset** of the loop's reader statements (D15 rule 3) is pulled, not installed: `platform/guard`
   counts recoveries per thread, and `platform/store/sqlite` compares that count before each use of the loop's reader,
   and on a 1 s timer that the reader's first use arms on its loop, and resets every statement when it has moved
-  (§10.2; S0.6). `guard` never calls into SQLite, so a memory profile still links none (D18).
+  (§10.2; S0.6). A pool's or a job's thread has no timer: `workers.after_crash` resets it as soon as its guard
+  returns (M8-06). `guard` never calls into SQLite, so a memory profile still links none (D18).
 - **SQLite numbers for ops** (`sqlite3_db_status`, the writer queue, pool depth) are pushed to `platform/obs` by
   `platform/store/sqlite` on its own timer. `ops` reads obs and never imports the store, so `streams` keeps ops without
   SQLite.
@@ -3644,7 +3645,7 @@ Each feature's README carries the full spec under D4's fixed headings. Accounts 
   one transaction line the two up. One transaction bumps the tally and adds the voter, and a vote is final, which the poll
   says before anyone votes. A multiple-choice vote is still one voter row.
 - Nothing shows which option a person chose, that person included: after voting the page says "You voted". Who voted is
-  never listed, only how many: a list beside live bars would pair names with votes.
+  never listed but in an admin's dbview, only how many: a list beside live bars would pair names with votes.
 - The chosen option never reaches anything that records a person. It stays in the form body, never the path or query, and
   it goes in no access log, audit entry or obs line, and not in `poll_voters`.
 - The poll discloses this as `/bot` does: votes aren't stored with names and can't be changed; the site does keep who has

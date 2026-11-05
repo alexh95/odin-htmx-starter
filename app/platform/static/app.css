@@ -248,11 +248,13 @@ html { scroll-padding-top: 72px; } /* what the keyboard or a fragment reaches is
   transition: color var(--fast) var(--ease), background var(--fast) var(--ease);
 }
 .nav-link .icon { width: 17px; height: 17px; opacity: .85; }
+.nav-link:focus-visible { outline-offset: -2px; } /* .nav scrolls, which clips anything outside it */
 .nav-link:hover { color: var(--text); background: color-mix(in oklab, var(--surface) 70%, transparent); }
 .nav-link[aria-current="page"] { color: var(--text); background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-2); }
 .nav-link[aria-current="page"] .icon { color: var(--violet); opacity: 1; }
 /* Hide nav labels (icon-only) until the labelled row genuinely fits — below
    ~940px brand + labelled nav + search + picker would overflow into a scroll. */
+@media (max-width: 1360px) { .nav-link { padding: 8px 9px; gap: 6px; } } /* eleven links fit a 1280 px screen */
 @media (max-width: 940px) { .nav-link span { display: none; } }
 
 /* search box */

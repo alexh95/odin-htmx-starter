@@ -110,6 +110,19 @@ the_flag_stays :: proc(t: ^testing.T) {
 	testing.expect(t, !ok, "a poll stays as it was made")
 }
 
+// A closed poll newer than an open one still comes after it, or a flood of polls would hide what's open.
+@(private = "file")
+open_polls_come_first :: proc(t: ^testing.T) {
+	open, _ := make_poll(t, false, false)
+	shut, _ := make_poll(t, false, false)
+	_, err := sql.close(shut.id, ANN.id, NOW)
+	testing.expect_value(t, err, m.Error.None)
+	all := make([dynamic]m.Summary, context.temp_allocator)
+	testing.expect_value(t, sql.summaries(NOW, &all), m.Error.None)
+	testing.expect_value(t, all[0].id, open.id)
+	testing.expect(t, !all[0].closed)
+}
+
 @(private = "file")
 closing_tells_the_voters :: proc(t: ^testing.T) {
 	p, o := make_poll(t, true, false)
@@ -155,5 +168,6 @@ polls_store :: proc(t: ^testing.T) {
 	a_named_vote_can_change(t)
 	an_anonymous_vote_is_final_and_leaves_no_link(t)
 	the_flag_stays(t)
+	open_polls_come_first(t)
 	closing_tells_the_voters(t)
 }

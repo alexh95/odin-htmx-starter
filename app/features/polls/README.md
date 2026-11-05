@@ -7,8 +7,8 @@ Closing notifies whoever voted, by the `polls.close` job each minute or the make
 
 **A named poll** keeps who chose what, shows the names, and a vote can change until it closes.
 
-**An anonymous poll** keeps counters and who has voted, with nothing that joins them, and a vote is final. Nobody can be shown what
-someone chose, that person included: after voting the page says "You voted". Who voted is never listed, only how many. The chosen option
+**An anonymous poll** keeps counters and who has voted, with nothing in one copy of the file that joins them, and a vote is final. Nobody can be shown what
+someone chose, that person included: after voting the page says "You voted". Who voted is never listed but in an admin's dbview, only how many. The chosen option
 stays in the form body and goes no further than the counters: no access log, audit entry, obs line or notice has it. `anonymous` is set at
 creation and a trigger holds it there.
 

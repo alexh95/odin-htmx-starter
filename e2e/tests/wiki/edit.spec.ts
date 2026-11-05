@@ -113,6 +113,19 @@ test.describe('writing the wiki', T, () => {
     await leave(ann);
   });
 
+  test('new pages are limited per member, and an edit is not', async ({ browser, baseURL }) => {
+    const ann = await member(browser, baseURL!);
+    const href = await write(ann.page, uid('First '), 'one');
+    const post = (title: string) => ann.page.request.post('/wiki', { form: { title, md: 'x', visibility: 'members' }, maxRedirects: 0 });
+    for (let i = 0; i < 19; i++) expect((await post(uid('Page '))).status()).toBeLessThan(400);
+    expect((await post(uid('Page '))).status()).toBe(429);
+    await ann.page.goto(`${href}/edit`);
+    await ann.page.locator('#wiki-md').fill('two');
+    await ann.page.getByRole('button', { name: 'Save' }).click();
+    await expect(ann.page.locator('.wiki-body')).toContainText('two');
+    await leave(ann);
+  });
+
   test('a guest can write nothing', async ({ browser, baseURL }) => {
     const g = await guest(browser, baseURL!);
     const res = await g.page.request.post('/wiki', { form: { title: 'x', md: 'y' }, maxRedirects: 0 });

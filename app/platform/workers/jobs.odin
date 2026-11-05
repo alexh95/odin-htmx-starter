@@ -346,6 +346,7 @@ execute :: proc(i: int, r: ^Run, now: i64) {
 	tl_run = r
 	ok := guard.call(proc(data: rawptr) { (proc())(data)() }, rawptr(job.run))
 	tl_run = nil
+	if !ok { crashed() }
 	// A job that runs every minute or more often (the lab's beat) logs its runs
 	// at debug; its counts are in the job's state either way. One that said it
 	// failed (`fail`) is a warning, so a nightly that stopped shows in the log.

@@ -273,7 +273,7 @@ open_reader :: proc() -> ^Conn {
 	append(&db.readers, r)
 	sync.mutex_unlock(&db.readers_mu)
 	tl_reader, tl_generation = r, db.generation
-	// A loop arms its reset timer; a query-pool worker resets before each use.
+	// A loop arms its reset timer; a query-pool worker or a job resets before each use, and after a crash (`pool_crashed`).
 	if obs.current_loop() >= 0 {
 		r.armed = true
 		nbio.timeout_poly(time.Second, r, on_reader_tick)
@@ -288,7 +288,7 @@ pull_reset :: proc(r: ^Conn) {
 	if n := guard.recoveries(); n != r.seen { reset_reader(r, n) }
 }
 
-// A pool thread has no timer, and may sit idle after a crash with a read left open.
+// A pool's or a job's thread has no timer, and may sit idle after a crash with a read left open.
 @(private)
 pool_crashed :: proc() {
 	if tl_reader != nil && tl_generation == db.generation { pull_reset(tl_reader) }

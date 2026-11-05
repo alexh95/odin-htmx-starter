@@ -20,7 +20,7 @@ MIGRATIONS := [?]store.Migration {
 DUE_BATCH :: 50
 
 @(private) SQL_SUMMARIES :: "SELECT p.id, p.question, p.anonymous, p.closed_at <> 0 OR p.closes_at <= ?1, (SELECT count(*) FROM poll_voters v WHERE v.poll = p.id) FROM polls p " +
-	"ORDER BY p.id DESC LIMIT 200"
+	"ORDER BY p.closed_at = 0 AND p.closes_at > ?1 DESC, p.id DESC LIMIT 200"
 @(private) SQL_POLL :: "SELECT question, multiple, anonymous, closes_at, closed_at, by_id, by_name, (SELECT count(*) FROM poll_voters v WHERE v.poll = polls.id) FROM polls WHERE id = ?"
 @(private) SQL_OPTIONS :: "SELECT o.id, o.label, t.n FROM poll_options o JOIN poll_tally t ON t.poll = o.poll AND t.option = o.id WHERE o.poll = ? ORDER BY o.pos"
 @(private) SQL_NAMES :: "SELECT name FROM poll_votes WHERE poll = ? AND option = ? ORDER BY name COLLATE NOCASE"
