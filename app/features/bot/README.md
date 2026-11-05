@@ -42,4 +42,4 @@ and nothing is kept. A conversation is its owner's alone: anyone else's id answe
 
 It owns `/bot` and `/admin/bot`, its own prefixes. `/admin/bot` is `ADMIN_ROUTES`, mounted where there is an admin.
 
-Audited: c490e2a 2026-10-30 docs/audit/M3.md
+Audited: c490e2a 2026-10-30 docs/audit/M3.md; 88f9222 2026-11-05 docs/audit/M7.md

@@ -7,4 +7,4 @@ chunked body, SSE with CR, LF and CRLF line ends, the server's WebSocket frames)
 event can be capped (`c.sse.max`), past which the read ends as `.Bad_Response`. Plain HTTP only. Its users: `tools/streamload` (M2), the bot's llama binding (M7) and the Pi's terminal agent (M11). Layer L3
 (PLAN §5.1); it imports core only.
 
-Audited: not yet: `docs/audit/M2.md` skimmed its parsers (only `tools/streamload` uses it in M2); audit debt until a server path does
+Audited: 88f9222 2026-11-05 docs/audit/M7.md (the head, chunked and SSE parsers; the WebSocket side, for M11, has no frame cap yet)

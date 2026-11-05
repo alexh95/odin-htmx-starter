@@ -6,4 +6,4 @@ another member's id answers Not_Found. Past 4,096 members a new member's first c
 member's. Strings live on the heap from their write until their conversation or turn is pushed out; a reader gets
 copies in its request arena, a writer's op in its own. A feature store.
 
-Audited: 5c5ebf2 2026-10-27 docs/audit/M2.md
+Audited: 5c5ebf2 2026-10-27 docs/audit/M2.md; 88f9222 2026-11-05 docs/audit/M7.md

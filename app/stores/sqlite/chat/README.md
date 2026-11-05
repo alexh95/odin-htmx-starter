@@ -5,4 +5,4 @@ page resumes a room from `@<rowid>` after a restart (`PERSISTED`). Reads on the 
 through the writer task, which bumps the room's version and reads the row back in its batch; a room is made at once.
 Retention (M6 slice 3) moves `dropped` and `dropped_ver`. A feature store.
 
-Audited: 771e5ef 2026-11-04 docs/audit/M6.md
+Audited: 771e5ef 2026-11-04 docs/audit/M6.md; 88f9222 2026-11-05 docs/audit/M7.md

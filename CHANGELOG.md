@@ -8,6 +8,19 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 
 ## [Unreleased]
 
+## [2.6.0] - 2026-11-05
+
+The starter's seventh milestone, M7: Ask. Houston gets its bot: `/bot` with conversations kept in SQLite, a binding to a llama.cpp
+server on the LAN, and `@bot` in chat rooms, where a bubble grows for everyone and the answer lands as a stored message. No model
+ships. With no server set it stays on the mock, and a server that can't answer gives way to the mock: the badge says which, and
+`/status` goes degraded, never unready. An admin picks the default on `/admin/bot`, and a member can choose while both can answer.
+Everything was built and tested against `tools/fakellama`, llama-server's wire with no model. A security audit by an agent that
+didn't write the code, with a re-read of its fixes, closes with 0 CRITICAL and 0 HIGH open (`docs/audit/M7.md`). It found no way for
+anyone to read another's conversation or a private room's question. Its one HIGH took control of the model server to reach.
+
+Measured: 1000 concurrent mock generations cost 511 ms of CPU a second and +11.9 MB, and Stop is under 100 ms on either backend
+(`docs/perf/BOT-BUDGETS.md`). Tokens a second on a real model aren't measured yet: that comes with Alex's llama.cpp project.
+
 ### Added
 
 - **The bot in Houston** (M7): `/bot` on the main host and in the nav, its conversations in SQLite, a member's newest 50,
