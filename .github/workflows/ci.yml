@@ -278,11 +278,20 @@ jobs:
       - name: Install e2e deps
         run: cd e2e && npm ci
 
+      # The browsers' own logs go to a file: WebKit's page.goto "internal error" says nothing else (TODO).
       - name: Run e2e
-        run: cd e2e && npx playwright test --project=${{ matrix.browser }} ${{ matrix.also }}
+        run: cd e2e && npx playwright test --project=${{ matrix.browser }} ${{ matrix.also }} 2> browser.log
         env:
           CI: 'true'
           E2E_PROFILE: ${{ matrix.profile }}
+          DEBUG: 'pw:browser*'
+
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() && matrix.browser == 'webkit' }}
+        with:
+          name: browser-log-${{ matrix.profile }}-${{ matrix.browser }}
+          path: e2e/browser.log
+          retention-days: 7
 
       - uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
