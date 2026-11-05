@@ -1,4 +1,4 @@
-import { test, expect, BUILD } from '../../fixtures';
+import { test, expect, BUILD, has, PROXY } from '../../fixtures';
 import type { Page } from '@playwright/test';
 import { startFake, stopFake, setState, fakeStats, type Fake } from '../../helpers/fakellama';
 import { leave, member, type Member } from '../../helpers/members';
@@ -31,14 +31,15 @@ test.describe('the bot on llama', T, () => {
   let s: Server;
 
   test.beforeEach(async () => {
+    test.skip(!has('@bot') || !!PROXY, 'its own servers, beside the bot');
     const config = test.info().config;
     fake = await startFake();
     s = await startServer(config, { ...LLAMA, BOT_LLAMA_URL: fake.url });
   });
 
   test.afterEach(async () => {
-    await stopServer(s);
-    stopFake(fake);
+    if (s) await stopServer(s);
+    if (fake) stopFake(fake);
   });
 
   test('a member gets the model, in the page and in x-impl; a guest the mock', async ({ browser }) => {

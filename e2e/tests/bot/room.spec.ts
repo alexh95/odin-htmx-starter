@@ -1,4 +1,4 @@
-import { test, expect, BUILD } from '../../fixtures';
+import { test, expect, BUILD, has, PROXY } from '../../fixtures';
 import type { Page } from '@playwright/test';
 import { startFake, stopFake, fakeStats, type Fake } from '../../helpers/fakellama';
 import { leave, member, uid, type Member } from '../../helpers/members';
@@ -141,13 +141,14 @@ test.describe('room mode on llama', T, () => {
   let s: Server;
 
   test.beforeEach(async () => {
+    test.skip(!has('@bot') || !!PROXY, 'its own servers, beside the bot');
     fake = await startFake();
     s = await startServer(test.info().config, { BOT_BACKEND: 'llama', BOT_LLAMA_URL: fake.url, BOT_LLAMA_PROBE: '100ms', BOT_CONCURRENCY: '1', BOT_LLAMA_FIRST_TOKEN: '1s' });
   });
 
   test.afterEach(async () => {
-    await stopServer(s);
-    stopFake(fake);
+    if (s) await stopServer(s);
+    if (fake) stopFake(fake);
   });
 
   test('a bubble grows for everyone, and what the model sends stays text', async ({ browser }) => {
