@@ -27,6 +27,8 @@ TURNS :: 200 // turns per conversation
 @(private) SQL_CONVERSATIONS :: "SELECT id, title, at, turns FROM bot_conversations WHERE owner = ? ORDER BY id DESC LIMIT ?"
 @(private) SQL_CONVERSATION :: "SELECT title, at, turns FROM bot_conversations WHERE id = ? AND owner = ?"
 @(private) SQL_TURNS :: "SELECT id, role, text, at, stop, tokens, ms_first, ms_total FROM bot_turns WHERE conv = ? ORDER BY id"
+@(private) SQL_USAGE_CONVS :: "SELECT count(*) FROM bot_conversations"
+@(private) SQL_USAGE_ANSWERS :: "SELECT count(*), coalesce(sum(tokens), 0), coalesce(avg(ms_first), 0), coalesce(avg(ms_total), 0) FROM bot_turns WHERE role = 1"
 @(private) SQL_START :: "INSERT INTO bot_conversations(owner, title, at) VALUES(?, ?, ?)"
 @(private) SQL_DROP_TURNS :: "DELETE FROM bot_turns WHERE conv IN (SELECT id FROM bot_conversations WHERE owner = ?1 ORDER BY id DESC LIMIT -1 OFFSET ?2)"
 @(private) SQL_DROP_CONVS :: "DELETE FROM bot_conversations WHERE id IN (SELECT id FROM bot_conversations WHERE owner = ?1 ORDER BY id DESC LIMIT -1 OFFSET ?2)"
@@ -69,6 +71,20 @@ turns :: proc(owner: u64, conv: i64, out: ^[dynamic]m.Turn) -> (err: m.Error) {
 			id = db.column_id(q, 0), conv = conv, role = role, text = db.clone_col(q, 2), at = db.column_id(q, 3),
 			stats = {stop = stop, tokens = db.column_int(q, 5), ms_first_token = db.column_int(q, 6), ms_total = db.column_int(q, 7)},
 		})
+	}
+	return
+}
+
+usage :: proc() -> (u: m.Usage, err: m.Error) {
+	q := db.read(SQL_USAGE_CONVS)
+	if db.next_row(q, &err) { u.conversations = db.column_int(q, 0) }
+	db.reset(q)
+	if err != .None { return }
+	a := db.read(SQL_USAGE_ANSWERS)
+	defer db.reset(a)
+	if db.next_row(a, &err) {
+		u.answers, u.tokens = db.column_int(a, 0), db.column_int(a, 1)
+		u.avg_first_ms, u.avg_total_ms = db.column_int(a, 2), db.column_int(a, 3)
 	}
 	return
 }

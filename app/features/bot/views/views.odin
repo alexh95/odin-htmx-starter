@@ -54,7 +54,7 @@ guest_page :: proc(health: m.Bot_Health, per_hour: int) -> string {
 	return strings.to_string(b)
 }
 
-conversation_page :: proc(c: m.Conversation, turns: []m.Turn, health: m.Bot_Health, used, per_hour: int) -> string {
+conversation_page :: proc(c: m.Conversation, turns: []m.Turn, health: m.Bot_Health, used, per_hour: int, default: bot.Backend, offer: bool) -> string {
 	b := strings.builder_make(context.temp_allocator)
 	w(&b, `<section class="block bot-room"><header class="bot-head"><h1 id="conv-title">`)
 	esc(&b, c.title)
@@ -64,7 +64,7 @@ conversation_page :: proc(c: m.Conversation, turns: []m.Turn, health: m.Bot_Heal
 	w(&b, `<a class="bot-back" href="/bot">All conversations</a></header><div id="c-log" class="bot-log" role="log" aria-label="Conversation">`)
 	for t in turns { turn(&b, t) }
 	w(&b, `</div>`)
-	ask_form(&b, fmt.tprintf("/bot/c/%d/ask", c.id))
+	ask_form(&b, fmt.tprintf("/bot/c/%d/ask", c.id), default, offer)
 	w(&b, `</section>`)
 	return strings.to_string(b)
 }
@@ -72,17 +72,25 @@ conversation_page :: proc(c: m.Conversation, turns: []m.Turn, health: m.Bot_Heal
 // The form, for either delivery; hx-pending echoes the question at once, and the button
 // stays off until the answer's first words (`hx:release`) or its end.
 @(private)
-ask_form :: proc(b: ^strings.Builder, action: string) {
+ask_form :: proc(b: ^strings.Builder, action: string, default := bot.Backend.Mock, offer := false) {
 	w(b, `<form class="bot-ask" hx-post="`)
 	esc(b, action)
 	w(b, `" hx-target="#c-log" hx-swap="beforeend" hx-pending="#bot-pending" hx-disable="find button[type=submit]" hx-status:422="target:#ask-error swap:innerHTML" hx-status:429="target:#toasts swap:beforeend"`)
 	html.behave(b, .Composer)
 	fmt.sbprintf(b, `><textarea name="q" rows="2" maxlength="%d" required aria-label="Your question" placeholder="Ask something"></textarea>`, bot.MAX_QUESTION)
-	w(b, `<div class="bot-ask-row"><label class="bot-delivery">Delivery <select name="delivery"><option value="sse">Streaming</option><option value="multipart">Multipart</option></select></label><button class="btn btn-primary" type="submit">Ask</button></div><p class="field-msg form-error" id="ask-error"></p></form>`)
+	w(b, `<div class="bot-ask-row"><label class="bot-delivery">Delivery <select name="delivery"><option value="sse">Streaming</option><option value="multipart">Multipart</option></select></label>`)
+	if offer {
+		w(b, `<label class="bot-backend">Backend <select name="backend">`)
+		for name, k in bot.BACKENDS {
+			fmt.sbprintf(b, `<option value="%s"%s>%s</option>`, name, ` selected` if k == default else ``, name)
+		}
+		w(b, `</select></label>`)
+	}
+	w(b, `<button class="btn btn-primary" type="submit">Ask</button></div><p class="field-msg form-error" id="ask-error"></p></form>`)
 	w(b, `<template id="bot-pending"><article class="bot-msg bot-q pending"><p class="bot-body"></p></article></template>`)
 }
 
-health_badge :: proc(b: ^strings.Builder, h: m.Bot_Health) {
+health_badge :: proc(b: ^strings.Builder, h: m.Bot_Health, oob := false) {
 	label: string
 	switch h.state {
 	case .Ready:    label = "Ready"
@@ -91,9 +99,16 @@ health_badge :: proc(b: ^strings.Builder, h: m.Bot_Health) {
 	case .Offline:  label = "Offline"
 	case .Mock:     label = "Mock"
 	}
-	fmt.sbprintf(b, `<span id="bot-health" class="badge bot-health bot-%s">`, label)
+	fmt.sbprintf(b, `<span id="bot-health" class="badge bot-health bot-%s"%s>`, label, ` hx-swap-oob="outerHTML"` if oob else ``)
 	esc(b, label)
 	w(b, `</span>`)
+}
+
+// bot.health's frame: the badge, in place, on every page that shows it.
+health_frame :: proc(h: m.Bot_Health) -> string {
+	b := strings.builder_make(context.temp_allocator)
+	health_badge(&b, h, true)
+	return strings.to_string(b)
 }
 
 usage :: proc(b: ^strings.Builder, used, per_hour: int) {
@@ -185,4 +200,49 @@ answer :: proc(b: ^strings.Builder, mid, text: string, stats: m.Bot_Done) {
 	if stats.stop == .Error { w(b, `Cut off · `) }
 	if stats.stop == .Length { w(b, `At the length limit · `) }
 	fmt.sbprintf(b, `%d tokens · first token %d ms · %d ms</p></article>`, stats.tokens, stats.ms_first_token, stats.ms_total)
+}
+
+// ---- /admin/bot ----------------------------------------------------------------------------------
+
+admin_page :: proc(default: bot.Backend, health: m.Bot_Health, llama: bool, u: m.Usage) -> string {
+	b := strings.builder_make(context.temp_allocator)
+	html.page_head(&b, "Admin", "Bot", "The bot's default backend, its health, and counts and timings. Conversations are their owners' and aren't shown here.")
+	admin_panel(&b, default, health, llama)
+	w(&b, `<section class="block"><h2>Everyone's use</h2><table class="table"><tbody>`)
+	row :: proc(b: ^strings.Builder, k: string, v: int, unit := "") {
+		w(b, `<tr><th scope="row">`)
+		esc(b, k)
+		fmt.sbprintf(b, `</th><td>%d%s</td></tr>`, v, unit)
+	}
+	row(&b, "Conversations", u.conversations)
+	row(&b, "Answers", u.answers)
+	row(&b, "Tokens", u.tokens)
+	row(&b, "First token, on average", u.avg_first_ms, " ms")
+	row(&b, "An answer, on average", u.avg_total_ms, " ms")
+	w(&b, `</tbody></table></section>`)
+	return strings.to_string(b)
+}
+
+// The default's form, and what POST /admin/bot/default answers.
+admin_panel :: proc(b: ^strings.Builder, default: bot.Backend, health: m.Bot_Health, llama: bool) {
+	w(b, `<section id="bot-admin" class="block"><h2>Default backend</h2><p>`)
+	health_badge(b, health)
+	if health.model != "" {
+		w(b, ` <code>`)
+		esc(b, health.model)
+		w(b, `</code>`)
+	}
+	if llama { fmt.sbprintf(b, ` <span class="muted">%d of %d slots busy, %d waiting</span>`, health.slots_busy, health.slots_total, health.queued) }
+	fmt.sbprintf(b, `</p><p>Members get <strong id="bot-default">%s</strong> unless they choose; guests always get the mock. This lasts until a restart.</p>`, bot.BACKENDS[default])
+	if llama {
+		w(b, `<form hx-post="/admin/bot/default" hx-target="#bot-admin" hx-swap="outerHTML">`)
+		for name, k in bot.BACKENDS {
+			if k == default { continue }
+			fmt.sbprintf(b, `<button class="btn btn-primary" type="submit" name="backend" value="%s">Make %s the default</button>`, name, name)
+		}
+		w(b, `</form>`)
+	} else {
+		w(b, `<p class="muted">No llama.cpp server is set: BOT_LLAMA_URL is empty.</p>`)
+	}
+	w(b, `</section>`)
 }

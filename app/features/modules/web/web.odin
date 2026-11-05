@@ -108,6 +108,11 @@ page :: proc(req: ^web.Request, res: ^web.Response) {
 		esc(&b, m.module)
 		fmt.sbprintf(&b, `</td><td>%s%s</td><td>`, obs.STATE_NAMES[m.state], " (critical)" if m.critical else "")
 		esc(&b, m.message)
+		if m.link != "" {
+			w(&b, ` <a href="`)
+			esc(&b, m.link)
+			w(&b, `">Change</a>`)
+		}
 		w(&b, `</td></tr>`)
 	}
 	w(&b, `</tbody></table></section>`)

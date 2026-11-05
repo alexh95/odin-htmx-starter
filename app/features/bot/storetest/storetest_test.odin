@@ -27,6 +27,7 @@ Family :: struct {
 	conversations: m.Store_Conversations,
 	conversation:  m.Store_Conversation,
 	turns:         m.Store_Turns,
+	usage:         m.Store_Usage,
 	start:         m.Store_Start,
 	append_turn:   m.Store_Append,
 	keep, last:    int,
@@ -98,6 +99,11 @@ conforms :: proc(t: ^testing.T, f: Family) {
 	testing.expectf(t, len(list) == 2 && list[0].role == .User && list[0].text == "why?", "%s: turns %v", f.name, list[:])
 	testing.expectf(t, list[1].role == .Assistant && list[1].stats == stats, "%s: an answer's stats, %v", f.name, list[1])
 
+	// Q20's counts and timings: of everyone's, and no text to carry.
+	u, ue := f.usage()
+	testing.expect_value(t, ue, m.Error.None)
+	testing.expectf(t, u == m.Usage{conversations = 1, answers = 1, tokens = 12, avg_first_ms = 34, avg_total_ms = 56}, "%s: %v", f.name, u)
+
 	// Q20: anyone else's id is as if it weren't there, for every read and write.
 	_, err = f.conversation(8, c)
 	testing.expect_value(t, err, m.Error.Not_Found)
@@ -136,10 +142,10 @@ both_families :: proc(t: ^testing.T) {
 	testing.expect_value(t, nbio.acquire_thread_event_loop(), nil)
 	defer nbio.release_thread_event_loop()
 
-	conforms(t, {"memory", mem.conversations, mem.conversation, mem.turns, mem.start, mem.append_turn, mem.KEEP, mem.TURNS})
+	conforms(t, {"memory", mem.conversations, mem.conversation, mem.turns, mem.usage, mem.start, mem.append_turn, mem.KEEP, mem.TURNS})
 
 	testing.expect_value(t, db.open_db(":memory:", .Ephemeral, "storetest"), "")
 	defer db.close()
 	db.migrate("bot", sql.MIGRATIONS[:])
-	conforms(t, {"sqlite", sql.conversations, sql.conversation, sql.turns, sql.start, sql.append_turn, sql.KEEP, sql.TURNS})
+	conforms(t, {"sqlite", sql.conversations, sql.conversation, sql.turns, sql.usage, sql.start, sql.append_turn, sql.KEEP, sql.TURNS})
 }

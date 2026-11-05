@@ -6,5 +6,6 @@ import m "../../../features/bot/models"
 _ : m.Store_Conversations : conversations
 _ : m.Store_Conversation : conversation
 _ : m.Store_Turns : turns
+_ : m.Store_Usage : usage
 _ : m.Store_Start : start
 _ : m.Store_Append : append_turn

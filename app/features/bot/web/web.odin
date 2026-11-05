@@ -29,6 +29,7 @@ import bot_backend_llama "../backend_llama"
 import bot_backend_mock "../backend_mock"
 import m "../models"
 import bot_views "../views"
+import audit_store "store:audit"
 
 EXTS :: web.Exts{.Sse, .Multipart, .Pending}
 
@@ -41,8 +42,14 @@ ROUTES := [?]web.Route {
 	{.Post, "/bot/gen/(%d+)/stop", stop, .Bot_Use, {.Fragment}, 0},
 }
 
-// bot.health: the badge, on the bot's pages' #live (the mock's never changes; M7's llama
-// publishes its state).
+// /admin/bot, mounted where there is an admin to reach it.
+ADMIN_ROUTES := [?]web.Route {
+	{.Get, "/admin/bot", admin_page, .Admin_Modules, {.Private, .Lan_Only}, 0},
+	{.Post, "/admin/bot/default", admin_default, .Admin_Modules, {.Fragment, .Lan_Only}, 0},
+}
+
+// bot.health: the badge, on a member's bot pages' #live, published when the llama server's state
+// changes. A guest's badge is the mock's, which never does.
 TOPICS := [?]hub.Topic {
 	{family = "bot.health", policy = .Latest, perm = .Bot_Use},
 }
@@ -82,21 +89,68 @@ init :: proc() {
 	guests_hour.n = bot.guest_per_hour()
 	gens.owner = make(map[m.Bot_Gen_Id]Who, heap())
 	gens.active = make(map[u64]int, heap())
-	// The status page's line for the bot: the mock is always up (M7's llama reports its own).
-	obs.set_health("bot", .Ok, "the mock answers")
+	report(health(.Llama) if bot_backend_llama.configured() else m.Bot_Health{state = .Mock})
+	obs.set_health_link("bot", "/admin/bot")
 }
 
 // After the loops run: the llama server's health probe.
 start :: proc() {
-	bot_backend_llama.start_probe(proc(h: m.Bot_Health) {})
+	bot_backend_llama.start_probe(proc(h: m.Bot_Health) {
+		report(h)
+		hub.publish("bot.health", bot_views.health_frame(h))
+	})
+}
+
+// The status page's line: an optional backend is degraded at worst, and never fails readiness
+// (13 §5.3); the mock is always there behind it.
+@(private)
+report :: proc(h: m.Bot_Health) {
+	state := obs.State.Ok
+	line: string
+	switch h.state {
+	case .Mock:     line = "the mock answers"
+	case .Ready:    line = "llama.cpp is ready"
+	case .Sleeping: line = "llama.cpp is asleep and wakes on a question"
+	case .Loading:
+		state = .Degraded
+		line = "llama.cpp is loading its model"
+	case .Offline:
+		state = .Degraded
+		line = "llama.cpp isn't answering: the mock does"
+	}
+	// obs keeps the string for good: one small line per change of state or of the default.
+	obs.set_health("bot", state, fmt.aprintf("default %s; %s", bot.BACKENDS[bot.default_backend()], line, allocator = heap()))
 }
 
 // ---- the backend switch (D8; LC §4) ----------------------------------------------------------
 
+// Among the healthy, per request: a guest always gets the mock, and a member the default unless
+// they asked for the other. A backend that can't answer now gives way to the mock.
 @(private)
-backend_of :: proc(v: authz.Viewer) -> bot.Backend {
-	if v.id == 0 { return .Mock } // guests always get the mock
-	return bot.default_backend()
+backend_of :: proc(v: authz.Viewer, asked := "") -> bot.Backend {
+	if !may_use_llama(v) { return .Mock }
+	pick := bot.default_backend()
+	for name, b in bot.BACKENDS {
+		if name == asked { pick = b }
+	}
+	return pick if healthy(pick) else .Mock
+}
+
+@(private)
+may_use_llama :: proc(v: authz.Viewer) -> bool {
+	return bot_backend_llama.configured() && v.id != 0 && authz.can(v, .Bot_Llama)
+}
+
+@(private)
+healthy :: proc(b: bot.Backend) -> bool {
+	state := health(b).state
+	return state == .Ready || state == .Sleeping || state == .Mock // a sleeping server wakes on a question
+}
+
+// The badge a viewer's page shows: the llama server's to whoever may use it.
+@(private)
+shown :: proc(v: authz.Viewer) -> m.Bot_Health {
+	return health(.Llama if may_use_llama(v) else .Mock)
 }
 
 @(private)
@@ -133,7 +187,7 @@ index :: proc(req: ^web.Request, res: ^web.Response) {
 	b := backend_of(v)
 	web.impl(res, "bot.backend", bot.BACKENDS[b])
 	if !authz.can(v, .Account_Self) {
-		web.render_page(req, res, "Bot", "/bot", "Ask the house assistant.", bot_views.guest_page(health(b), bot.guest_per_hour()), live = {"bot.health"})
+		web.render_page(req, res, "Bot", "/bot", "Ask the house assistant.", bot_views.guest_page(shown(v), bot.guest_per_hour()))
 		return
 	}
 	convs := make([dynamic]m.Conversation, context.temp_allocator)
@@ -141,7 +195,7 @@ index :: proc(req: ^web.Request, res: ^web.Response) {
 		web.respond_store_error(req, res, err)
 		return
 	}
-	web.render_page(req, res, "Bot", "/bot", "Ask the house assistant.", bot_views.index_page(convs[:], health(b)), live = {"bot.health"})
+	web.render_page(req, res, "Bot", "/bot", "Ask the house assistant.", bot_views.index_page(convs[:], shown(v)), live = {"bot.health"})
 }
 
 @(private)
@@ -163,7 +217,7 @@ conversation_page :: proc(req: ^web.Request, res: ^web.Response) {
 	web.impl(res, "bot.backend", bot.BACKENDS[b])
 	used := members_hour.n - remaining(&members_hour, v.id)
 	web.render_page(req, res, fmt.tprintf("%s · Bot", c.title), "/bot", "A conversation with the house assistant.",
-		bot_views.conversation_page(c, turns[:], health(b), used, members_hour.n), live = {"bot.health"})
+		bot_views.conversation_page(c, turns[:], shown(v), used, members_hour.n, b, may_use_llama(v) && healthy(.Llama)), live = {"bot.health"})
 }
 
 @(private)
@@ -274,7 +328,7 @@ ask :: proc(req: ^web.Request, res: ^web.Response, who: Who, c: m.Conversation, 
 		return
 	}
 	v := web.viewer(req)
-	backend := backend_of(v)
+	backend := backend_of(v, f["backend"])
 	web.impl(res, "bot.backend", bot.BACKENDS[backend])
 
 	a := new(Asking, heap())
@@ -409,6 +463,47 @@ stop :: proc(req: ^web.Request, res: ^web.Response) {
 	guard.unlock(&gens.mu)
 	if found && who.member == me.member && who.key == me.key { cancel(who.backend, m.Bot_Gen_Id(id)) }
 	web.respond_status(res, .No_Content)
+}
+
+// ---- /admin/bot ---------------------------------------------------------------------------------
+
+@(private)
+admin_page :: proc(req: ^web.Request, res: ^web.Response) {
+	u, err := bot.usage()
+	if err != .None {
+		web.respond_store_error(req, res, err)
+		return
+	}
+	llama := bot_backend_llama.configured()
+	web.render_page(req, res, "Bot · Admin", "/admin/bot", "The bot's default backend.",
+		bot_views.admin_page(bot.default_backend(), health(.Llama if llama else .Mock), llama, u), live = {"bot.health"})
+}
+
+// In memory, audited and gone at a restart (D8). `obs` carries it to /admin/modules' health row.
+@(private)
+admin_default :: proc(req: ^web.Request, res: ^web.Response) {
+	llama := bot_backend_llama.configured()
+	asked := web.form(req)["backend"]
+	found := false
+	pick: bot.Backend
+	for name, b in bot.BACKENDS {
+		if name == asked { pick, found = b, true }
+	}
+	if !found || (pick == .Llama && !llama) {
+		web.respond_html(res, html.field_msg(false, "That backend isn't available."), .Unprocessable_Content)
+		return
+	}
+	was := bot.default_backend()
+	bot.set_default_backend(pick)
+	if was != pick {
+		c := web.ctx()
+		buf: [16]byte
+		audit_store.append({i64(c.viewer.id), c.viewer.name, web.client_id(c.client, buf[:])}, "bot.default", {"bot", 0}, "", fmt.tprintf("%s to %s", bot.BACKENDS[was], bot.BACKENDS[pick]))
+	}
+	b := strings.builder_make(context.temp_allocator)
+	bot_views.admin_panel(&b, pick, health(.Llama if llama else .Mock), llama)
+	report(health(.Llama if llama else .Mock))
+	web.respond_html(res, strings.to_string(b))
 }
 
 // ---- one at a time, per member ------------------------------------------------------------

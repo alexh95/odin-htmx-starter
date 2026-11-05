@@ -24,10 +24,15 @@ generation queues, first come first served, and the page says "Queued (#n)". Con
 each answered in words; what was said before a fault stands, marked "Cut off". Stop closes the socket, which is what stops
 llama.cpp. `tools/fakellama` is what it's tested against: no model ships.
 
+**Which backend** is chosen per request among the healthy: a guest always gets the mock, a member the default
+(`BOT_BACKEND`, or what an admin set on `/admin/bot`, which a restart forgets) or, while both can answer, what the form
+picks; a llama that can't answer gives way to the mock. A thread reads `/health` and `/props` every `BOT_LLAMA_PROBE`,
+and a change publishes the badge on `bot.health` and the status line on `obs`, degraded at worst.
+
 **Who may ask** (Q20, §17.5): members keep their conversations (the newest 50, each with its last 200 turns), ask one
 at a time and `BOT_MEMBER_PER_HOUR` (30) an hour; guests get the mock, `BOT_GUEST_PER_HOUR` (5) an hour per client,
 and nothing is kept. A conversation is its owner's alone: anyone else's id answers 404.
 
-It owns `/bot`, its own prefix.
+It owns `/bot` and `/admin/bot`, its own prefixes. `/admin/bot` is `ADMIN_ROUTES`, mounted where there is an admin.
 
 Audited: c490e2a 2026-10-30 docs/audit/M3.md

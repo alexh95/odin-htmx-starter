@@ -98,4 +98,7 @@ export default async function globalSetup(config: FullConfig) {
   // What the build mounts, in its own words: fixtures.ts runs a spec only when
   // the profile has every feature its tags name. Workers inherit the variable.
   process.env.E2E_FEATURES = execFileSync(path.join(appDir, BIN), ['--features', '--json'], { cwd: appDir, encoding: 'utf8' });
+  if (JSON.parse(process.env.E2E_FEATURES).features.includes('bot')) {
+    execFileSync('odin', ['build', 'tools/fakellama', `-out:${path.join('app', 'bin', process.platform === 'win32' ? 'fakellama.exe' : 'fakellama')}`], { cwd: repo, stdio: 'inherit' });
+  }
 }

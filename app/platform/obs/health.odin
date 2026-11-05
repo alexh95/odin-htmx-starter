@@ -31,6 +31,7 @@ Health :: struct {
 	since:    i64, // unix ns
 	message:  string, // a literal, or a string that lives as long as the process
 	critical: bool,
+	link:     string, // a literal: the module's own page, when it has one
 }
 
 Limit :: struct {
@@ -63,7 +64,7 @@ set_health :: proc(module: string, s: State, message := "", critical := false) {
 		}
 	}
 	assert(health.n < MAX_MODULES, "obs: too many modules")
-	health.modules[health.n] = {module, s, sys.now_unix_ns(), message, critical}
+	health.modules[health.n] = {module = module, state = s, since = sys.now_unix_ns(), message = message, critical = critical}
 	health.n += 1
 }
 
@@ -85,6 +86,15 @@ ready :: proc() -> (ok: bool, why: string) {
 		if h.critical && h.state == .Down { return false, h.module }
 	}
 	return true, ""
+}
+
+// Where a module is run from: /admin/modules links there without importing it (LC §9).
+set_health_link :: proc(module, link: string) {
+	sync.mutex_lock(&health.mu)
+	defer sync.mutex_unlock(&health.mu)
+	for &h in health.modules[:health.n] {
+		if h.module == module { h.link = link }
+	}
 }
 
 // At init, before the loops run.

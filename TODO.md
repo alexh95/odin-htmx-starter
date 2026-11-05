@@ -80,13 +80,16 @@ steps go through planning once the code can use them. Pushes are on the standing
       suite, each deadline, Stop and a closed browser reaching fakellama as a close, the queue spec with `BOT_CONCURRENCY=1`.
       Done (2026-11-05): `tools/fakellama/suite`, on a real socket; the page-level specs come with slice 6, which is what lets
       a server pick the backend.
-- [ ] **5. Health and the badge** (§14.3): the probe of `/health` and `/props`, mapped to `Bot_Health.state`, published
+- [x] **5. Health and the badge** (§14.3): the probe of `/health` and `/props`, mapped to `Bot_Health.state`, published
       on `bot.health`, reported to `obs` and `/status` as degraded and never failing readiness. *Check:* a spec driving
       fakellama through ready, loading, sleeping and offline and the badge following with no reload.
-- [ ] **6. Choosing a backend** (D8, D31): per request among the healthy, guests always the mock, members choosing when
+- [x] **6. Choosing a backend** (D8, D31): per request among the healthy, guests always the mock, members choosing when
       both are; `BOT_BACKEND`, required `BOT_LLAMA_URL`; `/admin/bot` changing the default in memory, audited, reset on
       restart, with Q20's counts and timings; the default pushed to `obs` for `/admin/modules`. *Check:* the `x-impl` specs,
       `rbac.spec`, a restart resetting the default, a boot refusing llama with no URL.
+      Done (2026-11-05, slices 5 and 6): `e2e/tests/bot/llama.spec.ts` against a real fakellama: a member's model and a guest's
+      mock, Stop and a closed browser reaching it as a close, the queue at one slot, stalls and a dropped socket, a key, every
+      state of the badge. The probe has a thread of its own: a dead host mustn't hold the scheduler's other jobs.
 - [ ] **7. Room mode** (§6.2, X37): `@bot` in a room publishes on `bot.ask:<room>`; bot's `deliver` row starts the backend
       under the asker's limits and streams a live bubble to the room; `chat.reply:<room>`'s row stores the answer as a
       message from the bot, cut to chat's 2,000 runes, and publishes it. *Check:* the answer is a stored message on all four

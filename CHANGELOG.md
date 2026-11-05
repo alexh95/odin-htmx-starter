@@ -19,6 +19,12 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
   `platform/stream/client`: a bearer from `BOT_LLAMA_KEY` (or `BOT_LLAMA_KEY_FILE`), connect 2 s, first token 30 s, idle
   15 s, tokens at 20 Hz, Stop closing the socket, and a first-come queue past the server's slots that a page shows as
   "Queued (#n)". A boot with `BOT_BACKEND=llama` and no URL is refused.
+- **The bot's health badge** (M7): `/health` and `/props` read every `BOT_LLAMA_PROBE` on a thread of their own, the badge
+  following Ready, Loading, Sleeping and Offline with no reload, and `/status` reporting degraded, never unready.
+- **Choosing a backend** (M7): per request among the healthy. Guests get the mock, members the default or, while both can
+  answer, what they pick, and a llama that can't answer gives way to the mock.
+- **`/admin/bot`** (M7): the default, in memory and audited, gone at a restart, with counts and timings of everyone's use and
+  no text. `/admin/modules` shows the default and links there.
 
 ### Changed
 

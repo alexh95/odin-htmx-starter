@@ -8,6 +8,7 @@ package bot
 
 import "core:fmt"
 import "core:strings"
+import "core:sync"
 import "core:unicode/utf8"
 
 import "../../platform/env"
@@ -65,7 +66,9 @@ init :: proc() {
 	st.guest_per_hour = max(1, env.int_("BOT_GUEST_PER_HOUR"))
 }
 
-default_backend :: proc() -> Backend { return st.backend }
+default_backend :: proc() -> Backend { return sync.atomic_load(&st.backend) }
+// In memory only: a restart goes back to BOT_BACKEND (D8).
+set_default_backend :: proc(b: Backend) { sync.atomic_store(&st.backend, b) }
 member_per_hour :: proc() -> int { return st.member_per_hour }
 guest_per_hour :: proc() -> int { return st.guest_per_hour }
 
@@ -119,6 +122,7 @@ render :: proc(b: ^strings.Builder, text: string) {
 conversations :: proc(owner: u64, out: ^[dynamic]m.Conversation) -> m.Error { return bot_store.conversations(owner, SHOWN, out) }
 conversation :: proc(owner: u64, id: i64) -> (m.Conversation, m.Error) { return bot_store.conversation(owner, id) }
 turns :: proc(owner: u64, conv: i64, out: ^[dynamic]m.Turn) -> m.Error { return bot_store.turns(owner, conv, out) }
+usage :: proc() -> (m.Usage, m.Error) { return bot_store.usage() }
 
 // Stores op's conversation; op.done runs once it is. false: the store is busy.
 start :: proc(op: ^m.Start) -> bool { return bot_store.start(op) }

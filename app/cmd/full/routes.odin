@@ -45,6 +45,7 @@ ROUTES := [?]app.Mount {
 	{"chat", chat_web.ROUTES[:]},       // /chat: rooms, four transports (M6, on SQLite)
 	{"notify", notify_web.ROUTES[:]},   // /notify: the Inbox
 	{"bot", bot_web.ROUTES[:]},         // /bot: the assistant
+	{"bot", bot_web.ADMIN_ROUTES[:]},   // /admin/bot: its default, LAN only
 	{"audit", audit_web.ROUTES[:]},     // /admin/audit: the log, LAN only
 	{"modules", modules_web.ROUTES[:]}, // /admin/modules: what this build is
 	{"ops", ops_web.ROUTES[:]},         // /admin/ops: the 1 Hz panel

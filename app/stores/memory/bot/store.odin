@@ -64,6 +64,28 @@ turns :: proc(owner: u64, conv: i64, out: ^[dynamic]m.Turn) -> m.Error {
 	return .None
 }
 
+usage :: proc() -> (u: m.Usage, err: m.Error) {
+	mem_store.lock(&s.lock)
+	defer mem_store.unlock(&s.lock)
+	first, total := 0, 0
+	for _, r in s.owners {
+		for i in 0 ..< r.n {
+			c := mem_store.ring_newest(r, i)^
+			u.conversations += 1
+			for j in 0 ..< c.turns.n {
+				t := mem_store.ring_newest(&c.turns, j)
+				if t.role != .Assistant { continue }
+				u.answers += 1
+				u.tokens += t.stats.tokens
+				first += t.stats.ms_first_token
+				total += t.stats.ms_total
+			}
+		}
+	}
+	if u.answers > 0 { u.avg_first_ms, u.avg_total_ms = first / u.answers, total / u.answers }
+	return
+}
+
 // Stored at once, so the caller's continuation runs before this returns.
 start :: proc(op: ^m.Start) -> bool {
 	mem_store.lock(&s.lock)

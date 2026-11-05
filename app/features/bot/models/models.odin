@@ -119,6 +119,15 @@ Turn :: struct {
 	stats: Bot_Done, // an answer's
 }
 
+// What an admin sees of everyone's conversations (Q20): counts and timings, never their text.
+Usage :: struct {
+	conversations: int,
+	answers:       int,
+	tokens:        int,
+	avg_first_ms:  int,
+	avg_total_ms:  int,
+}
+
 // A new conversation for `owner`: `done` runs once it is stored, with it.
 Start :: struct {
 	using op: store.Op,
@@ -140,5 +149,6 @@ Append :: struct {
 Store_Conversations :: proc(owner: u64, limit: int, out: ^[dynamic]Conversation) -> Error // newest first
 Store_Conversation :: proc(owner: u64, id: i64) -> (Conversation, Error) // .Not_Found unless theirs
 Store_Turns :: proc(owner: u64, conv: i64, out: ^[dynamic]Turn) -> Error // oldest first
+Store_Usage :: proc() -> (Usage, Error)
 Store_Start :: proc(op: ^Start) -> bool // false: the store is busy; `done` won't run
 Store_Append :: proc(op: ^Append) -> bool
