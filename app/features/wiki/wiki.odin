@@ -38,6 +38,11 @@ MANUAL := [?]Doc {
 	{"load-tests", "load-tests/README.md", #load("../../../load-tests/README.md", string)},
 }
 
+MAX_TITLE :: 120 // runes
+MAX_SLUG :: 64 // bytes
+// Each row under /wiki that a page can't take the name of.
+RESERVED := [?]string{"new", "preview"}
+
 @(private) repo: string
 
 // `repository`: where a link to a file that isn't in the Manual goes.
@@ -71,10 +76,13 @@ Rendered :: struct {
 // A page's table of contents is worth having from this many headings.
 TOC_MIN :: 3
 
-// Its strings in the temp allocator. false: past markdown's input cap.
+// Its strings in the temp allocator. `path`: the Manual doc's, whose links are the repo's; "" for a
+// member's page, where `[x](name.md)` is another page. false: past markdown's input cap.
 render :: proc(src, path: string) -> (r: Rendered, ok: bool) {
 	body := strings.builder_make(context.temp_allocator)
-	toc := markdown.render(&body, src, {link = doc_link, base = path}) or_return
+	opts := markdown.Options{doc_prefix = "/wiki/"}
+	if path != "" { opts = {link = doc_link, base = path} }
+	toc := markdown.render(&body, src, opts) or_return
 	b := strings.builder_make(context.temp_allocator)
 	if len(toc) >= TOC_MIN {
 		escape.w(&b, `<nav class="wiki-toc" aria-label="On this page"><ul>`)
@@ -123,3 +131,47 @@ page :: proc(slug: string, v: authz.Viewer) -> (m.Page, m.Error) {
 list :: proc(v: authz.Viewer, out: ^[dynamic]m.Page) -> m.Error {
 	return wiki_store.list(v.id != 0, out)
 }
+
+// Why a page can't be saved as this; "" when it can. `fresh`: a new page, which its title names.
+check :: proc(title, md: string, fresh: bool) -> string {
+	switch {
+	case strings.trim_space(title) == "":
+		return "A page needs a title."
+	case strings.rune_count(title) > MAX_TITLE:
+		return fmt.tprintf("A title is at most %d characters.", MAX_TITLE)
+	case strings.trim_space(md) == "":
+		return "A page needs something in it."
+	case len(md) > markdown.MAX_INPUT:
+		return fmt.tprintf("A page is at most %d KiB.", markdown.MAX_INPUT / 1024)
+	}
+	if fresh {
+		slug := slug_of(title)
+		if slug == "" { return "A title needs a letter or a digit in it." }
+		for r in RESERVED {
+			if r == slug { return "That title is taken." }
+		}
+		for d in MANUAL {
+			if d.slug == slug { return "That title is taken." }
+		}
+	}
+	return ""
+}
+
+slug_of :: proc(title: string) -> string {
+	s := markdown.slugify(title)
+	if len(s) > MAX_SLUG { s = strings.trim_right(s[:MAX_SLUG], "-") }
+	return s
+}
+
+// A save, off the loop: renders, then writes. .Constraint on a new page: its slug is taken.
+save :: proc(v: authz.Viewer, slug, title, md: string, visibility: m.Visibility, base_rev: i64) -> (current: m.Page, conflict: bool, err: m.Error) {
+	r, ok := render(md, "")
+	if !ok { return {}, false, .Constraint }
+	return wiki_store.save({
+		slug = slug if slug != "" else slug_of(title), title = strings.trim_space(title), md = md, html = r.html, plain = r.plain,
+		visibility = visibility, base_rev = base_rev, by = v.name,
+	})
+}
+
+history :: proc(slug: string, out: ^[dynamic]m.Revision) -> m.Error { return wiki_store.history(slug, out) }
+revision :: proc(slug: string, rev: i64) -> (m.Revision, m.Error) { return wiki_store.revision(slug, rev) }

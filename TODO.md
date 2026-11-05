@@ -90,11 +90,13 @@ Alex's answer on what an anonymous poll stores.
       Done (2026-11-05): 11 docs, 113 KB, +178 KB on `lab`; `wiki_test` holds the list to the cap and to 200 KB. The head through hx-head is
       slice 4's. Read rows are `.Public`: everyone holds `Wiki_Read`, and a host with no identity can't mount a perm's row. An explicit list
       needs no byte-equal check: nothing walks a directory. Editing rows will be a table of their own.
-- [ ] **3. Wiki on SQLite** (§6, §11.5): pages (slug, title, visibility), Markdown and rendered HTML and plain text, revisions, FTS over
+- [x] **3. Wiki on SQLite** (§6, §11.5): pages (slug, title, visibility), Markdown and rendered HTML and plain text, revisions, FTS over
       title and plain text; rendered at write time, off the loop; saving over a newer revision answers 409 with the line diff, computed on
       the query pool; the server-rendered preview; `.md` through hx-download; Houston's Manual pages seeded read-only at boot from slice 2's
       list and replaced when the binary's differ. *Check:* storetest, a restart, a guest refused a members' page and its `.md`, a Manual
       page refusing an edit, the 409 spec, the XSS suite over a page and a title, `rbac.spec`'s rows, both suites on `full`.
+      Done (2026-11-05): a save runs on the query pool, which renders it, and writes under `write_now`, so a conflict is a plain answer. After a
+      409 the form holds the newer revision, so a second Save is deliberate. There's no way to delete a page: PLAN has none.
 - [ ] **4. History cache, preload, head** (§12, 04 §5.10): the extensions enter Main, and so reach every page of a build. The cache is
       opt-in: the layout writes `hx-history="false"` inside the swapped content on every page, and only a public wiki page leaves it off (the
       attribute on `<body>` can't work: a boost drops it, and a hard load leaves it for the tab's life). A per-response private switch for a

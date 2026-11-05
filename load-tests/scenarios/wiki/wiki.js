@@ -1,6 +1,6 @@
 import http from 'k6/http';
 import { check } from 'k6';
-import { BASE } from '../../lib/config.js';
+import { MAIN as BASE } from '../../lib/config.js'; // the wiki is the main host's
 import { options as build, summarize } from '../../lib/options.js';
 
 // tags: @wiki

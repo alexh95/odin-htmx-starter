@@ -21,7 +21,7 @@
     {"name": "scripting", "lines": 300, "stores": [], "sqlite": "none", "deps": [], "switched": [], "declares": ["ROUTES", "EXTS", "BUNDLES"], "profiles": ["lab"]},
     {"name": "status", "lines": 500, "stores": [], "sqlite": "none", "deps": [], "switched": [], "declares": ["ROUTES", "EXTS", "init"], "profiles": ["lab", "streams", "full"]},
     {"name": "uploads", "lines": 1300, "stores": ["memory", "sqlite"], "sqlite": "any", "deps": [], "switched": [], "declares": ["ROUTES", "EXTS", "JOBS", "init"], "profiles": ["streams", "full"]},
-    {"name": "wiki", "lines": 300, "stores": ["memory"], "sqlite": "never", "deps": [], "switched": [], "declares": ["ROUTES", "EXTS", "init"], "profiles": ["lab"]}
+    {"name": "wiki", "lines": 1100, "stores": ["memory", "sqlite"], "sqlite": "any", "deps": [], "switched": [], "declares": ["ROUTES", "EXTS", "init"], "profiles": ["lab", "full"]}
   ],
   "families": {
     "store": ["memory", "sqlite"],
@@ -34,6 +34,6 @@
     {"name": "skeleton", "store": "sqlite", "identity": "anonymous", "client": "vanilla", "theme": "full", "features": ["dashboard", "gallery", "contacts", "about"]},
     {"name": "lab", "store": "memory", "identity": "anonymous", "client": "hyperscript", "theme": "full", "features": ["landing", "lab", "scripting", "compat", "status", "wiki", "about"]},
     {"name": "streams", "store": "memory", "identity": "nick", "client": "vanilla", "theme": "lite", "features": ["home", "notes", "uploads", "chat", "notify", "bot", "ops", "status", "accounts", "about", "audit"]},
-    {"name": "full", "store": "sqlite", "identity": "accounts", "client": "hyperscript", "theme": "full", "features": ["home", "accounts", "uploads", "chat", "notify", "bot", "audit", "modules", "ops", "jobs", "dbview", "status", "about"]}
+    {"name": "full", "store": "sqlite", "identity": "accounts", "client": "hyperscript", "theme": "full", "features": ["home", "accounts", "uploads", "chat", "notify", "bot", "wiki", "audit", "modules", "ops", "jobs", "dbview", "status", "about"]}
   ]
 }

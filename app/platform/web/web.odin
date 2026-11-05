@@ -106,6 +106,7 @@ Req_Ctx :: struct {
 	form:   map[string]string, // parsed on first use
 	parsed: bool,
 	impl:     string, // "chat.transport=sse": sent as x-impl and logged
+	private:  bool,   // set_private: this response is as a .Private row's
 	deferred: bool,   // the handler deferred its response: its continuation logs it
 	large:    bool,   // holds a large body's count until it's read
 	allow:    []string, // no route: the methods that would answer (405)
@@ -131,6 +132,14 @@ impl :: proc(res: ^Response, axis, name: string) {
 	v := strings.concatenate({axis, "=", name}, context.temp_allocator)
 	http.headers_set_unsafe(&res.headers, "x-impl", v)
 	if tl_ctx != nil { tl_ctx.impl = v }
+}
+
+// For a row that serves public and private pages alike: this one is as a `.Private` row's. Before it
+// renders.
+set_private :: proc(res: ^Response) {
+	http.headers_set_unsafe(&res.headers, "cache-control", "no-store")
+	http.headers_set_unsafe(&res.headers, "x-robots-tag", "noindex, nofollow")
+	if tl_ctx != nil { tl_ctx.private = true }
 }
 
 // The route id a row is counted and logged under.

@@ -27,11 +27,15 @@ respond_plain :: proc(res: ^Response, body: string, status := Status.OK) {
 	respond_text(res, "text/plain; charset=utf-8", body, status)
 }
 
-// A CSV for hx-download to save (or a browser to download): an attachment named `filename`,
-// which the caller writes, never the request.
-respond_csv :: proc(res: ^Response, filename, body: string) {
+// A file for hx-download to save (or a browser to download): an attachment named `filename`, which
+// the caller writes from its own rows, never the request.
+respond_attachment :: proc(res: ^Response, content_type, filename, body: string) {
 	set_header(res, "content-disposition", strings.concatenate({`attachment; filename="`, filename, `"`}, context.temp_allocator))
-	respond_text(res, "text/csv; charset=utf-8", body, .OK)
+	respond_text(res, content_type, body, .OK)
+}
+
+respond_csv :: proc(res: ^Response, filename, body: string) {
+	respond_attachment(res, "text/csv; charset=utf-8", filename, body)
 }
 
 respond_json :: proc(res: ^Response, v: any, status := Status.OK) {
@@ -129,7 +133,7 @@ page_html :: proc(title, active, description, content: string, bundle := Bundle.
 		css = assets.css_href, htmx = assets.bundle_href[bundle], js = assets.js_href,
 		hs = "" if tt else assets.hs_href, behaviours = "" if tt else assets.behaviours_href,
 		title = title, active = active, description = description,
-		bundle = bundle, nonce = c.nonce, private = c.route != nil && .Private in c.route.flags,
+		bundle = bundle, nonce = c.nonce, private = c.private || (c.route != nil && .Private in c.route.flags),
 		live = live_proc(live) if live_proc != nil else "",
 		kept_style = c.viewer.style, kept_scheme = c.viewer.scheme,
 		theme_href = authz.theme_href if c.viewer.id != 0 else "",

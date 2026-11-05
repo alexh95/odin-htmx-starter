@@ -26,6 +26,7 @@ import notify_web "../../features/notify/web"
 import ops_web "../../features/ops/web"
 import scripting_web "../../features/scripting/web"
 import status_web "../../features/status/web"
+import wiki_web "../../features/wiki/web"
 import accounts_store "store:accounts"
 import audit_store "store:audit"
 import bot_store "store:bot"
@@ -34,6 +35,7 @@ import uploads_store "store:uploads"
 import contacts_store "store:contacts"
 import jobs_store "store:jobs"
 import notify_store "store:notify"
+import wiki_store "store:wiki"
 import identity "identity:."
 
 // The home page's cards, in order: a dispatch table, like ROUTES.
@@ -41,7 +43,7 @@ HOME_CARDS := [?]html.Home_Card{notify_web.home_card}
 
 // Every extension the main bundle needs (D19), both hosts' pages. Boot refuses a bundle whose
 // header says otherwise.
-BUNDLE_EXTS :: uploads_web.EXTS + home_web.EXTS + about_web.EXTS + audit_web.EXTS + chat_web.EXTS + notify_web.EXTS + bot_web.EXTS + modules_web.EXTS + ops_web.EXTS + jobs_web.EXTS + dbview_web.EXTS + status_web.EXTS + identity.EXTS +
+BUNDLE_EXTS :: uploads_web.EXTS + home_web.EXTS + about_web.EXTS + audit_web.EXTS + chat_web.EXTS + notify_web.EXTS + bot_web.EXTS + modules_web.EXTS + ops_web.EXTS + jobs_web.EXTS + dbview_web.EXTS + status_web.EXTS + wiki_web.EXTS + identity.EXTS +
 	landing_web.EXTS + dashboard_web.EXTS + gallery_web.EXTS + contacts_web.EXTS + lab_web.EXTS +
 	scripting_web.EXTS + compat_web.EXTS
 
@@ -62,6 +64,7 @@ main :: proc() {
 	ops_web.init()
 	status_web.init()
 	lab_web.init()
+	wiki_web.init(WIKI)
 	contacts_web.demo_init() // CONTACTS_CAP and its nightly reset: the lab host's demo
 	store_sqlite.init() // DB_PATH, SEED, MEMMODE: recorded here so --limits prints them
 	hub.init()
@@ -78,11 +81,13 @@ main :: proc() {
 	store_sqlite.migrate("jobs", jobs_store.MIGRATIONS[:])
 	store_sqlite.migrate("notify", notify_store.MIGRATIONS[:])
 	store_sqlite.migrate("uploads", uploads_store.MIGRATIONS[:])
+	store_sqlite.migrate("wiki", wiki_store.MIGRATIONS[:])
 	uploads_web.backs_up_to(store_sqlite.backup_dir())
 	identity.bootstrap() // the first admin, from ACCOUNTS_ADMIN_HASH
 	jobs_web.init()      // this boot's id; the runs an earlier boot left queued or running
 	jobs_web.admin_ids = identity.admin_ids // who hears of a failed run
 	chat_web.seed()      // the lobby, into an empty store
+	wiki_web.seed()      // the Manual, as this binary has it
 	if store_sqlite.unowned() { contacts_web.seed() } // :memory:, or SEED=1: the lab host's demo rows
 
 	// The standard set, and browsers' CSP violation reports to /csp-report (§12.2). Each host

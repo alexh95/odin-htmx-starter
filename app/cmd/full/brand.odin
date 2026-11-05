@@ -9,6 +9,7 @@ package main
 import "../../platform/html"
 import about_web "../../features/about/web"
 import home_web "../../features/home/web"
+import wiki_web "../../features/wiki/web"
 
 BRAND := html.Brand {
 	// Rendered raw so it can carry inline markup (the accent dot is a <b> that
@@ -32,6 +33,7 @@ NAV := [?]html.Nav_Item {
 	{"/chat", "Chat", "users"},
 	{"/notify", "Inbox", "bell"},
 	{"/bot", "Bot", "bolt"},
+	{"/wiki", "Logbook", "edit"},
 	{"/login", "Account", "users"},
 	{"/status", "Status", "check"},
 	{"/about", "About", "info"},
@@ -49,6 +51,12 @@ LAB_BRAND := html.Brand {
 	og_image    = "/static/og.png",
 	search      = {href = "/search", placeholder = "Search contacts…", label = "Search contacts"}, // the demo console's
 	overlays    = true, // the gallery's modal, drawer and toasts
+}
+
+WIKI := wiki_web.Copy {
+	name        = "Logbook",
+	description = "The house manual, recipes, trip notes, and the starter's docs.",
+	repo        = "https://github.com/alexh95/odin-htmx-starter",
 }
 
 LAB_NAV := [?]html.Nav_Item {

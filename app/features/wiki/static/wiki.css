@@ -1,4 +1,13 @@
 /* wiki: pages and their prose */
+.wiki-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
+.wiki-editor { display: flex; flex-direction: column; gap: 10px; }
+.wiki-editor label { display: flex; flex-direction: column; gap: 4px; }
+.wiki-editor textarea { font-family: var(--mono, monospace); width: 100%; }
+.wiki-preview { margin-top: 18px; }
+.wiki-preview:not(:empty) { padding-top: 14px; border-top: 1px solid var(--line); }
+.wiki-diff { overflow-x: auto; padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+.wiki-diff ins { color: var(--green, inherit); text-decoration: none; }
+.wiki-diff del { color: var(--red, inherit); }
 .wiki-pages { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .wiki-body { max-width: 78ch; overflow-wrap: anywhere; line-height: 1.6; }
 .wiki-body pre { overflow-x: auto; padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }

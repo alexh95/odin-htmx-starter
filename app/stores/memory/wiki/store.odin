@@ -35,6 +35,11 @@ page :: proc(slug: string) -> (m.Page, m.Error) {
 	return {}, .Not_Found
 }
 
+// Nothing here can be written: `source_files` is the Manual. No route reaches it.
+save :: proc(_: m.Save) -> (m.Page, bool, m.Error) { return {}, false, .Constraint }
+history :: proc(_: string, _: ^[dynamic]m.Revision) -> m.Error { return .None }
+revision :: proc(_: string, _: i64) -> (m.Revision, m.Error) { return {}, .Not_Found }
+
 list :: proc(_: bool, out: ^[dynamic]m.Page) -> m.Error {
 	for p in pages { append(out, m.Page{slug = p.slug, title = p.title, manual = p.manual, visibility = p.visibility}) }
 	return .None
