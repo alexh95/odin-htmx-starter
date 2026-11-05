@@ -29,6 +29,14 @@ function dropSnapshots() {
 document.addEventListener("submit", function (e) {
   if (e.target.matches && e.target.matches('[hx-post="/logout"]')) dropSnapshots();
 });
+// The history cache snapshots the body, and the palette lives there: what it found can hold DM text,
+// on a public page that may be kept. This runs before the copy is taken.
+document.addEventListener("htmx:history:cache:before:save", function () {
+  var results = document.getElementById("palette-results");
+  if (results) results.replaceChildren();
+  var q = document.getElementById("palette-q");
+  if (q) { q.value = ""; q.removeAttribute("data-htmx-history-value"); }
+});
 var leftAt = 0;
 addEventListener("beforeunload", function () { leftAt = Date.now(); });
 addEventListener("pageshow", function () { leftAt = 0; });

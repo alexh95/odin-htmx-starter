@@ -25,6 +25,7 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
   pages do. Sign-out and a revoke clear the snapshots. hx-head and preload reach Main on `lab` and `full`, and a wiki page has its own canonical URL.
 - `find`: `/find` over a profile's `FIND_SOURCES`, on `full` (FTS) and `streams` (a `contains_ci` scan, with the wiki's memory store): each row has
   a perm and an engine, boot refuses a mix, hits stay grouped by source, and the page is `.Private`. A member's `/bot` conversations are no source.
+- The Ctrl-K palette, hyperscript's alone: search and the pages the viewer can open, in a `<dialog>` that clears itself on close and before a snapshot.
 - `markdown.plain`, and a `link` hook on the renderer's options.
 - The weekly `chat.optimize` job on chat's FTS index (§11.8), which was planned and never built.
 

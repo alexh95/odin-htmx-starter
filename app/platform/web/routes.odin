@@ -16,7 +16,9 @@ import "core:time"
 
 import http "../../vendor/odin-http"
 import "../authz"
+import "../html"
 import "../obs"
+import "../store"
 
 ROUTES := [?]Route {
 	{.Get, "/healthz", healthz, .Public, {}, 0},
@@ -255,6 +257,16 @@ robots_for :: proc(site: ^Site, allocator := context.allocator) -> string {
 
 // The sitemap walks the host's nav, so a page can't be added to the nav and left
 // out of the sitemap; absolute URLs on the canonical origin.
+// The nav's pages this viewer can open whose label holds `q`: what a palette goes to.
+nav_matching :: proc(v: authz.Viewer, q: string, out: ^[dynamic]html.Nav_Item) {
+	site := ctx().site
+	for item in site.nav {
+		if !store.contains_ci(item.label, q) { continue }
+		if m, _, _ := router_find(&site.router, .Get, item.href); m != nil && !authz.can(v, m.perm) { continue }
+		append(out, item)
+	}
+}
+
 sitemap_xml :: proc(req: ^Request, res: ^Response) {
 	site := ctx().site
 	b := strings.builder_make(context.temp_allocator)

@@ -112,6 +112,11 @@ render_page :: proc(req: ^Request, res: ^Response, title, active, description, c
 	respond_html(res, page_html(title, active, description, content, bundle, live), status)
 }
 
+// A build that mounts find has the Ctrl-K palette in every Main page's layout.
+@(private) palette_on: bool
+
+use_palette :: proc() { palette_on = true }
+
 // The layout's #live, as the hub builds it for this request: set by hub.init, so a
 // profile that doesn't stream links none of it and its pages open no stream.
 Live_Proc :: #type proc(page: []string) -> string
@@ -133,7 +138,7 @@ page_html :: proc(title, active, description, content: string, bundle := Bundle.
 		css = assets.css_href, htmx = assets.bundle_href[bundle], js = assets.js_href,
 		hs = "" if tt else assets.hs_href, behaviours = "" if tt else assets.behaviours_href,
 		title = title, active = active, description = description,
-		bundle = bundle, nonce = c.nonce, canonical = c.canonical, history_cache = c.history_cache && !c.private && (c.route == nil || .Private not_in c.route.flags),
+		bundle = bundle, nonce = c.nonce, canonical = c.canonical, palette = palette_on && bundle == .Main, history_cache = c.history_cache && !c.private && (c.route == nil || .Private not_in c.route.flags),
 		live = live_proc(live) if live_proc != nil else "",
 		kept_style = c.viewer.style, kept_scheme = c.viewer.scheme,
 		theme_href = authz.theme_href if c.viewer.id != 0 else "",

@@ -68,6 +68,32 @@ behavior SearchBox
   end
 end
 
+-- The Ctrl-K palette: a <dialog>, whose showModal traps focus, closes on Escape and hands focus back.
+-- A click on the backdrop lands on the dialog itself, and Escape in a search box only clears it, so this
+-- asks for the close. What it found goes with it: it can hold DM text.
+behavior Palette
+  on keydown[(ctrlKey or metaKey) and key is 'k'] from window
+    call event.preventDefault()
+    if my open
+      call my close()
+    else
+      call my showModal()
+    end
+  end
+  on keydown[key is 'Escape']
+    call my close()
+  end
+  on click
+    if the target is me
+      call my close()
+    end
+  end
+  on close
+    set value of #palette-q to ''
+    put '' into #palette-results
+  end
+end
+
 -- A range input paints its filled portion through --fill (app.css reads it) and
 -- keeps its label's <output> in step.
 behavior RangeFill

@@ -117,9 +117,11 @@ Alex's answer on what an anonymous poll stores.
       and a page moved to members leaves guests' hits at once. Lists: a guest finds none.
       Done (2026-11-05, lists' with slice 8): `e2e/tests/find/find.spec.ts` on `full` and `streams`. A kicked member and the age-out are held in
       chat's storetest. The generator composes `FIND_SOURCES` from the rows of a donor profile, so a selection takes only its own sources.
-- [ ] **7. The palette** (§6, D22): the `Palette` behaviour opening the Ctrl-K `<dialog>`, results and the pages the viewer may open. The
+- [x] **7. The palette** (§6, D22): the `Palette` behaviour opening the Ctrl-K `<dialog>`, results and the pages the viewer may open. The
       behaviour is a name in `behave.odin` with no definition yet. *Check:* keyboard only on three browsers, the vanilla client's plain link
       to `/find`, focus back where it was, no stream of its own.
+      Done (2026-11-05): Chromium here, Firefox and WebKit at the exit's run. What it found is cleared before a snapshot is taken: the body holds
+      the palette, and a public page may be kept. Typing a nav item's name goes there; pages come from the nav and the viewer's perms.
 - [ ] **8. Lists, the checklist** (§6): `lists` on SQLite: lists, columns from the template (To do / Doing / Done by default, no editor),
       items (≤ 200 runes, a column, an assignee → `notify_web.send`, position with gaps of 1024, renumbered by the server); one column closes
       and done means being in it: ticking moves to it, unticking to the first; hx-pending; `lists.list:<id>` persisted, upserts keyed `data-pos`;

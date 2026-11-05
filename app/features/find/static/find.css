@@ -1,4 +1,7 @@
-/* find: the search page */
+/* find: the search page and the palette */
+.palette { width: min(640px, calc(100vw - 32px)); max-height: 70vh; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: inherit; }
+.palette::backdrop { background: color-mix(in oklab, black 45%, transparent); }
+.palette input { width: 100%; margin: 0 0 10px; }
 .find-form { display: flex; gap: 8px; margin: 0 0 14px; }
 .find-form input { flex: 1; min-width: 0; }
 .find-group { margin: 0 0 18px; }

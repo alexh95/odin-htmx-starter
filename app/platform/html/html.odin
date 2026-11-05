@@ -80,6 +80,7 @@ Page :: struct {
 	nonce:                      string,
 	history_cache:              bool, // this page may be kept in sessionStorage (§12): its own opt-in
 	canonical:                  string, // a path, when it isn't `active`: a page under a nav item
+	palette:                    bool,   // the build mounts find, and this page's bundle can open it
 	live:                       string, // the page's one SSE stream, #live (§9.1): the hub's markup, or ""
 	kept_style, kept_scheme:    string, // a member's kept theme: rendered, and the pre-paint leaves it alone
 	theme_href:                 string, // where the picker posts a member's choice; "" = localStorage only
@@ -435,6 +436,14 @@ layout :: proc(p: Page, content: string) -> string {
 	w(&b, content)
 	w(&b, `</main>
 `)
+	if p.palette {
+		// Outside <main>, so a swap of a page's content never takes it. Its behaviour opens it on Ctrl-K;
+		// with none (the vanilla client) it stays shut, and the nav's Search is the way in.
+		w(&b, `<dialog id="palette" class="palette" aria-label="Search"`)
+		behave(&b, .Palette)
+		w(&b, `><form method="get" action="/find" role="search"><input id="palette-q" name="q" type="search" maxlength="200" autocomplete="off" aria-label="Search" placeholder="Search, or go to a page" hx-get="/find/results" hx-trigger="input changed delay:150ms" hx-target="#palette-results" hx-swap="innerHTML" hx-sync="this:replace"></form><div id="palette-results"></div></dialog>
+`)
+	}
 	// Outside <main>, so a fragment swap never takes it; a boosted navigation swaps
 	// the body and so opens it again, with the new page's topics (D14).
 	w(&b, p.live)

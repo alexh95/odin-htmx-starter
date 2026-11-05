@@ -11,6 +11,7 @@ import "core:time"
 import "core:unicode/utf8"
 
 import "../../../platform/authz"
+import "../../../platform/html"
 import "../../../platform/web"
 import find ".."
 import m "../models"
@@ -26,7 +27,10 @@ ROUTES := [?]web.Route {
 // §6: 10 per second per user.
 @(private) searches := web.Limit{n = 10, window = time.Second}
 
-init :: proc(sources: []m.Source) { find.init(sources) }
+init :: proc(sources: []m.Source) {
+	find.init(sources)
+	web.use_palette()
+}
 
 @(private)
 Finding :: struct {
@@ -66,8 +70,10 @@ run :: proc(req: ^web.Request, res: ^web.Response, whole: bool) {
 			web.render_page(req, res, "Search", "/find", "Search everything you can read here.", find_views.page(s.q, s.groups[:], s.failed))
 			return
 		}
+		pages := make([dynamic]html.Nav_Item, context.temp_allocator)
+		if q := strings.trim_space(s.q); q != "" { web.nav_matching(s.viewer, q, &pages) }
 		b := strings.builder_make(context.temp_allocator)
-		find_views.results(&b, s.q, s.groups[:], s.failed)
+		find_views.results(&b, s.q, s.groups[:], s.failed, pages[:])
 		web.respond_html(res, strings.to_string(b))
 	})
 	if s == nil { return }

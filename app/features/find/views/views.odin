@@ -32,9 +32,22 @@ box :: proc(b: ^strings.Builder, q, target: string) {
 	w(b, `" hx-swap="innerHTML" hx-sync="this:replace">`)
 }
 
-results :: proc(b: ^strings.Builder, q: string, groups: []find.Group, failed: bool) {
+results :: proc(b: ^strings.Builder, q: string, groups: []find.Group, failed: bool, pages: []html.Nav_Item = nil) {
 	if failed { w(b, `<p class="field-msg form-error">Some of it can't be searched right now.</p>`) }
-	if q != "" && len(groups) == 0 && !failed { w(b, `<p class="muted find-none">Nothing found.</p>`) }
+	if q != "" && len(groups) == 0 && len(pages) == 0 && !failed { w(b, `<p class="muted find-none">Nothing found.</p>`) }
+	if len(pages) > 0 {
+		w(b, `<section class="find-group"><h2>Go to</h2><ul class="find-hits">`)
+		for p in pages {
+			w(b, `<li><a`)
+			w(b, html.BOOST)
+			w(b, ` href="`)
+			esc(b, p.href)
+			w(b, `">`)
+			esc(b, p.label)
+			w(b, `</a></li>`)
+		}
+		w(b, `</ul></section>`)
+	}
 	for g in groups {
 		w(b, `<section class="find-group"><h2>`)
 		esc(b, g.source.name)
