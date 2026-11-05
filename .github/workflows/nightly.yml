@@ -59,7 +59,7 @@ jobs:
           if ls /tmp/asan/report.* >/dev/null 2>&1; then cat /tmp/asan/report.*; exit 1; fi
           echo "no ASan reports"
 
-  # The parsers of untrusted text (M4-13: signed, escape, totp, password, stream) on random input,
+  # The parsers of untrusted text (M4-13: signed, escape, totp, password, stream, and M8's markdown) on random input,
   # fifty times their every-push rounds, from a seed the run picks, under ASan: each night tries
   # inputs no run tried before. Odin builds no libFuzzer target, so this is platform/fuzz's
   # seeded draw, not coverage-guided; FUZZ_SEED in the log reproduces a failure.
@@ -82,7 +82,7 @@ jobs:
         run: |
           echo "FUZZ_SEED=$FUZZ_SEED FUZZ_SCALE=$FUZZ_SCALE"
           mkdir -p app/bin
-          for d in tools/fakellama/suite app/platform/signed app/platform/escape app/platform/totp app/platform/password app/platform/stream app/features/uploads; do
+          for d in tools/fakellama/suite app/platform/signed app/platform/escape app/platform/totp app/platform/password app/platform/stream app/platform/markdown app/features/uploads; do
             echo "== $d"
             odin test "$d" -collection:store=app/stores/memory -collection:identity=app/platform/authz/anonymous \
               -collection:client=app/platform/client/vanilla -collection:theme=app/platform/theme/lite \
