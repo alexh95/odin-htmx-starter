@@ -74,6 +74,25 @@ enum_from_int :: proc($E: typeid, v: int) -> (e: E, ok: bool) where intrinsics.t
 	return {}, false
 }
 
+// How a family searches: a store says which, so a list can't mix them (PLAN §11.8).
+Search_Engine :: enum {
+	Fts,
+	Scan,
+}
+
+MAX_SEARCH_WORDS :: 8
+
+// A query's words: a NUL goes, as FTS5 reads its query as a C string. In the temp allocator.
+search_words :: proc(q: string) -> []string {
+	words := make([dynamic]string, 0, MAX_SEARCH_WORDS, context.temp_allocator)
+	rest, _ := strings.remove_all(q, "\x00", context.temp_allocator)
+	for w in strings.fields_iterator(&rest) {
+		if len(words) == MAX_SEARCH_WORDS { break }
+		append(&words, w)
+	}
+	return words[:]
+}
+
 // One hit of a global search (find): each source's domain fills these. A list of them comes from one
 // engine (PLAN §11.8).
 Search_Hit :: struct {

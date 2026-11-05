@@ -15,10 +15,12 @@ import "../../platform/authz"
 import "../../platform/escape"
 import "../../platform/markdown"
 import "../../platform/obs"
+import "../../platform/store"
 import m "models"
 import wiki_store "store:wiki"
 
 IMPL :: wiki_store.IMPL
+SEARCH_ENGINE :: wiki_store.SEARCH_ENGINE
 
 Doc :: struct {
 	slug, path, text: string,
@@ -145,6 +147,11 @@ summary :: proc(p: m.Page) -> string {
 		runes += 1
 	}
 	return text
+}
+
+// A row of find's table.
+find :: proc(v: authz.Viewer, q: string, limit: int, out: ^[dynamic]store.Search_Hit) -> m.Error {
+	return wiki_store.search(store.search_words(q), v.id != 0, limit, out)
 }
 
 // Why a page can't be saved as this; "" when it can. `fresh`: a new page, which its title names.

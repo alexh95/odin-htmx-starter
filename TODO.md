@@ -107,7 +107,7 @@ Alex's answer on what an anonymous poll stores.
       `/find`'s spec is slice 6's.
 - [ ] **5. The markdown campaign** (§19.1.3, D44): `platform/fuzz` over `render` at a campaign's scale under ASan on Linux, and in the
       nightly; depth cap, input cap and the output's invariants (no raw tag, no unsafe href). *Check:* 0 crashes, the rounds and seed recorded.
-- [ ] **6. Find** (§6, D6, D16): `/find`, `FIND_SOURCES`, each source's own perm before its `search`; on the query pool; 10 per second
+- [x] **6. Find** (§6, D6, D16): `/find`, `FIND_SOURCES`, each source's own perm before its `search`; on the query pool; 10 per second
       per user; a list that never mixes engines, held at boot; `hx-sync="this:replace"`; a plain GET form with no client. Mounted on `full`
       (FTS) and `streams` (memory). *Check:* the membership suite below, `cafe` on each family, the limit, `rbac.spec`, the XSS suite over
       snippets, both suites. **Membership suite**, on both families: a guest sees no chat at all; a non-member finds nothing of a private
@@ -115,6 +115,8 @@ Alex's answer on what an anonymous poll stores.
       its members and nobody else; a failed ask left nothing; an edited, removed or aged-out message is gone from the index; a member's
       `/bot` conversation is found by nobody, its owner included. The wiki: a guest finds no members' page, its title and snippet included,
       and a page moved to members leaves guests' hits at once. Lists: a guest finds none.
+      Done (2026-11-05, lists' with slice 8): `e2e/tests/find/find.spec.ts` on `full` and `streams`. A kicked member and the age-out are held in
+      chat's storetest. The generator composes `FIND_SOURCES` from the rows of a donor profile, so a selection takes only its own sources.
 - [ ] **7. The palette** (§6, D22): the `Palette` behaviour opening the Ctrl-K `<dialog>`, results and the pages the viewer may open. The
       behaviour is a name in `behave.odin` with no definition yet. *Check:* keyboard only on three browsers, the vanilla client's plain link
       to `/find`, focus back where it was, no stream of its own.

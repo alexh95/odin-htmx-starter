@@ -482,18 +482,23 @@ room_by_id :: proc(id: i64) -> (m.Room, m.Error) { return chat_store.room_of(id)
 // ---- search ------------------------------------------------------------------------------
 
 SEARCH_HITS :: 50
-MAX_SEARCH_WORDS :: 8
+SEARCH_ENGINE :: chat_store.SEARCH_ENGINE
 
 // What `q` finds in the rooms `v` may read, newest first; its strings in the temp allocator, and it may
 // run off the loop. Global search is `find`'s.
 search :: proc(v: authz.Viewer, q: string, out: ^[dynamic]m.Hit) -> m.Error {
-	words := make([dynamic]string, 0, MAX_SEARCH_WORDS, context.temp_allocator)
-	rest, _ := strings.remove_all(q, "\x00", context.temp_allocator) // FTS5 reads its query as a C string
-	for w in strings.fields_iterator(&rest) {
-		if len(words) == MAX_SEARCH_WORDS { break }
-		append(&words, w)
+	return chat_store.search(v.id, store.search_words(q), now(), SEARCH_HITS, out)
+}
+
+// A row of find's table. A guest never gets here: the row's perm is Chat_Read.
+find :: proc(v: authz.Viewer, q: string, limit: int, out: ^[dynamic]store.Search_Hit) -> m.Error {
+	hits := make([dynamic]m.Hit, context.temp_allocator)
+	err := chat_store.search(v.id, store.search_words(q), now(), limit, &hits)
+	for h in hits {
+		title := h.msg.name if h.room.kind == .Dm else h.room.name
+		append(out, store.Search_Hit{title = title, snippet = h.snippet, href = fmt.tprintf("/chat/r/%s#m-%d", h.room.slug, h.msg.id)})
 	}
-	return chat_store.search(v.id, words[:], now(), SEARCH_HITS, out)
+	return err
 }
 
 optimize :: proc() -> m.Error { return chat_store.optimize() }

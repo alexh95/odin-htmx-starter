@@ -422,3 +422,20 @@ drill_sqlite :: proc() {
 	sqlite.step(s)
 	sqlite.finalize(s)
 }
+
+// A MATCH expression: each word quoted, so nothing a member types is FTS5 syntax, and the last also
+// matches as a prefix.
+fts_query :: proc(words: []string) -> string {
+	b := strings.builder_make(context.temp_allocator)
+	for w, i in words {
+		if i > 0 { strings.write_byte(&b, ' ') }
+		strings.write_byte(&b, '"')
+		for c in transmute([]byte)w {
+			if c == '"' { strings.write_byte(&b, '"') }
+			strings.write_byte(&b, c)
+		}
+		strings.write_byte(&b, '"')
+		if i == len(words) - 1 { strings.write_byte(&b, '*') }
+	}
+	return strings.to_string(b)
+}

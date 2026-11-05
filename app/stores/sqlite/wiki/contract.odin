@@ -6,6 +6,7 @@ import m "../../../features/wiki/models"
 _ : m.Store_Page : page
 _ : m.Store_List : list
 _ : m.Store_Seed_Manual : seed_manual
+_ : m.Store_Search : search
 _ : m.Store_Save : save
 _ : m.Store_History : history
 _ : m.Store_Revision : revision

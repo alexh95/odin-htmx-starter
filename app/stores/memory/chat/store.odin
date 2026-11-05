@@ -20,6 +20,7 @@ import mem_store "../../../platform/store/memory"
 import m "../../../features/chat/models"
 
 IMPL :: "memory"
+SEARCH_ENGINE :: store.Search_Engine.Scan
 
 // Not persisted (D13): a gap after a restart can't replay ids from another process,
 // so the room's topic resyncs instead.

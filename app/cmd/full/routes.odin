@@ -21,6 +21,7 @@ import compat_web "../../features/compat/web"
 import contacts_web "../../features/contacts/web"
 import dashboard_web "../../features/dashboard/web"
 import dbview_web "../../features/dbview/web"
+import find_web "../../features/find/web"
 import gallery_web "../../features/gallery/web"
 import home_web "../../features/home/web"
 import jobs_web "../../features/jobs/web"
@@ -46,6 +47,7 @@ ROUTES := [?]app.Mount {
 	{"chat", chat_web.ROUTES[:]},       // /chat: rooms, four transports (M6, on SQLite)
 	{"notify", notify_web.ROUTES[:]},   // /notify: the Inbox
 	{"bot", bot_web.ROUTES[:]},         // /bot: the assistant
+	{"find", find_web.ROUTES[:]},       // /find: search
 	{"wiki", wiki_web.EDIT_ROUTES[:]},  // /wiki: writing, before the read rows
 	{"wiki", wiki_web.ROUTES[:]},       // /wiki: the Logbook
 	{"bot", bot_web.ADMIN_ROUTES[:]},   // /admin/bot: its default, LAN only

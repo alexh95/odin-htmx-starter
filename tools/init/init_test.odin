@@ -32,6 +32,9 @@ committed_profiles_compose_again :: proc(t: ^testing.T) {
 			if st.call == "store_sqlite.migrate" { continue }
 			testing.expectf(t, strings.contains(text.main, st.text), "%s: main composed without %q", p.name, strings.trim_space(st.text))
 		}
+		for l in p.find_rows {
+			testing.expectf(t, strings.contains(text.main, l.text), "%s: main composed without %q", p.name, l.text)
+		}
 		for m in p.members { testing.expect(t, m != "") }
 		testing.expectf(t, s.members == p.members, "%s: families %v, composed %v", p.name, p.members, s.members)
 	}

@@ -24,6 +24,7 @@ import db "../../../platform/store/sqlite"
 import m "../../../features/chat/models"
 
 IMPL :: "sqlite"
+SEARCH_ENGINE :: store.Search_Engine.Fts
 
 PERSISTED :: true
 
@@ -517,28 +518,11 @@ exec :: proc(sql: string) {
 
 // ---- search --------------------------------------------------------------------------------
 
-// Each word quoted, so nothing a member types is FTS5 syntax; the last also matches as a prefix.
-@(private)
-fts_query :: proc(words: []string) -> string {
-	b := strings.builder_make(context.temp_allocator)
-	for w, i in words {
-		if i > 0 { strings.write_byte(&b, ' ') }
-		strings.write_byte(&b, '"')
-		for c in transmute([]byte)w {
-			if c == '"' { strings.write_byte(&b, '"') }
-			strings.write_byte(&b, c)
-		}
-		strings.write_byte(&b, '"')
-		if i == len(words) - 1 { strings.write_byte(&b, '*') }
-	}
-	return strings.to_string(b)
-}
-
 search :: proc(who: u64, words: []string, at: i64, limit: int, out: ^[dynamic]m.Hit) -> (err: m.Error) {
 	if len(words) == 0 { return }
 	q := db.read(SQL_SEARCH)
 	defer db.reset(q)
-	db.bind_text(q, 1, fts_query(words))
+	db.bind_text(q, 1, db.fts_query(words))
 	db.bind_id(q, 2, i64(who))
 	db.bind_id(q, 3, at)
 	db.bind_int(q, 4, limit)

@@ -16,6 +16,10 @@ import compat_web "../../features/compat/web"
 import contacts_web "../../features/contacts/web"
 import dashboard_web "../../features/dashboard/web"
 import dbview_web "../../features/dbview/web"
+import find_web "../../features/find/web"
+import find_m "../../features/find/models"
+import "../../features/chat"
+import "../../features/wiki"
 import gallery_web "../../features/gallery/web"
 import home_web "../../features/home/web"
 import jobs_web "../../features/jobs/web"
@@ -41,9 +45,15 @@ import identity "identity:."
 // The home page's cards, in order: a dispatch table, like ROUTES.
 HOME_CARDS := [?]html.Home_Card{notify_web.home_card}
 
+// What /find searches: a dispatch table too (PLAN §6).
+FIND_SOURCES := [?]find_m.Source {
+	{"Chat", .Chat_Read, chat.SEARCH_ENGINE, chat.find, false},
+	{"Logbook", .Wiki_Read, wiki.SEARCH_ENGINE, wiki.find, true},
+}
+
 // Every extension the main bundle needs (D19), both hosts' pages. Boot refuses a bundle whose
 // header says otherwise.
-BUNDLE_EXTS :: uploads_web.EXTS + home_web.EXTS + about_web.EXTS + audit_web.EXTS + chat_web.EXTS + notify_web.EXTS + bot_web.EXTS + modules_web.EXTS + ops_web.EXTS + jobs_web.EXTS + dbview_web.EXTS + status_web.EXTS + wiki_web.EXTS + identity.EXTS +
+BUNDLE_EXTS :: uploads_web.EXTS + home_web.EXTS + about_web.EXTS + audit_web.EXTS + chat_web.EXTS + notify_web.EXTS + bot_web.EXTS + modules_web.EXTS + ops_web.EXTS + jobs_web.EXTS + dbview_web.EXTS + status_web.EXTS + wiki_web.EXTS + find_web.EXTS + identity.EXTS +
 	landing_web.EXTS + dashboard_web.EXTS + gallery_web.EXTS + contacts_web.EXTS + lab_web.EXTS +
 	scripting_web.EXTS + compat_web.EXTS
 
@@ -65,6 +75,7 @@ main :: proc() {
 	status_web.init()
 	lab_web.init()
 	wiki_web.init(WIKI)
+	find_web.init(FIND_SOURCES[:])
 	contacts_web.demo_init() // CONTACTS_CAP and its nightly reset: the lab host's demo
 	store_sqlite.init() // DB_PATH, SEED, MEMMODE: recorded here so --limits prints them
 	hub.init()

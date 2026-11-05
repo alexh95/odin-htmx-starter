@@ -6,10 +6,12 @@ package wiki_storetest
 // only SQLite has: saving, and a conflict as an answer.
 
 import "base:runtime"
+import "core:strings"
 import "core:testing"
 
 import "../../../platform/guard"
 import "../../../platform/obs"
+import "../../../platform/store"
 import db "../../../platform/store/sqlite"
 import m "../models"
 import mem "../../../stores/memory/wiki"
@@ -21,6 +23,7 @@ Family :: struct {
 	page: m.Store_Page,
 	list: m.Store_List,
 	seed: m.Store_Seed_Manual,
+	search: m.Store_Search,
 }
 
 @(private = "file")
@@ -39,6 +42,11 @@ conforms :: proc(t: ^testing.T, f: Family) {
 	testing.expect_value(t, f.list(false, &all), m.Error.None)
 	testing.expectf(t, len(all) == 2 && all[0].title == "Alpha", "%s: title order: %v", f.name, all[:])
 	testing.expectf(t, all[0].html == "", "%s: a listing holds no bodies", f.name)
+
+	hits := make([dynamic]store.Search_Hit, context.temp_allocator)
+	words := []string{"bravo"}
+	testing.expect_value(t, f.search(words, false, 5, &hits), m.Error.None)
+	testing.expectf(t, len(hits) == 1 && hits[0].href == "/wiki/b" && hits[0].title == "Bravo", "%s: by its title: %v", f.name, hits[:])
 }
 
 @(private = "file")
@@ -83,6 +91,13 @@ writing :: proc(t: ^testing.T) {
 	_ = sql.history("mine", &revisions)
 	testing.expectf(t, len(revisions) == sql.KEEP_REVISIONS, "a history is capped: %d", len(revisions))
 
+	found := make([dynamic]store.Search_Hit, context.temp_allocator)
+	marked := []string{"more"}
+	_ = sql.search(marked, false, 5, &found)
+	testing.expectf(t, len(found) == 0, "a guest finds no members' page: %v", found[:])
+	_ = sql.search(marked, true, 5, &found)
+	testing.expectf(t, len(found) == 1 && strings.contains(found[0].snippet, "more"), "a member does, marked: %v", found[:])
+
 	all := make([dynamic]m.Page, context.temp_allocator)
 	_ = sql.list(false, &all)
 	testing.expectf(t, len(all) == 1 && all[0].slug == "a", "a guest's list: %v", all[:])
@@ -105,11 +120,11 @@ both_families :: proc(t: ^testing.T) {
 	context.allocator = runtime.heap_allocator() // boot-time registrations, as in main
 	obs.init(.Fatal)
 	guard.install(proc(_: ^guard.Crash) {})
-	conforms(t, {"memory", mem.page, mem.list, mem.seed_manual})
+	conforms(t, {"memory", mem.page, mem.list, mem.seed_manual, mem.search})
 	testing.expect_value(t, db.open_db(":memory:", .Ephemeral, "storetest"), "")
 	defer db.close()
 	db.migrate("wiki", sql.MIGRATIONS[:])
-	conforms(t, {"sqlite", sql.page, sql.list, sql.seed_manual})
+	conforms(t, {"sqlite", sql.page, sql.list, sql.seed_manual, sql.search})
 	writing(t)
 	free_all(context.temp_allocator)
 }

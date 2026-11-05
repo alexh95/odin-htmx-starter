@@ -8,9 +8,11 @@ package wiki_store_memory
 import "core:slice"
 import "core:strings"
 
+import "../../../platform/store"
 import m "../../../features/wiki/models"
 
 IMPL :: "source_files"
+SEARCH_ENGINE :: store.Search_Engine.Scan
 
 @(private) pages: []m.Page
 
@@ -33,6 +35,19 @@ page :: proc(slug: string) -> (m.Page, m.Error) {
 		if p.slug == slug { return p, .None }
 	}
 	return {}, .Not_Found
+}
+
+// A store.contains_ci scan, title order: the Manual is a dozen pages. Every page here is public.
+search :: proc(words: []string, _: bool, limit: int, out: ^[dynamic]store.Search_Hit) -> m.Error {
+	if len(words) == 0 { return .None }
+	outer: for p in pages {
+		if len(out) == limit { break }
+		for w in words {
+			if !store.contains_ci(p.title, w) && !store.contains_ci(p.plain, w) { continue outer }
+		}
+		append(out, store.Search_Hit{title = p.title, snippet = store.snippet(p.plain, words), href = strings.concatenate({"/wiki/", p.slug}, context.temp_allocator)})
+	}
+	return .None
 }
 
 // Nothing here can be written: `source_files` is the Manual. No route reaches it.

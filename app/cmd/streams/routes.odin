@@ -10,12 +10,14 @@ import about_web "../../features/about/web"
 import audit_web "../../features/audit/web"
 import bot_web "../../features/bot/web"
 import chat_web "../../features/chat/web"
+import find_web "../../features/find/web"
 import home_web "../../features/home/web"
 import notes_web "../../features/notes/web"
 import notify_web "../../features/notify/web"
 import ops_web "../../features/ops/web"
 import status_web "../../features/status/web"
 import uploads_web "../../features/uploads/web"
+import wiki_web "../../features/wiki/web"
 import identity "identity:."
 
 ROUTES := [?]app.Mount {
@@ -29,6 +31,8 @@ ROUTES := [?]app.Mount {
 	{"chat", chat_web.ROUTES[:]},       // /chat: rooms, four transports
 	{"notify", notify_web.ROUTES[:]},   // /notify: the Inbox
 	{"bot", bot_web.ROUTES[:]},         // /bot: the assistant, on the mock
+	{"find", find_web.ROUTES[:]},       // /find: search, a scan on memory
+	{"wiki", wiki_web.ROUTES[:]},       // /wiki: the starter's docs
 	{"ops", ops_web.ROUTES[:]},         // /admin/ops: the 1 Hz panel
 	{"status", status_web.ROUTES[:]},   // /status: is everything up
 	{"accounts", identity.ROUTES[:]},   // /login /logout: the nickname form

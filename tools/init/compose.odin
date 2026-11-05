@@ -346,6 +346,21 @@ compose :: proc(s: Selection) -> Profile_Text {
 			if line := fmt.aprintf("import %s_store \"store:%s\"", f, f); !slice.contains(mimports[:], line) { append(&mimports, line) }
 		}
 	}
+	// Each source find's table takes is a selected domain's, and find alone has an empty one.
+	find_rows := make([dynamic]string)
+	has_find := slice.contains(s.features, "find")
+	if has_find {
+		append(&mimports, `import find_m "../../features/find/models"`)
+		for f in s.features {
+			d := donor(s, f)
+			if d == nil { continue }
+			for l in d.find_rows {
+				if !slice.contains(l.features, f) { continue }
+				append(&find_rows, l.text)
+				take_imports(&mimports, d, l.text)
+			}
+		}
+	}
 	jobs_arg := "JOBS[:]" if jobs else "nil"
 	check_args := fmt.aprintf("HOSTS[:], %s, BUNDLE_EXTS%s", jobs_arg, ", PAGE_BUNDLES" if bundles else "")
 	serve_extra := base.serve_extra if s.explicit else ""
@@ -363,6 +378,12 @@ compose :: proc(s: Selection) -> Profile_Text {
 		if home {
 			fmt.sbprintf(&b, "\n// The home page's cards, in order: a dispatch table, like ROUTES.\nHOME_CARDS := [%d]html.Home_Card{{%s}}\n",
 				len(home_cards), strings.join(home_cards[:], ", ", context.temp_allocator))
+		}
+		if has_find {
+			strings.write_string(&b, "\n// What /find searches: a dispatch table too (PLAN §6).\n")
+			fmt.sbprintf(&b, "FIND_SOURCES := [%d]find_m.Source {{\n", len(find_rows))
+			for r in find_rows { fmt.sbprintf(&b, "\t%s,\n", r) }
+			strings.write_string(&b, "}\n")
 		}
 		strings.write_string(&b, "\n// Every extension the main bundle needs (D19). Boot refuses a bundle whose\n// header says otherwise.\n")
 		fmt.sbprintf(&b, "BUNDLE_EXTS :: %s\n", strings.join(exts[:], " + ", context.temp_allocator) if len(exts) > 0 else "web.Exts{}")

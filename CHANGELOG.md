@@ -23,6 +23,8 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
   and the Manual brought up to the binary's at each boot. `web.set_private`, `web.respond_attachment`.
 - The history cache, opt-in per page: `hx-history="false"` is on every `<main>` unless a page calls `web.keep_in_history`, and only public wiki
   pages do. Sign-out and a revoke clear the snapshots. hx-head and preload reach Main on `lab` and `full`, and a wiki page has its own canonical URL.
+- `find`: `/find` over a profile's `FIND_SOURCES`, on `full` (FTS) and `streams` (a `contains_ci` scan, with the wiki's memory store): each row has
+  a perm and an engine, boot refuses a mix, hits stay grouped by source, and the page is `.Private`. A member's `/bot` conversations are no source.
 - `markdown.plain`, and a `link` hook on the renderer's options.
 - The weekly `chat.optimize` job on chat's FTS index (§11.8), which was planned and never built.
 

@@ -6,6 +6,7 @@ package wiki_store_sqlite
 // runs on the query pool, which already renders it, so it takes the writer's lock itself (write_now)
 // and answers in line; a conflict is an answer, not an error.
 
+import "core:strings"
 import "core:time"
 
 import "../../../platform/store"
@@ -13,6 +14,7 @@ import db "../../../platform/store/sqlite"
 import m "../../../features/wiki/models"
 
 IMPL :: "sqlite"
+SEARCH_ENGINE :: store.Search_Engine.Fts
 
 MIGRATIONS := [?]store.Migration {
 	{1, "0001_wiki.sql", #load("migrations/0001_wiki.sql", string)},
@@ -32,6 +34,10 @@ KEEP_REVISIONS :: 50
 @(private) SQL_REVISION :: "SELECT r.rev, r.title, r.at, r.by_name, r.md FROM wiki_revisions r JOIN wiki_pages p ON p.id = r.page WHERE p.slug = ? AND r.rev = ?"
 @(private) SQL_MANUAL_SET :: "INSERT INTO wiki_pages(slug, title, visibility, manual, md, html, plain, at, by_name) VALUES(?1, ?2, 0, 1, ?3, ?4, ?5, ?6, '') " +
 	"ON CONFLICT(slug) DO UPDATE SET title = ?2, md = ?3, html = ?4, plain = ?5, at = ?6 WHERE manual = 1 AND (title <> ?2 OR md <> ?3 OR html <> ?4)"
+// bm25 reads every match, on the query pool; the visibility is the query's own, so a guest's snippet can't
+// come from a members' page. 57344 and 57345 are escape.MARK_ON and MARK_OFF.
+SQL_SEARCH :: "SELECT p.slug, p.title, snippet(wiki_fts, -1, char(57344), char(57345), '…', 32) FROM wiki_fts f JOIN wiki_pages p ON p.id = f.rowid " +
+	"WHERE wiki_fts MATCH ?1 AND (p.visibility = 0 OR ?2) ORDER BY bm25(wiki_fts, 8.0, 1.0) LIMIT ?3"
 @(private) SQL_MANUAL_ALL :: "SELECT slug FROM wiki_pages WHERE manual = 1"
 @(private) SQL_DROP :: "DELETE FROM wiki_pages WHERE slug = ? AND manual = 1"
 
@@ -60,6 +66,19 @@ list :: proc(members: bool, out: ^[dynamic]m.Page) -> (err: m.Error) {
 	for db.next_row(q, &err) {
 		vis, _ := store.enum_from_int(m.Visibility, db.column_int(q, 2))
 		append(out, m.Page{slug = db.clone_col(q, 0), title = db.clone_col(q, 1), visibility = vis, manual = db.column_int(q, 3) != 0})
+	}
+	return
+}
+
+search :: proc(words: []string, members: bool, limit: int, out: ^[dynamic]store.Search_Hit) -> (err: m.Error) {
+	if len(words) == 0 { return }
+	q := db.read(SQL_SEARCH)
+	defer db.reset(q)
+	db.bind_text(q, 1, db.fts_query(words))
+	db.bind_int(q, 2, 1 if members else 0)
+	db.bind_int(q, 3, limit)
+	for db.next_row(q, &err) {
+		append(out, store.Search_Hit{title = db.clone_col(q, 1), snippet = db.clone_col(q, 2), href = strings.concatenate({"/wiki/", db.clone_col(q, 0)}, context.temp_allocator)})
 	}
 	return
 }

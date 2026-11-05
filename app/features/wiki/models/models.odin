@@ -47,6 +47,8 @@ Store_Page :: proc(slug: string) -> (Page, Error)
 Store_List :: proc(members: bool, out: ^[dynamic]Page) -> Error
 // The Manual as this binary has it: what it no longer has goes.
 Store_Seed_Manual :: proc(pages: []Page) -> Error
+// By relevance. `members`: their pages too.
+Store_Search :: proc(words: []string, members: bool, limit: int, out: ^[dynamic]store.Search_Hit) -> Error
 // Off the loop. `current`: the page as it is now, the one saved, or the newer one when `conflict`.
 // .Constraint: a new page's slug is taken, or the page is the Manual's.
 Store_Save :: proc(input: Save) -> (current: Page, conflict: bool, err: Error)

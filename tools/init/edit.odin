@@ -138,6 +138,11 @@ plan_add :: proc(files: ^map[string]Ops, p: ^Profile, s: Selection, g: string) {
 	if .Exts in gf.decls { append_term(main, p, "BUNDLE_EXTS", fmt.tprintf("%s_web.EXTS", g)) }
 	if .Bundles in gf.decls { append_term(main, p, "PAGE_BUNDLES", fmt.tprintf("%s_web.BUNDLES", g)) }
 	if .Home_Card in gf.decls && slice.contains(p.features[:], "home") { append_elem(main, p, "HOME_CARDS", fmt.tprintf("%s_web.home_card", g)) }
+	if slice.contains(p.features[:], "find") {
+		for l in d.find_rows {
+			if slice.contains(l.features, g) { insert_before_close(main, table_of(p, "main", "find_m.Source"), strings.concatenate({"\t", l.text, ","}), "FIND_SOURCES") }
+		}
+	}
 	for st in d.stmts {
 		if !slice.contains(st.features, g) || st.call == "store_sqlite.migrate" || !all_in(st.features, s.features) { continue }
 		at := phase_anchor(main, st.phase)
@@ -188,6 +193,9 @@ plan_without :: proc(files: ^map[string]Ops, p: ^Profile, f: string) {
 	drop_term(main, p, "BUNDLE_EXTS", fmt.tprintf("%s_web.EXTS", f))
 	drop_term(main, p, "PAGE_BUNDLES", fmt.tprintf("%s_web.BUNDLES", f))
 	drop_term(main, p, "HOME_CARDS", fmt.tprintf("%s_web.home_card", f))
+	for l in p.find_rows {
+		if slice.contains(l.features, f) { delete_text(main, strings.concatenate({"\t", l.text, ","})) }
+	}
 	for n in p.nav {
 		if !n.root && slice.contains(n.features, f) { delete_text(brand, n.text) }
 	}

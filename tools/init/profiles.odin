@@ -30,6 +30,7 @@ Profile :: struct {
 	copies:        [dynamic]Line,   // brand.odin's other decls (ABOUT, HOME); key: the name
 	brand_fields:  [dynamic]Line,   // BRAND's fields; key: the field
 	stmts:         [dynamic]Stmt,
+	find_rows:     [dynamic]Line,   // FIND_SOURCES' rows, each its feature's
 	serve_extra:   string,          // what app.serve takes after &BRAND, as written ("" for none)
 	host_identity: string,          // HOSTS' third field, as written
 	hosts:         int,             // HOSTS' rows: tools/init writes and edits one-host profiles only
@@ -269,8 +270,30 @@ has_row :: proc(p: ^Pkg, path, want: string) -> bool {
 	return false
 }
 
+// A row of main's FIND_SOURCES, as written. Its feature is the domain its `search` names.
+@(private = "file")
+read_find_sources :: proc(p: ^Profile, src: Src) {
+	for d in src.file.decls {
+		vd, ok := d.derived_stmt.(^ast.Value_Decl)
+		if !ok || len(vd.values) != 1 || ident(vd.names[0]) != "FIND_SOURCES" { continue }
+		lit, is := vd.values[0].derived_expr.(^ast.Comp_Lit)
+		if !is { continue }
+		for e in lit.elems {
+			text := src.file.src[e.pos.offset:e.end.offset]
+			for f in p.features {
+				if strings.contains(text, strings.concatenate({f, ".find,"})) {
+					owners := make([dynamic]string)
+					append(&owners, f)
+					append(&p.find_rows, Line{features = owners[:], text = text})
+				}
+			}
+		}
+	}
+}
+
 @(private = "file")
 read_main :: proc(p: ^Profile, src: Src) {
+	read_find_sources(p, src)
 	for d in src.file.decls {
 		vd, ok := d.derived_stmt.(^ast.Value_Decl)
 		if !ok || len(vd.values) != 1 || ident(vd.names[0]) != "main" { continue }
