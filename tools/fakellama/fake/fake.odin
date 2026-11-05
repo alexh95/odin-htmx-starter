@@ -24,6 +24,7 @@ package fakellama
 //   fake:long        200 deltas, slower
 //   fake:wall        500 deltas: 5,000 characters
 //   fake:length      ends with finish_reason "length"
+//   fake:silent      no text at all, then finish_reason "length": a thinking model that spent its tokens
 //   fake:garbage     a data line that isn't JSON
 
 import "core:encoding/json"
@@ -243,7 +244,7 @@ send :: proc(sock: net.TCP_Socket, text: string) -> bool {
 // ---- an answer ---------------------------------------------------------------------------------
 
 @(private)
-Fault :: enum { None, Split, Stall, Stall_Mid, Quiet, Drop, Error, Long, Wall, Length, Garbage }
+Fault :: enum { None, Split, Stall, Stall_Mid, Quiet, Drop, Error, Long, Wall, Length, Silent, Garbage }
 
 @(private)
 question_of :: proc(body: string) -> (q: string, fault: Fault) {
@@ -266,6 +267,7 @@ question_of :: proc(body: string) -> (q: string, fault: Fault) {
 	case "fake:long":      fault = .Long
 	case "fake:wall":      fault = .Wall
 	case "fake:length":    fault = .Length
+	case "fake:silent":    fault = .Silent
 	case "fake:garbage":   fault = .Garbage
 	}
 	return
@@ -361,6 +363,7 @@ complete :: proc(sock: net.TCP_Socket, body: string) {
 		for i in 0 ..< 200 { append(&words, fmt.tprintf("word%d ", i)) }
 	case .Wall:
 		for _ in 0 ..< 500 { append(&words, "wallwalls ") }
+	case .Silent:
 	case .None, .Split, .Stall, .Stall_Mid, .Quiet, .Drop, .Error, .Length, .Garbage:
 		append(&words, "You ", "asked: ")
 		rest := q
@@ -411,7 +414,7 @@ complete :: proc(sock: net.TCP_Socket, body: string) {
 		if fault == .Long { pause() }
 	}
 
-	finish := `"length"` if fault == .Length else `"stop"`
+	finish := `"length"` if fault == .Length || fault == .Silent else `"stop"`
 	timed := fmt.tprintf(`data: {{"choices":[{{"finish_reason":%s,"index":0,"delta":{{}}}}],"id":"chatcmpl-fake","object":"chat.completion.chunk","usage":{{"completion_tokens":%d,"prompt_tokens":9,"total_tokens":%d}},"timings":{{"predicted_n":%d,"predicted_ms":%d,"prompt_ms":3}}}}` + "\n\n",
 		finish, len(words), len(words) + 9, len(words), len(words) * 5)
 	if !chunk(sock, timed) || !chunk(sock, "data: [DONE]\n\n") {

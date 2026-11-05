@@ -202,6 +202,23 @@ test.describe('room mode on llama', T, () => {
     await leave(ann, bob);
   });
 
+  test('an answer that spends its tokens saying nothing stores nothing, and tells its asker alone', async ({ browser }) => {
+    const ann = await member(browser, mainOrigin(s.port));
+    const bob = await member(browser, mainOrigin(s.port));
+    await expect.poll(async () => (await ann.page.goto('/bot'))!.headers()['x-impl']).toBe('bot.backend=llama');
+    const slug = await newRoom(ann.page);
+    await open(ann, slug, 'sse');
+    await open(bob, slug, 'sse');
+    await say(ann, '@bot fake:silent x');
+    await expect(ann.page.locator('#toasts .toast')).toContainText('nothing to say');
+    await expect(ann.page.locator('.bot-live')).toHaveCount(0);
+    await expect(bob.page.locator('.bot-live')).toHaveCount(0);
+    await expect(bob.page.locator('#toasts .toast')).toHaveCount(0);
+    await bob.page.reload();
+    await expect(fromBot(bob)).toHaveCount(0);
+    await leave(ann, bob);
+  });
+
   test("an answer can't ping a member or ask the bot", async ({ browser }) => {
     const ann = await member(browser, mainOrigin(s.port));
     const bob = await member(browser, mainOrigin(s.port));

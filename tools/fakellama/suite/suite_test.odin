@@ -214,6 +214,8 @@ against_fakellama :: proc(t: ^testing.T) {
 
 	a = ask(t, "fake:length x")
 	testing.expect_value(t, a.done.stop, m.Bot_Stop.Length)
+	a = ask(t, "fake:silent x")
+	testing.expectf(t, a.done.stop == .Length && strings.builder_len(a.text) == 0, "%v", a.done)
 
 	// An error inside the stream, after words: what was said stands, marked.
 	a = ask(t, "fake:error x")
