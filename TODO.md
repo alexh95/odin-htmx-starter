@@ -110,8 +110,10 @@ Alex's answer on what an anonymous poll stores.
       Done (2026-11-05): `web.keep_in_history`, `web.set_private`, `web.set_canonical`. Only a guest's pages are kept (planning, 2026-11-05): a snapshot is
       the body, and a sign-out reaches only its own tab. A revoke clears snapshots too. A body's own links are in `hx-ignore`, so they load in full; the gate is over boosted ones.
       `/find`'s spec is slice 6's.
-- [ ] **5. The markdown campaign** (§19.1.3, D44): `platform/fuzz` over `render` at a campaign's scale under ASan on Linux, and in the
+- [x] **5. The markdown campaign** (§19.1.3, D44): `platform/fuzz` over `render` at a campaign's scale under ASan on Linux, and in the
       nightly; depth cap, input cap and the output's invariants (no raw tag, no unsafe href). *Check:* 0 crashes, the rounds and seed recorded.
+      **Done:** `FUZZ_SCALE=100 FUZZ_SEED=20261105` under ASan on Linux at 0c711fa: 10,000,000 rounds of the render fuzz, 0 crashes, all 15
+      tests green in 2 h 39 m; the slowest shape at 64 KiB took 151 ms under ASan (11.4 ms without).
 - [x] **6. Find** (§6, D6, D16): `/find`, `FIND_SOURCES`, each source's own perm before its `search`; on the query pool; 10 per second
       per user; a list that never mixes engines, held at boot; `hx-sync="this:replace"`; a plain GET form with no client. Mounted on `full`
       (FTS) and `streams` (memory). *Check:* the membership suite below, `cafe` on each family, the limit, `rbac.spec`, the XSS suite over

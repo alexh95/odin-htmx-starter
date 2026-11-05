@@ -117,7 +117,8 @@ test.describe('nothing private is kept', T, () => {
     await page.waitForURL((u) => u.pathname !== '/register');
     await page.goto('/login');
     await page.getByRole('button', { name: 'Sign out' }).click();
-    await expect.poll(() => snapshots(page)).toEqual([]);
+    // The sign-out's navigation can pull the page out from under a read: that read just goes again.
+    await expect.poll(() => snapshots(page).catch(() => ['navigating'])).toEqual([]);
     await context.close();
   });
 });
