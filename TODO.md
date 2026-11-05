@@ -46,9 +46,10 @@ copy-and-start ergonomics and good defaults matter more than feature depth.
 
 ## Known flakes (seen once, passed on a rerun: not fixed)
 
-- **WebKit's `page.goto: WebKit encountered an internal error`**, on CI's Linux WebKit jobs in about two runs of three since at
-  least 2026-11-01 (v2.4.0's tree), at any page, nearly always passing on its retry. Older than M7 and not understood; a
-  browser-side error with no server log. It failed `E2E (streams, webkit)` outright once, at `ce6a8ce`.
+- **WebKit's `page.goto: WebKit encountered an internal error`**, on CI's Linux WebKit jobs in most runs since at least 2026-11-01,
+  nearly always passing on its retry; it failed `E2E (streams, webkit)` outright at `ce6a8ce`. Chased for about 2 hours on
+  2026-11-05, with no root cause (`docs/testing/WEBKIT-GOTO.md`): a heap abort in a browser process comes first, about 3 % of
+  rounds that sign in on this server hit it, and no guest or bare-server round did. Why sign-in matters is unexplained.
 - **`acquire_thread_event_loop` at boot** in a spec's own server, under a parallel run on CI (`b045bb8`, `eccc146`). M7's specs now
   boot two loops each. The assertion names the error now: if it comes back, that says what ran out.
 
