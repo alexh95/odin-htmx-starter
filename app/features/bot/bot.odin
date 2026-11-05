@@ -24,8 +24,11 @@ MAX_QUESTION :: 4000
 MAX_ANSWER :: 64 * 1024
 // A conversation's title: its first question, cut by rune.
 TITLE_RUNES :: 60
-// What a backend is given of a conversation: its last turns, the question last.
+// What a backend is given of a conversation: its last turns, the question last, and at most
+// PROMPT_BYTES of them: about 5k tokens, of the 8k context the host is sized for (§14.3), with
+// room for the answer. Past that llama.cpp refuses the question rather than cutting it.
 HISTORY :: 20
+PROMPT_BYTES :: 16 * 1024
 // How many conversations the page lists.
 SHOWN :: 50
 
@@ -33,15 +36,17 @@ SHOWN :: 50
 SYSTEM :: "You are the house assistant on a home LAN. Answer briefly and plainly."
 
 Backend :: enum u8 {
-	Mock, // .Llama joins at M7 (§14.3)
+	Mock,
+	Llama,
 }
 
 BACKENDS := [Backend]string {
 	.Mock = "mock",
+	.Llama = "llama",
 }
 
 ENV := [?]env.Row {
-	{name = "BOT_BACKEND", kind = .Enum, def = "mock", choices = "mock", doc = "the bot's default backend (llama joins at M7)"},
+	{name = "BOT_BACKEND", kind = .Enum, def = "mock", choices = "mock|llama", doc = "the bot's default backend; llama needs BOT_LLAMA_URL"},
 	{name = "BOT_MEMBER_PER_HOUR", kind = .Int, def = "30", doc = "questions a member may ask an hour (§17.5)"},
 	{name = "BOT_GUEST_PER_HOUR", kind = .Int, def = "5", doc = "questions one guest client may ask an hour, mock only (§17.5)"},
 }
@@ -55,7 +60,7 @@ st: struct {
 
 init :: proc() {
 	env.record("BOT_", ENV[:])
-	st.backend = .Mock
+	st.backend = .Llama if env.str("BOT_BACKEND") == "llama" else .Mock
 	st.member_per_hour = max(1, env.int_("BOT_MEMBER_PER_HOUR"))
 	st.guest_per_hour = max(1, env.int_("BOT_GUEST_PER_HOUR"))
 }
@@ -89,6 +94,14 @@ title_of :: proc(q: string) -> string {
 // The request for a question in a conversation (`turns` oldest first; none for a guest's).
 request :: proc(conv: i64, user: u64, turns: []m.Turn, question: string) -> m.Bot_Request {
 	from := max(0, len(turns) - (HISTORY - 1))
+	size := len(question)
+	for i := len(turns) - 1; i >= from; i -= 1 {
+		size += len(turns[i].text)
+		if size > PROMPT_BYTES {
+			from = i + 1
+			break
+		}
+	}
 	history := make([dynamic]m.Bot_Turn, 0, len(turns) - from + 1, context.temp_allocator)
 	for t in turns[from:] { append(&history, m.Bot_Turn{t.role, t.text}) }
 	append(&history, m.Bot_Turn{.User, question})

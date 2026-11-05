@@ -236,6 +236,9 @@ values :: proc() -> []Value { return table.values[:] }
 // The bad values, one line each; app.check exits when there is any.
 problems :: proc() -> []string { return table.problems[:] }
 
+// A refusal a row's kind can't express (a URL's shape): fatal at check_problems, as a bad value is.
+problem :: proc(text: string) { append(&table.problems, text) }
+
 // Variables inside a recorded prefix that no row names: a typo, most likely.
 unknown :: proc(allocator := context.temp_allocator) -> []string {
 	out := make([dynamic]string, allocator)

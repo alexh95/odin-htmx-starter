@@ -25,7 +25,7 @@ odin-htmx-starter/
   app/          the platform, features, stores and profiles: app/README.md is the tour
   e2e/          Playwright specs per feature (e2e/README.md)
   load-tests/   k6 scenarios per feature and the parity gate (load-tests/README.md)
-  tools/        check, bundle, drills, baseline, init, og, streamload, profile
+  tools/        check, bundle, drills, baseline, init, og, streamload, fakellama, profile
   tests/        parity-waivers.txt
   docs/         PLAN.md, design/, spikes/, perf/, audit/
   build.sh build.bat   the one place a profile's build flags live

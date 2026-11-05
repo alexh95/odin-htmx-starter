@@ -45,6 +45,7 @@ main :: proc() {
 
 	// The standard set, and browsers' CSP violation reports to /csp-report (§12.2).
 	app.serve(HOSTS[:], JOBS[:], &BRAND, web.Header_Set.Reporting)
+	bot_web.start()
 	app.wait()
 	app.shutdown()
 	app.exit()

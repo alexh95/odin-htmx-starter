@@ -122,7 +122,9 @@ shell :: proc(question: string, mid: string, gen: m.Bot_Gen_Id) -> string {
 	w(&b, mid)
 	w(&b, `" class="bot-msg bot-a live"><div id="mb-`)
 	w(&b, mid)
-	fmt.sbprintf(&b, `" class="bot-body bot-stream"></div><button class="btn btn-ghost bot-stop" type="button" hx-post="/bot/gen/%d/stop" hx-swap="none">Stop</button></article>`, u64(gen))
+	fmt.sbprintf(&b, `" class="bot-body bot-stream"></div><p id="mq-`)
+	w(&b, mid)
+	fmt.sbprintf(&b, `" class="bot-queued muted"></p><button class="btn btn-ghost bot-stop" type="button" hx-post="/bot/gen/%d/stop" hx-swap="none">Stop</button></article>`, u64(gen))
 	return strings.to_string(b)
 }
 
@@ -133,6 +135,17 @@ piece :: proc(mid, text: string) -> string {
 	w(&b, mid)
 	w(&b, `" hx-swap="beforeend">`)
 	esc(&b, text)
+	w(&b, `</hx-partial>`)
+	return strings.to_string(b)
+}
+
+// Waiting for a slot: position 0 clears the line.
+queued :: proc(mid: string, position: int) -> string {
+	b := strings.builder_make(context.temp_allocator)
+	w(&b, `<hx-partial hx-target="#mq-`)
+	w(&b, mid)
+	w(&b, `" hx-swap="innerHTML">`)
+	if position > 0 { fmt.sbprintf(&b, `Queued (#%d)`, position) }
 	w(&b, `</hx-partial>`)
 	return strings.to_string(b)
 }
@@ -169,5 +182,7 @@ answer :: proc(b: ^strings.Builder, mid, text: string, stats: m.Bot_Done) {
 	bot.render(b, text)
 	w(b, `</div><p class="bot-stats muted">`)
 	if stats.stop == .Stopped { w(b, `Stopped · `) }
+	if stats.stop == .Error { w(b, `Cut off · `) }
+	if stats.stop == .Length { w(b, `At the length limit · `) }
 	fmt.sbprintf(b, `%d tokens · first token %d ms · %d ms</p></article>`, stats.tokens, stats.ms_first_token, stats.ms_total)
 }

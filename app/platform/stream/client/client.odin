@@ -101,7 +101,7 @@ open :: proc(c: ^Conn, ep: net.Endpoint, req: string, mode: Mode, timeout := 5 *
 		if d.allocator.procedure == nil { d.allocator = heap() }
 		clear(d)
 	}
-	c.sse.has_data, c.sse.after_cr = false, false
+	c.sse.has_data, c.sse.after_cr, c.sse.over = false, false, false
 	if mode == .Ws {
 		k := ws_key(&c.key)
 		c.key_len = len(k)
@@ -240,6 +240,10 @@ feed :: proc(c: ^Conn) {
 		}
 		deliver(c, data)
 		clear(&c.inbuf)
+		if c.sse.over {
+			finish(c, .Bad_Response)
+			return
+		}
 		if done && c.state != .Gone { finish(c, .Done) }
 	}
 }

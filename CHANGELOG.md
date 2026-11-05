@@ -13,6 +13,21 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 - **The bot in Houston** (M7): `/bot` on the main host and in the nav, its conversations in SQLite, a member's newest 50,
   each with its last 200 turns, across restarts. `storetest` holds both families to one contract. The page says who can
   read a conversation: nobody through the site, whoever runs the server through its database.
+- **`tools/fakellama`** (M7): llama-server's routes and wire shapes with no model, its faults chosen by a question's first
+  word (`fake:split`, `fake:stall`, `fake:drop` …), and a suite running the binding against it on a real socket.
+- **`backend_llama`** (M7): the binding to a llama.cpp server at `BOT_LLAMA_URL`, on the asking stream's own loop through
+  `platform/stream/client`: a bearer from `BOT_LLAMA_KEY` (or `BOT_LLAMA_KEY_FILE`), connect 2 s, first token 30 s, idle
+  15 s, tokens at 20 Hz, Stop closing the socket, and a first-come queue past the server's slots that a page shows as
+  "Queued (#n)". A boot with `BOT_BACKEND=llama` and no URL is refused.
+
+### Changed
+
+- **What a backend is given** stops at 16 KiB of a conversation's newest turns as well as its last 20: past its context
+  llama.cpp refuses a question rather than cutting it.
+- **`/events` refuses a server-side topic row** and a publish to one keeps nothing: a row with `deliver` would otherwise
+  have handed a private room's question to anyone who asked for `bot.ask:<room>`.
+- **`platform/stream/client`** can cap an SSE event (`sse.max`), past which the read ends as a bad response. The bot's
+  binding sets it: a server path uses the client now.
 
 ## [2.5.0] - 2026-11-04
 

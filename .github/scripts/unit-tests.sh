@@ -8,7 +8,7 @@
 # Usage: sh .github/scripts/unit-tests.sh   (from the repo root)
 set -eu
 fail=0
-for d in $(find app tools/check -name '*_test.odin' -not -path 'app/vendor/sqlite/*' -not -path 'app/cmd/*' -not -path '*/testdata/*' | xargs -n1 dirname | sort -u); do
+for d in $(find app tools/check tools/fakellama -name '*_test.odin' -not -path 'app/vendor/sqlite/*' -not -path 'app/cmd/*' -not -path '*/testdata/*' | xargs -n1 dirname | sort -u); do
   echo "== odin test $d"
   odin test "$d" -collection:store=app/stores/memory -collection:identity=app/platform/authz/anonymous \
     -collection:client=app/platform/client/vanilla -collection:theme=app/platform/theme/lite \

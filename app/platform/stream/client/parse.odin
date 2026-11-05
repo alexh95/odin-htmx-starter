@@ -143,6 +143,8 @@ Sse :: struct {
 	id:       [dynamic]byte,
 	has_data: bool,
 	after_cr: bool, // the last byte was a CR: an LF next ends nothing new
+	max:      int,  // an event's bytes at most; 0 = no cap
+	over:     bool, // past `max`: the read stops here
 }
 
 sse_destroy :: proc(p: ^Sse) {
@@ -162,6 +164,10 @@ sse_feed :: proc(p: ^Sse, b: []byte, user: rawptr, on_event: proc(user: rawptr, 
 		}
 		p.after_cr = ch == '\r'
 		if ch != '\r' && ch != '\n' {
+			if p.max > 0 && len(p.line) + len(p.data) >= p.max {
+				p.over = true
+				return
+			}
 			append(&p.line, ch)
 			continue
 		}

@@ -16,6 +16,7 @@ import "core:strings"
 import "core:time"
 
 import "../../../platform/authz"
+import "../../../platform/env"
 import "../../../platform/guard"
 import "../../../platform/html"
 import "../../../platform/hub"
@@ -24,6 +25,7 @@ import "../../../platform/store"
 import "../../../platform/stream"
 import "../../../platform/web"
 import bot ".."
+import bot_backend_llama "../backend_llama"
 import bot_backend_mock "../backend_mock"
 import m "../models"
 import bot_views "../views"
@@ -64,19 +66,29 @@ gens: struct {
 
 @(private)
 Who :: struct {
-	member: bool,
-	key:    u64, // a member's id, or a guest's client key
+	member:  bool,
+	key:     u64, // a member's id, or a guest's client key
+	backend: bot.Backend, // the generation's: the default may change while it runs
 }
 
 init :: proc() {
 	bot.init()
 	bot_backend_mock.init()
+	bot_backend_llama.init()
+	if bot.default_backend() == .Llama && !bot_backend_llama.configured() {
+		env.problem("BOT_BACKEND=llama: BOT_LLAMA_URL is required; no host or port is assumed (§14.3)")
+	}
 	members_hour.n = bot.member_per_hour()
 	guests_hour.n = bot.guest_per_hour()
 	gens.owner = make(map[m.Bot_Gen_Id]Who, heap())
 	gens.active = make(map[u64]int, heap())
 	// The status page's line for the bot: the mock is always up (M7's llama reports its own).
 	obs.set_health("bot", .Ok, "the mock answers")
+}
+
+// After the loops run: the llama server's health probe.
+start :: proc() {
+	bot_backend_llama.start_probe(proc(h: m.Bot_Health) {})
 }
 
 // ---- the backend switch (D8; LC §4) ----------------------------------------------------------
@@ -91,14 +103,16 @@ backend_of :: proc(v: authz.Viewer) -> bot.Backend {
 health :: proc(b: bot.Backend) -> m.Bot_Health {
 	switch b {
 	case .Mock: return bot_backend_mock.health()
+	case .Llama: return bot_backend_llama.health()
 	}
 	return {}
 }
 
 @(private)
-start :: proc(b: bot.Backend, req: m.Bot_Request, sink: m.Bot_Sink) -> m.Bot_Gen_Id {
+generate :: proc(b: bot.Backend, req: m.Bot_Request, sink: m.Bot_Sink) -> m.Bot_Gen_Id {
 	switch b {
 	case .Mock: return bot_backend_mock.start(req, sink)
+	case .Llama: return bot_backend_llama.start(req, sink)
 	}
 	return 0
 }
@@ -107,6 +121,7 @@ start :: proc(b: bot.Backend, req: m.Bot_Request, sink: m.Bot_Sink) -> m.Bot_Gen
 cancel :: proc(b: bot.Backend, id: m.Bot_Gen_Id) {
 	switch b {
 	case .Mock: bot_backend_mock.cancel(id)
+	case .Llama: bot_backend_llama.cancel(id)
 	}
 }
 
@@ -230,13 +245,13 @@ ask_member :: proc(req: ^web.Request, res: ^web.Response) {
 		web.respond_store_error(req, res, err)
 		return
 	}
-	ask(req, res, Who{true, v.id}, c, turns[:])
+	ask(req, res, Who{member = true, key = v.id}, c, turns[:])
 }
 
 @(private)
 ask_guest :: proc(req: ^web.Request, res: ^web.Response) {
 	v := web.viewer(req)
-	who := Who{true, v.id} if v.id != 0 else Who{false, web.client_key(web.ctx().client)}
+	who := Who{member = true, key = v.id} if v.id != 0 else Who{member = false, key = web.client_key(web.ctx().client)}
 	ask(req, res, who, {}, nil)
 }
 
@@ -270,7 +285,7 @@ ask :: proc(req: ^web.Request, res: ^web.Response, who: Who, c: m.Conversation, 
 	guard.lock(&gens.mu)
 	gens.seq += 1
 	a.gen = m.Bot_Gen_Id(gens.seq)
-	gens.owner[a.gen] = who
+	gens.owner[a.gen] = {who.member, who.key, backend}
 	guard.unlock(&gens.mu)
 	a.mid = fmt.aprintf("g%d", u64(a.gen), allocator = heap())
 
@@ -290,7 +305,7 @@ ask :: proc(req: ^web.Request, res: ^web.Response, who: Who, c: m.Conversation, 
 	}
 	send(a, bot_views.shell(q, a.mid, a.gen))
 	sink := m.Bot_Sink{user = a, loop = nbio.current_thread_event_loop(), gen = a.gen, on_event = on_event}
-	start(backend, bot.request(c.id, who.key, turns, q), sink)
+	generate(backend, bot.request(c.id, who.key, turns, q), sink)
 }
 
 // The backend's events, on this stream's loop.
@@ -306,7 +321,7 @@ on_event :: proc(user: rawptr, _: m.Bot_Gen_Id, ev: m.Bot_Event) {
 			stream.write(a.conn, stream.sse_event("", "hx:release", ""))
 		}
 	case m.Bot_Queued:
-		send(a, bot_views.piece(a.mid, fmt.tprintf("Queued (#%d)… ", e.position)))
+		send(a, bot_views.queued(a.mid, e.position))
 	case m.Bot_Error:
 		release(a)
 		send(a, bot_views.failed(a.mid, e.message))
@@ -388,11 +403,11 @@ stop :: proc(req: ^web.Request, res: ^web.Response) {
 		return
 	}
 	v := web.viewer(req)
-	me := Who{true, v.id} if v.id != 0 else Who{false, web.client_key(web.ctx().client)}
+	me := Who{member = true, key = v.id} if v.id != 0 else Who{member = false, key = web.client_key(web.ctx().client)}
 	guard.lock(&gens.mu)
 	who, found := gens.owner[m.Bot_Gen_Id(id)]
 	guard.unlock(&gens.mu)
-	if found && who == me { cancel(backend_of(v), m.Bot_Gen_Id(id)) }
+	if found && who.member == me.member && who.key == me.key { cancel(who.backend, m.Bot_Gen_Id(id)) }
 	web.respond_status(res, .No_Content)
 }
 

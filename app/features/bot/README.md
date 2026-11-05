@@ -3,7 +3,7 @@
 The house assistant (PLAN §14.3, D31; Q20, Q32), on its mock at M2. Packages: `bot` (the domain: questions of at most
 4,000 runes, titles, what a backend is asked, the answer's markdown render), `models` (D31's backend contract:
 `Bot_Request`, `Bot_Event`, `Bot_Done` with llama's stats shape, `Bot_Health`, `Bot_Sink`; conversations, turns and the
-store contract), `backend_mock` (the default and, until M7's llama binding, the only backend), `views` and `web` (the
+store contract), `backend_mock` (the default), `backend_llama` (a llama.cpp server on the LAN), `views` and `web` (the
 routes, the backend switch, both deliveries, Stop and the limits). Its stores: memory (`app/stores/memory/bot/`, `streams`) and
 SQLite (`app/stores/sqlite/bot/`, Houston, from M7), held to one contract by `storetest`.
 
@@ -17,6 +17,12 @@ for a conversation's first question, `#conv-title`. `x-impl: bot.backend=<name>`
 30–120 ms apart (`BOT_DELAY_MS` fixes it, 0 as fast as the loop goes), coalesced to at most 20 events a second, and the
 same answer for the same question when `BOT_SEED` is set. `cancel`, from Stop on any loop or a browser that went away,
 is posted to the generation's loop, which removes its timer and sends `Bot_Done{.Stopped}`.
+
+**The llama binding** posts to `BOT_LLAMA_URL`'s `/v1/chat/completions` on `platform/stream/client`, on the loop of the
+stream that asked, so it needs no pool. The server takes its slots' worth at once, counted across every loop; past that a
+generation queues, first come first served, and the page says "Queued (#n)". Connect 2 s, first token 30 s, idle 15 s,
+each answered in words; what was said before a fault stands, marked "Cut off". Stop closes the socket, which is what stops
+llama.cpp. `tools/fakellama` is what it's tested against: no model ships.
 
 **Who may ask** (Q20, §17.5): members keep their conversations (the newest 50, each with its last 200 turns), ask one
 at a time and `BOT_MEMBER_PER_HOUR` (30) an hour; guests get the mock, `BOT_GUEST_PER_HOUR` (5) an hour per client,

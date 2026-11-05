@@ -69,15 +69,17 @@ steps go through planning once the code can use them. Pushes are on the standing
       the subscribe is refused, a check test with a typo.
       Done (2026-11-05): `deliver` is all such a publish does, `/events` answers 400 for one. The drop counter and the check
       were already there; slice 7's spec holds the 400 on the real row.
-- [ ] **3. `tools/fakellama`** (§14.3): an Odin server on the starter's SSE encoder with llama's routes (`/v1/chat/completions`,
+- [x] **3. `tools/fakellama`** (§14.3): an Odin server on the starter's SSE encoder with llama's routes (`/v1/chat/completions`,
       `/health`, `/props`), scripted answers and faults: chunk boundaries inside `data:` lines, `[DONE]`, an OAI error, 503
       "Loading model", sleeping, a stall before the first token and between tokens, a dropped connection, a required key,
       total slots. *Check:* its own tests, and the parser suite in slice 4 runs against it.
-- [ ] **4. `backend_llama`** (§14.3, D31): `Backend.Llama`, the binding on `platform/stream/client`, on the stream's loop:
+- [x] **4. `backend_llama`** (§14.3, D31): `Backend.Llama`, the binding on `platform/stream/client`, on the stream's loop:
       chunked SSE, `delta.content`, `[DONE]`, usage into `Bot_Done`; the bearer from `BOT_LLAMA_KEY_FILE`, never logged;
       connect 2 s, first token 30 s, idle 15 s; tokens coalesced to 20 Hz; cancel closes the socket; slots as a process-wide
       count with a FIFO queue sending `Bot_Queued`, sized from `/props` or `BOT_CONCURRENCY`. *Check:* the fakellama parser
       suite, each deadline, Stop and a closed browser reaching fakellama as a close, the queue spec with `BOT_CONCURRENCY=1`.
+      Done (2026-11-05): `tools/fakellama/suite`, on a real socket; the page-level specs come with slice 6, which is what lets
+      a server pick the backend.
 - [ ] **5. Health and the badge** (§14.3): the probe of `/health` and `/props`, mapped to `Bot_Health.state`, published
       on `bot.health`, reported to `obs` and `/status` as degraded and never failing readiness. *Check:* a spec driving
       fakellama through ready, loading, sleeping and offline and the badge following with no reload.

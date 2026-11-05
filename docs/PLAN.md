@@ -371,7 +371,7 @@ Below L4, platform imports a feature only through a family collection: `platform
 | `platform/store/sqlite` | 2 | store v3: the writer connection, per-loop readers, the writer task, the query pool (D16); `open` and `migrate`, which answer `--backup` and `--adopt-profile`; the pure-trap reader reset, pulled from guard's recovery count before each reader use and on a per-loop 1 s timer (S0.6); `sqlite3_db_status` numbers pushed to obs (LC §5) |
 | `platform/store/memory` | 2 | rings and maps behind guarded locks, ids `<epoch>-<seq>` |
 | `platform/env` | 2 | the typed env table (D10): the platform's rows and each feature's, recorded by its `init`; features read their rows here, never through `platform/app` (LC §5) |
-| `platform/workers` | 2 | the argon, query, llama and jobs pools, the scheduler over the mounted `JOBS` (`run_now`, `cancel`, each run's state as data), generation checks |
+| `platform/workers` | 2 | the argon, query and jobs pools, the scheduler over the mounted `JOBS` (`run_now`, `cancel`, each run's state as data), generation checks |
 | `platform/authz` | 2 | `Role`, `Perm`, `ROLE_PERMS`, `Viewer` (it carries the member's preferences), the identity contract `Load_Viewer`, which takes an `Ask` (the Cookie header, the client address, https) and returns the Viewer and a Set-Cookie value, so no identity sees odin-http's types |
 | `platform/authz/anonymous` | 2 | `authz_anonymous`, the default identity (every viewer is the Guest): a member of the `identity` family (§2.8) |
 | `platform/obs` | 2 | logfmt, request ids, counters and health state (`platform/web` serves `/metrics` and `/livez /readyz /healthz` from them), the health, limits and numbers features push (§10.4), spall |
@@ -920,7 +920,7 @@ by convention, not packages; its SQLite migrations sit in its SQLite store, `app
 | `platform/authz` | L2 | `Role`, `Perm`, `ROLE_PERMS`, `Viewer` (it carries the member's preferences), the identity contract `Load_Viewer (ask: Ask) -> (Viewer, set_cookie)`: `front` hands it the Cookie header, the client address and whether the request came as https, so no identity sees odin-http's types (§17; M1) | 07 §5.2; D35; LC §3, §5 |
 | `platform/authz/anonymous` | L2 | `authz_anonymous`, the default identity: every viewer is the Guest, nothing sets a cookie, and its `cli` answers nothing; a member of the `identity` family | D35; LC §3 |
 | `platform/env` | L2 | the typed env table (D10): rows `{name, type, default, secret, doc}`, the platform's recorded by `app.boot` and each feature's by its `init`, which then reads its own (§8.5) | 09 §4.5; D10; LC §5 |
-| `platform/workers` | L2 | the `argon`, `query`, `llama` and `jobs` pools; the scheduler over the mounted `JOBS` rows (`run_now(id)`, `cancel(run)`, each run's state kept as data); replies by `next_tick` with a connection generation check; a full queue answers 503 | S11; 12 §4; D16; LC §9 |
+| `platform/workers` | L2 | the `argon`, `query` and `jobs` pools; the scheduler over the mounted `JOBS` rows (`run_now(id)`, `cancel(run)`, each run's state kept as data); replies by `next_tick` with a connection generation check; a full queue answers 503 | S11; 12 §4; D16; LC §9 |
 | `platform/markdown` | L2 | spark's safe-subset renderer: nesting depth cap 32, input cap 64 KiB, rendered at write time, pure zone; relative doc links and images resolve against two prefixes the caller passes (`/wiki/`, a media folder) instead of spark's game paths | S6; 06 §3.2; D15 |
 | `platform/store` | L2 | what every store shares: `Migration`, `Error`, `enum_from_int` (validated enum reads, fixes 02 F3), `Search_Hit` and `Find_Source`; each feature's store contract lives in its `models` package (§6.4) | S8, S9; D4, D16; LC §5 |
 | `platform/store/sqlite` | L2 | store v3: one writer, per-loop readers, the writer task, the query pool, `open` (`--backup`, `--adopt-profile`) and the per-feature `migrate` (§11); it pulls the pure-trap reader reset from guard's recovery count and pushes its `sqlite3_db_status` numbers to obs (§10) | 12 §9; D16; LC §5 |
@@ -3495,15 +3495,17 @@ fast. Its `Bot_Done` stats have llama's shape, so the UI is the same for both.
 | Aspect | Contract |
 |---|---|
 | Endpoint | `POST {BOT_LLAMA_URL}/v1/chat/completions`, `stream:true`. The URL is required: the README says port 9931, the b9190 build 8080 (07 §2.2), and apollo's server publishes `<LLAMA_PORT>` |
-| Client, pool | `platform/stream/client` (**NEW**, D12) on the llama worker pool, sized from `/props total_slots` (or `BOT_CONCURRENCY`) |
+| Client, slots | `platform/stream/client` (**NEW**, D12) on the asking stream's own loop, which it never blocks, so no pool. Slots are a process-wide count from `/props total_slots` (or `BOT_CONCURRENCY`), with a first-come queue of `BOT_QUEUE` |
 | Parsing | chunked transfer, SSE `data:` lines, `choices[0].delta.content`, then `[DONE]` |
 | Health | `/health` (503 = loading) and `/props is_sleeping`, mapped to `Bot_Health.state` and published on `bot.health` |
-| Deadlines | connect 2 s, first token 30 s, idle 15 s |
+| Deadlines | connect 2 s, first token 30 s (`BOT_LLAMA_FIRST_TOKEN`), idle 15 s (`BOT_LLAMA_IDLE`) |
 | Cancel | closes the upstream socket, which is what stops llama.cpp's generation (07 §2.2); Stop and a closed browser stream both call it |
-| Transport | plain http on the LAN, so no OpenSSL; a key, if set, comes from `BOT_LLAMA_KEY_FILE` as a bearer token (07 §2.3), never logged |
+| Transport | plain http on the LAN, so no OpenSSL; a key, if set, comes from `BOT_LLAMA_KEY` or the file `BOT_LLAMA_KEY_FILE` names, as a bearer token (07 §2.3), never logged |
+| Health probe | a thread of its own, on an event loop of its own, every `BOT_LLAMA_PROBE` (5 s): a dead host must hold neither a server loop nor the scheduler's other jobs |
 
-`tools/fakellama` (Odin, on the starter's own SSE encoder) tests the parser without a GPU: chunk boundaries inside
-`data:` lines, `[DONE]`, an OAI error and a 503 "Loading model". A smoke against a real `llama-server` happens only
+`tools/fakellama` (Odin, a thread per connection on `core:net`: a test double, so it stays apart from the server's packages) tests
+the parser without a GPU: chunk boundaries inside `data:` lines and inside a rune, `[DONE]`, an OAI error, a 503 "Loading
+model", stalls, a dropped socket and a refused key. `tools/fakellama/suite` runs the binding against it on a real socket. A smoke against a real `llama-server` happens only
 once Alex runs one: apollo's from M7, or the dev PC's when Alex starts it.
 
 **Front-end contract** (D31). hx-pending echoes the question at once and the browser indicator is on:

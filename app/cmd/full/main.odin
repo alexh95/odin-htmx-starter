@@ -88,6 +88,7 @@ main :: proc() {
 	// The standard set, and browsers' CSP violation reports to /csp-report (§12.2). Each host
 	// has its own brand: the lab host's says what it is.
 	app.serve(HOSTS[:], JOBS[:], &BRAND, web.Header_Set.Reporting, {&BRAND, &LAB_BRAND})
+	bot_web.start()
 	app.wait()
 	app.shutdown()
 	store_sqlite.close() // the writer's last batch, then the checkpoint
