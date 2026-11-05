@@ -117,8 +117,21 @@ request :: proc(conv: i64, user: u64, turns: []m.Turn, question: string) -> m.Bo
 		}
 	}
 	history := make([dynamic]m.Bot_Turn, 0, len(turns) - from + 1, context.temp_allocator)
-	for t in turns[from:] { append(&history, m.Bot_Turn{t.role, t.text}) }
-	append(&history, m.Bot_Turn{.User, question})
+	// Roles alternate: a question that failed left no answer, and many templates refuse two in a row
+	// (M7-09), so of a run the newest stands, and an answer no word of which came is no turn.
+	for t in turns[from:] {
+		if t.text == "" { continue }
+		if n := len(history); n > 0 && history[n - 1].role == t.role {
+			history[n - 1].text = t.text
+		} else {
+			append(&history, m.Bot_Turn{t.role, t.text})
+		}
+	}
+	if n := len(history); n > 0 && history[n - 1].role == .User {
+		history[n - 1].text = question
+	} else {
+		append(&history, m.Bot_Turn{.User, question})
+	}
 	return {conv_id = conv, user_id = user, system = SYSTEM, history = history[:], max_tokens = 512, temperature = 0.7}
 }
 

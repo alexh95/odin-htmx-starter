@@ -35,6 +35,16 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 
 - **The `botmock` drill** (M7): 1000 concurrent mock generations ≤ 1 core and ≤ +30 MB, on every push (`docs/perf/BOT-BUDGETS.md`).
 
+### Fixed
+
+- **A server's JSON can't run a thread out of stack** (M7-01): nesting is counted past strings before `core:encoding/json`
+  recurses, and the health probe runs guarded.
+- **A generation has a total** (M7-02): `BOT_LLAMA_TOTAL`, 5 minutes, over a queued one too, and only words count as life.
+- **A closed connection's buffer outlives the kernel's hold on it** (M7-03), and a server path's reads run under the guard (M7-04).
+- **Markdown stays linear** (M7-07): 64 KiB of any delimiter costs milliseconds.
+- **A failed question leaves a conversation usable** (M7-09): what a model is sent keeps its roles alternating.
+- **A bot's message can be reported and removed** like anyone's (M7-06).
+
 ### Changed
 
 - **What a backend is given** stops at 16 KiB of a conversation's newest turns as well as its last 20: past its context

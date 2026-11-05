@@ -2,6 +2,7 @@ package markdown
 
 import "core:strings"
 import "core:testing"
+import "core:time"
 
 // From spark's suite, with the game-docs paths now the caller's two prefixes.
 
@@ -152,4 +153,19 @@ caps_hold :: proc(t: ^testing.T) {
 	has(t, out, "bottom")
 	stars := strings.concatenate({strings.repeat("*a ", 200, context.temp_allocator), "z", strings.repeat(" a*", 200, context.temp_allocator)}, context.temp_allocator)
 	testing.expect(t, strings.count(md(stars), "<em>") < MAX_DEPTH)
+}
+
+// A model's text can be 64 KiB of anything, rendered on a loop on every page of the conversation
+// (M7-07): no delimiter may cost a scan of the rest at each one.
+@(test)
+a_wall_of_delimiters_stays_linear :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	for d in ([]string{"[", "![", "<", "*", "_", "~", "`", "](", "**", "[a](", "\\", ">"}) {
+		wall := strings.repeat(d, 64 * 1024 / len(d), context.temp_allocator)
+		b := strings.builder_make(context.temp_allocator)
+		began := time.tick_now()
+		render(&b, wall)
+		took := time.tick_since(began)
+		testing.expectf(t, took < 200 * time.Millisecond, "%q took %v", d, took)
+	}
 }

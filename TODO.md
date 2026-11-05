@@ -34,6 +34,15 @@ copy-and-start ergonomics and good defaults matter more than feature depth.
 - [ ] **Small things** (M6-16): a private room's slug can be probed by name, a moderator can mute an admin, a renamed
       member's socket keeps the old name.
 
+## M7's audit: what stays open (docs/audit/M7.md)
+
+- [ ] **A conversation can't be deleted** (M7-08): nor does anything age one out, beyond a member's newest 50.
+- [ ] **Room mode skips `Bot_Llama`** (M7-10): chat doesn't hand bot the asker's perms. No role differs today; a fork that splits
+      `Chat_Post` from `Bot_Llama` would leak through here.
+- [ ] **`tools/check` has no entry-points check** (M7-04, §19.2.1): nothing holds every raw nbio callback to the guard.
+- [ ] **The client's WebSocket side has no frame cap** (M7-10): `c.frag`, before M11 puts a server path on it.
+- [ ] **An upstream report**: `core:encoding/json` could take a `max_depth` (M7-01). Alex's go.
+
 ## Known flakes (seen once, passed on a rerun: not fixed)
 
 - `contacts/crud.spec:4` on Firefox (skeleton): "Invited" stayed where "Disabled" was due, both attempts of one run on

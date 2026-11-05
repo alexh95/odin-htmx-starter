@@ -19,6 +19,7 @@ package fakellama
 //   fake:stall       the head, then nothing
 //   fake:stall-mid   two deltas, then nothing
 //   fake:drop        two deltas, then the socket closes, with no [DONE]
+//   fake:quiet       two deltas, then empty events every 50 ms until the client goes
 //   fake:error       200, then an OAI error event in the stream
 //   fake:long        200 deltas, slower
 //   fake:wall        500 deltas: 5,000 characters
@@ -242,7 +243,7 @@ send :: proc(sock: net.TCP_Socket, text: string) -> bool {
 // ---- an answer ---------------------------------------------------------------------------------
 
 @(private)
-Fault :: enum { None, Split, Stall, Stall_Mid, Drop, Error, Long, Wall, Length, Garbage }
+Fault :: enum { None, Split, Stall, Stall_Mid, Quiet, Drop, Error, Long, Wall, Length, Garbage }
 
 @(private)
 question_of :: proc(body: string) -> (q: string, fault: Fault) {
@@ -260,6 +261,7 @@ question_of :: proc(body: string) -> (q: string, fault: Fault) {
 	case "fake:stall":     fault = .Stall
 	case "fake:stall-mid": fault = .Stall_Mid
 	case "fake:drop":      fault = .Drop
+	case "fake:quiet":     fault = .Quiet
 	case "fake:error":     fault = .Error
 	case "fake:long":      fault = .Long
 	case "fake:wall":      fault = .Wall
@@ -359,7 +361,7 @@ complete :: proc(sock: net.TCP_Socket, body: string) {
 		for i in 0 ..< 200 { append(&words, fmt.tprintf("word%d ", i)) }
 	case .Wall:
 		for _ in 0 ..< 500 { append(&words, "wallwalls ") }
-	case .None, .Split, .Stall, .Stall_Mid, .Drop, .Error, .Length, .Garbage:
+	case .None, .Split, .Stall, .Stall_Mid, .Quiet, .Drop, .Error, .Length, .Garbage:
 		append(&words, "You ", "asked: ")
 		rest := q
 		for w in strings.fields_iterator(&rest) {
@@ -373,6 +375,10 @@ complete :: proc(sock: net.TCP_Socket, body: string) {
 			#partial switch fault {
 			case .Stall_Mid:
 				wait_for_close(sock)
+				return
+			case .Quiet:
+				for chunk(sock, `data: {"choices":[]}` + "\n\n") { time.sleep(50 * time.Millisecond) }
+				gone()
 				return
 			case .Drop:
 				return

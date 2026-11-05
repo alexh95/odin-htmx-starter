@@ -42,11 +42,13 @@ ENV := [?]env.Row {
 	{name = "BOT_QUEUE", kind = .Int, def = "16", doc = "generations waiting for a slot; past it a question is refused"},
 	{name = "BOT_LLAMA_FIRST_TOKEN", kind = .Duration, def = "30s", doc = "how long an answer may take to start"},
 	{name = "BOT_LLAMA_IDLE", kind = .Duration, def = "15s", doc = "how long an answer may go quiet"},
+	{name = "BOT_LLAMA_TOTAL", kind = .Duration, def = "5m", doc = "how long a generation may take, or wait for a slot"},
 	{name = "BOT_LLAMA_PROBE", kind = .Duration, def = "5s", doc = "how often its health is read"},
 }
 
 @(private) CONNECT :: 2 * time.Second
 @(private) TICK :: 50 * time.Millisecond // 20 Hz: the emit, and the deadlines
+@(private) QUEUE_TICK :: time.Second
 // One server event, and one answer. A generation that runs past them is the server's fault.
 @(private) MAX_EVENT :: 64 * 1024
 @(private) MAX_ANSWER :: 256 * 1024
@@ -69,6 +71,7 @@ Gen :: struct {
 	phase:     Phase,
 	pending:   strings.Builder, // text waiting for the next emit
 	timer:     ^nbio.Operation,
+	queued_at: i64,
 	t0, first, last, last_emit: i64,
 	tokens:    int, // deltas
 	predicted: int, // the server's own count, when it gave one
@@ -98,6 +101,7 @@ st: struct {
 	seq:         u64,
 	first_token: i64,
 	idle:        i64,
+	total:       i64,
 	ep:          net.Endpoint,
 	host:        string, // the Host header: as written in the URL
 	name:        string,
@@ -113,13 +117,16 @@ init :: proc() {
 	env.record("BOT_", ENV[:])
 	st.gens = make(map[m.Bot_Gen_Id]^Gen, heap())
 	st.queue = make([dynamic]Waiter, heap())
+	seen.state = .Offline
 	st.limit = env.int_("BOT_CONCURRENCY")
 	st.fixed = st.limit > 0
 	if !st.fixed { st.limit = 1 } // until /props says
 	st.queue_cap = max(0, env.int_("BOT_QUEUE"))
 	st.first_token = i64(env.duration("BOT_LLAMA_FIRST_TOKEN"))
 	st.idle = i64(env.duration("BOT_LLAMA_IDLE"))
+	st.total = i64(env.duration("BOT_LLAMA_TOTAL"))
 	if key := env.str("BOT_LLAMA_KEY"); key != "" {
+		if strings.index_any(key, "\r\n") >= 0 { env.problem("BOT_LLAMA_KEY: one line, or it would become headers") }
 		st.auth = fmt.aprintf("Authorization: Bearer %s\r\n", key, allocator = heap())
 	}
 	url := env.str("BOT_LLAMA_URL")
@@ -195,6 +202,30 @@ body_of :: proc(req: m.Bot_Request) -> string {
 	return strings.to_string(b)
 }
 
+// Whether `text` nests at most MAX_DEPTH deep, strings aside. core:encoding/json recurses with no
+// limit, so a server's brackets could otherwise run a thread out of stack (M7-01).
+shallow :: proc(text: string) -> bool {
+	depth := 0
+	quoted, escaped := false, false
+	for i in 0 ..< len(text) {
+		c := text[i]
+		switch {
+		case escaped:
+			escaped = false
+		case quoted:
+			if c == '\\' { escaped = true } else if c == '"' { quoted = false }
+		case c == '"':
+			quoted = true
+		case c == '{' || c == '[':
+			depth += 1
+			if depth > MAX_DEPTH { return false }
+		case c == '}' || c == ']':
+			depth = max(0, depth - 1)
+		}
+	}
+	return true
+}
+
 // What one server event says. `ok` false: it wasn't JSON of that shape.
 Delta :: struct {
 	content:   string, // in `allocator`
@@ -204,17 +235,7 @@ Delta :: struct {
 }
 
 parse_delta :: proc(data: string, allocator := context.temp_allocator) -> (d: Delta, ok: bool) {
-	depth, deepest := 0, 0
-	for i in 0 ..< len(data) {
-		switch data[i] {
-		case '{', '[':
-			depth += 1
-			deepest = max(deepest, depth)
-		case '}', ']':
-			depth -= 1
-		}
-	}
-	if deepest > MAX_DEPTH { return }
+	if !shallow(data) { return }
 	parsed, err := json.parse_string(data, .JSON, true, allocator)
 	if err != nil { return }
 	root, is_obj := parsed.(json.Object)
@@ -254,6 +275,7 @@ start :: proc(req: m.Bot_Request, sink: m.Bot_Sink) -> m.Bot_Gen_Id {
 	g.conn.user = g
 	g.conn.on_sse = on_sse
 	g.conn.on_close = on_close
+	g.conn.wrap = guard.call
 	id := g.id
 
 	guard.lock(&st.mu)
@@ -285,6 +307,8 @@ start :: proc(req: m.Bot_Request, sink: m.Bot_Sink) -> m.Bot_Gen_Id {
 		if free_slot {
 			run(g)
 		} else {
+			g.queued_at = sys.mono_ns()
+			g.timer = nbio.timeout_poly(QUEUE_TICK, g, tick)
 			g.sink.on_event(g.sink.user, id, m.Bot_Queued{position})
 		}
 	}
@@ -339,16 +363,9 @@ on_cancel :: proc(_: ^nbio.Operation, box: ^m.Bot_Gen_Id) {
 	free(box, heap())
 	guard.lock(&st.mu)
 	g, ok := st.gens[id]
-	if ok && g.phase == .Queued {
-		for w, i in st.queue {
-			if w.id == id {
-				ordered_remove(&st.queue, i)
-				break
-			}
-		}
-	}
 	guard.unlock(&st.mu)
 	if !ok || g.phase == .Ended { return } // it finished first
+	if g.phase == .Queued { leave_queue(id) }
 	guard.call(proc(data: rawptr) {
 		g := (^Gen)(data)
 		g.stopping = true
@@ -366,7 +383,10 @@ on_cancel :: proc(_: ^nbio.Operation, box: ^m.Bot_Gen_Id) {
 on_sse :: proc(c: ^sc.Conn, ev: sc.Sse_Event) {
 	g := (^Gen)(c.user)
 	g.event = ev.data
-	guard.call(read_event, g)
+	if !guard.call(read_event, g) && g.phase == .Running { // the next event would only do it again
+		g.problem = "The model's server sent something unreadable."
+		sc.close(c)
+	}
 	free_all(context.temp_allocator)
 }
 
@@ -374,7 +394,6 @@ on_sse :: proc(c: ^sc.Conn, ev: sc.Sse_Event) {
 read_event :: proc(data: rawptr) {
 	g := (^Gen)(data)
 	now := sys.mono_ns()
-	g.last = now
 	if g.event == "[DONE]" {
 		g.ended = true
 		sc.close(&g.conn)
@@ -395,6 +414,7 @@ read_event :: proc(data: rawptr) {
 	if d.finish == "length" { g.stop = .Length }
 	if d.content != "" {
 		if g.first == 0 { g.first = now }
+		g.last = now // words are what count as life: an empty event says nothing
 		g.tokens += 1
 		g.bytes += len(d.content)
 		strings.write_string(&g.pending, d.content)
@@ -432,12 +452,25 @@ on_close :: proc(c: ^sc.Conn, why: sc.End) {
 @(private)
 tick :: proc(_: ^nbio.Operation, g: ^Gen) {
 	g.timer = nil
-	if g.phase != .Running { return }
-	guard.call(proc(data: rawptr) {
+	if g.phase == .Ended { return }
+	ok := guard.call(proc(data: rawptr) {
 		g := (^Gen)(data)
 		now := sys.mono_ns()
+		if g.phase == .Queued {
+			// Out of line now, or a slot is already on its way here (on_slot).
+			if now - g.queued_at > st.total && leave_queue(g.id) {
+				g.problem = "The bot is busy. Try again in a minute."
+				end(g)
+				tell_positions()
+			} else {
+				g.timer = nbio.timeout_poly(QUEUE_TICK, g, tick)
+			}
+			return
+		}
 		emit(g, now)
 		switch {
+		case now - g.t0 > st.total:
+			g.problem = "The answer took too long."
 		case g.first == 0 && now - g.t0 > st.first_token:
 			g.problem = "The model didn't start answering in time."
 		case g.first != 0 && now - g.last > st.idle:
@@ -448,7 +481,24 @@ tick :: proc(_: ^nbio.Operation, g: ^Gen) {
 		}
 		sc.close(&g.conn)
 	}, g)
+	if !ok && g.phase == .Running { // with no timer left, nothing else would end it
+		g.problem = "The answer was cut off."
+		sc.close(&g.conn)
+	}
 	free_all(context.temp_allocator)
+}
+
+@(private)
+leave_queue :: proc(id: m.Bot_Gen_Id) -> bool {
+	guard.lock(&st.mu)
+	defer guard.unlock(&st.mu)
+	for w, i in st.queue {
+		if w.id == id {
+			ordered_remove(&st.queue, i)
+			return true
+		}
+	}
+	return false
 }
 
 @(private)
@@ -470,14 +520,15 @@ end :: proc(g: ^Gen) {
 		nbio.remove(g.timer)
 		g.timer = nil
 	}
-	now := sys.mono_ns()
-	emit(g, now)
+	// Settled before the sink runs: a trap in it must not keep the slot (M2-13).
 	guard.lock(&st.mu)
 	delete_key(&st.gens, g.id)
 	if ran { st.busy -= 1 }
 	guard.unlock(&st.mu)
 	if ran { pump() }
 
+	now := sys.mono_ns()
+	emit(g, now)
 	first := int((g.first - g.t0) / 1e6) if g.first != 0 else 0
 	total := int((now - g.t0) / 1e6) if g.t0 != 0 else 0
 	tokens := g.predicted if g.predicted > 0 else g.tokens
@@ -491,8 +542,9 @@ end :: proc(g: ^Gen) {
 	case:
 		g.sink.on_event(g.sink.user, g.id, m.Bot_Done{stop = g.stop, tokens = tokens, ms_first_token = first, ms_total = total})
 	}
-	// The client is still on its way out of this callback: the Gen holds its Conn.
-	nbio.timeout_poly(0, g, proc(_: ^nbio.Operation, g: ^Gen) { destroy(g) })
+	// The Gen holds the Conn and the buffer the kernel may be reading into: through the ring, so
+	// behind the cancel `close` queued, not on the next tick's completed list (M7-03).
+	nbio.timeout_poly(time.Millisecond, g, proc(_: ^nbio.Operation, g: ^Gen) { destroy(g) })
 }
 
 @(private)
@@ -543,6 +595,10 @@ on_slot :: proc(_: ^nbio.Operation, box: ^m.Bot_Gen_Id) {
 		guard.unlock(&st.mu)
 		pump()
 		return
+	}
+	if g.timer != nil {
+		nbio.remove(g.timer)
+		g.timer = nil
 	}
 	guard.call(proc(data: rawptr) {
 		g := (^Gen)(data)

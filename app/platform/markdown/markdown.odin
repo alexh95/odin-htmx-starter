@@ -456,7 +456,7 @@ md_inline :: proc(md: ^Md, b: ^strings.Builder, s: string) {
 				i += 1
 			}
 		case c == '<' && md.links == 0:
-			end := strings.index_byte(s[i:], '>')
+			end := strings.index_byte(s[i:min(len(s), i + MAX_LINK)], '>')
 			if end > 1 && is_web_url(s[i + 1:i + end]) {
 				url := s[i + 1:i + end]
 				escape.w(b, `<a href="`)
@@ -517,15 +517,25 @@ md_emphasis :: proc(md: ^Md, b: ^strings.Builder, s: string, i: int) -> int {
 // "[text](url)" starting at s[i] == '['. Brackets in the text may nest, and so may parentheses in the url
 // ("javascript:alert(1)" is one url, rejected whole); a space ends the url (a "title" after it is dropped).
 @(private = "file")
+// A link's text and a link's target each: past this it's text, not a link.
+@(private)
+MAX_LINK :: 2048
+@(private)
+MAX_LINK_NESTING :: 8
+
 link_at :: proc(s: string, i: int) -> (text, url: string, end: int, ok: bool) {
 	depth := 0
 	close := -1
-	for j := i; j < len(s); j += 1 {
+	// Bounded, or text of nothing but `[` costs a scan of the rest at each (M7-07).
+	for j := i; j < min(len(s), i + MAX_LINK); j += 1 {
 		switch s[j] {
 		case '\\':
 			j += 1
 		case '[':
 			depth += 1
+			if depth > MAX_LINK_NESTING {
+				return
+			}
 		case ']':
 			depth -= 1
 			if depth == 0 {
@@ -541,7 +551,7 @@ link_at :: proc(s: string, i: int) -> (text, url: string, end: int, ok: bool) {
 	}
 	paren := -1
 	parens := 0
-	for j := close + 2; j < len(s); j += 1 {
+	for j := close + 2; j < min(len(s), close + 2 + MAX_LINK); j += 1 {
 		if s[j] == '(' {
 			parens += 1
 		} else if s[j] == ')' {

@@ -44,6 +44,9 @@ Conn :: struct {
 	on_ws:    proc(c: ^Conn, text: bool, data: []byte),
 	on_body:  proc(c: ^Conn, data: []byte),
 	on_close: proc(c: ^Conn, why: End),
+	// Runs a read's parsing and its callbacks: a server path's trap guard (guard.call, which this
+	// package can't import), nil for a tool's. False: the read trapped, and the Conn ends.
+	wrap:     proc(fn: proc(data: rawptr), data: rawptr) -> bool,
 
 	mode:     Mode,
 	head:     Head,
@@ -144,7 +147,9 @@ close :: proc(c: ^Conn) {
 	finish(c, .Closed)
 }
 
-// Frees what the Conn holds; call it after on_close, before reusing or freeing the Conn.
+// Frees what the Conn holds; call it after on_close, before reusing or freeing the Conn. A Conn that
+// goes with this may still have a recv in the kernel, into recv_buf: free it through the ring (a real
+// timeout, not one of 0), behind the cancel finish queued (M7-03).
 destroy :: proc(c: ^Conn) {
 	delete(c.inbuf)
 	delete(c.body)
@@ -183,7 +188,11 @@ read :: proc(c: ^Conn) {
 			return
 		}
 		append(&c.inbuf, ..c.recv_buf[:op.recv.received])
-		feed(c)
+		if c.wrap == nil {
+			feed(c)
+		} else if !c.wrap(proc(data: rawptr) { feed((^Conn)(data)) }, c) {
+			finish(c, .Bad_Response)
+		}
 		if c.state != .Gone { read(c) }
 	})
 }

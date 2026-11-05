@@ -95,6 +95,19 @@ test.describe('room mode', T, () => {
     await leave(ann, bob);
   });
 
+  test("a bot's message can be reported, and isn't anyone to block or DM", async ({ browser, baseURL }) => {
+    const ann = await member(browser, baseURL!);
+    const slug = await newRoom(ann.page);
+    await open(ann, slug, 'sse');
+    await say(ann, '@bot hello');
+    await expect(fromBot(ann)).toHaveCount(1);
+    await fromBot(ann).locator('.chat-more').click();
+    await expect(fromBot(ann).getByRole('button', { name: 'Report' })).toBeVisible();
+    await expect(fromBot(ann).getByRole('button', { name: /^Block/ })).toHaveCount(0);
+    await expect(fromBot(ann).getByRole('button', { name: /^Message (?!actions)/ })).toHaveCount(0);
+    await leave(ann);
+  });
+
   test("a question can't be read off the topic", async ({ browser, baseURL }) => {
     const ann = await member(browser, baseURL!);
     for (const family of ['bot.ask', 'chat.reply']) {

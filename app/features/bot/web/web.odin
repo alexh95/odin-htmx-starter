@@ -51,7 +51,7 @@ ADMIN_ROUTES := [?]web.Route {
 // bot.health: the badge, on a member's bot pages' #live, published when the llama server's state
 // changes. A guest's badge is the mock's, which never does. bot.ask: chat's questions, server-side.
 TOPICS := [?]hub.Topic {
-	{family = "bot.health", policy = .Latest, perm = .Bot_Use},
+	{family = "bot.health", policy = .Latest, perm = .Bot_Llama},
 	{family = "bot.ask", policy = .Queue, perm = .Bot_Use, deliver = room_ask}, // room.odin
 }
 
@@ -392,7 +392,7 @@ on_event :: proc(user: rawptr, _: m.Bot_Gen_Id, ev: m.Bot_Event) {
 			b := strings.builder_make(context.temp_allocator)
 			bot_views.usage(&b, a.used, (&members_hour if a.who.member else &guests_hour).n)
 			stream.multipart_part(a.conn, strings.to_string(b), {{"HX-Target", "#usage"}, {"HX-Swap", "outerHTML"}})
-			if a.title != "" {
+			if a.title != "" && a.conn != nil { // the part above may have closed a too-slow stream
 				t := strings.builder_make(context.temp_allocator)
 				html.esc(&t, a.title)
 				stream.multipart_part(a.conn, strings.to_string(t), {{"HX-Target", "#conv-title"}, {"HX-Swap", "innerHTML"}})
@@ -503,10 +503,10 @@ admin_default :: proc(req: ^web.Request, res: ^web.Response) {
 		c := web.ctx()
 		buf: [16]byte
 		audit_store.append({i64(c.viewer.id), c.viewer.name, web.client_id(c.client, buf[:])}, "bot.default", {"bot", 0}, "", fmt.tprintf("%s to %s", bot.BACKENDS[was], bot.BACKENDS[pick]))
+		report(health(.Llama if llama else .Mock))
 	}
 	b := strings.builder_make(context.temp_allocator)
 	bot_views.admin_panel(&b, pick, health(.Llama if llama else .Mock), llama)
-	report(health(.Llama if llama else .Mock))
 	web.respond_html(res, strings.to_string(b))
 }
 

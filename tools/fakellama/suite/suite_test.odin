@@ -15,8 +15,10 @@ import "core:strings"
 import "core:testing"
 import "core:time"
 
+import "../../../app/platform/fuzz"
 import "../../../app/platform/guard"
 import "../../../app/platform/obs"
+import sc "../../../app/platform/stream/client"
 import llama "../../../app/features/bot/backend_llama"
 import m "../../../app/features/bot/models"
 import fake "../fake"
@@ -98,6 +100,45 @@ deltas_parse :: proc(t: ^testing.T) {
 	testing.expect(t, !ok)
 	_, ok = llama.parse_delta(strings.repeat("[", 5000, context.temp_allocator))
 	testing.expect(t, !ok, "a nesting bomb is refused before the parser recurses")
+	// M7-01: closers in a string don't pay for openers after it, and brackets in text aren't nesting.
+	fake_out := strings.concatenate({`{"a":"`, strings.repeat("]", 5000, context.temp_allocator), `","b":`, strings.repeat("[", 5000, context.temp_allocator)}, context.temp_allocator)
+	_, ok = llama.parse_delta(fake_out)
+	testing.expect(t, !ok, "closers in a string don't hide a bomb")
+	text := strings.concatenate({`{"choices":[{"delta":{"content":"`, strings.repeat("[", 100, context.temp_allocator), `"}}]}`}, context.temp_allocator)
+	d, ok = llama.parse_delta(text)
+	testing.expectf(t, ok && len(d.content) == 100, "brackets in a word: %v", ok)
+	testing.expect(t, llama.shallow(`{"a":"\"[[[[[[[["}`))
+}
+
+// Rubric 7: a server's bytes, through every parser it reaches (FUZZ_SCALE in the nightly).
+@(test)
+parsers_take_anything :: proc(t: ^testing.T) {
+	ALPHABET :: `{}[]",:\0123456789.-+eE aZ` + "\r\n\x00\xff"
+	CHUNKED :: "0123456789abcdefABCDEF;\r\n x"
+	SSE :: "data: event:id:\r\n[DONE]{}\x00"
+	d := fuzz.seed(0x6C1A7F3B94E2D805)
+	buf: [512]byte
+	for _ in 0 ..< fuzz.rounds(50_000) {
+		text := string(fuzz.draw(&d, buf[:], ALPHABET))
+		llama.parse_delta(text)
+		llama.read_props(text)
+		free_all(context.temp_allocator)
+	}
+	for _ in 0 ..< fuzz.rounds(50_000) {
+		out := make([dynamic]byte, context.temp_allocator)
+		c: sc.Chunked
+		sc.chunked_feed(&c, fuzz.draw(&d, buf[:], CHUNKED), &out)
+		sc.parse_head(string(fuzz.draw(&d, buf[:], "HTTP/1.1 200\r\nContent-Length: -9x\r\n")))
+		free_all(context.temp_allocator)
+	}
+	p: sc.Sse
+	p.max = 256
+	defer sc.sse_destroy(&p)
+	for _ in 0 ..< fuzz.rounds(50_000) {
+		sc.sse_feed(&p, fuzz.draw(&d, buf[:], SSE), nil, proc(_: rawptr, _: sc.Sse_Event) {})
+		p.over = false
+		clear(&p.line)
+	}
 }
 
 @(test)
@@ -149,6 +190,7 @@ against_fakellama :: proc(t: ^testing.T) {
 	os.set_env("BOT_QUEUE", "2")
 	os.set_env("BOT_LLAMA_FIRST_TOKEN", "300ms")
 	os.set_env("BOT_LLAMA_IDLE", "300ms")
+	os.set_env("BOT_LLAMA_TOTAL", "1500ms")
 	llama.init()
 	testing.expect(t, llama.configured())
 
@@ -183,6 +225,10 @@ against_fakellama :: proc(t: ^testing.T) {
 	@(static) closed_at_least: i32
 	closed_at_least = before + 2
 	testing.expect(t, wait_for(proc() -> bool { return fake.stats().closed >= closed_at_least }), "both closes reached the server")
+
+	// Empty events aren't life (M7-02): the idle deadline holds, and the total behind it.
+	a = ask(t, "fake:quiet x")
+	testing.expectf(t, a.done.stop == .Error && strings.to_string(a.text) == "You asked: ", "%v", a.done)
 
 	// Loading: the question is refused, in words.
 	fake.set_mode(.Loading)

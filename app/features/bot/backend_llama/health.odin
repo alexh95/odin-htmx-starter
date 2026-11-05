@@ -45,7 +45,6 @@ health :: proc(allocator := context.temp_allocator) -> m.Bot_Health {
 
 // After the loops run. `on_change` runs on the probe's thread.
 start_probe :: proc(on_change: proc(h: m.Bot_Health)) {
-	seen.state = .Offline
 	seen.on_change = on_change
 	if !st.configured { return }
 	thread.create_and_start(probe_loop, self_cleanup = true)
@@ -53,11 +52,12 @@ start_probe :: proc(on_change: proc(h: m.Bot_Health)) {
 
 @(private)
 probe_loop :: proc() {
+	guard.thread_init()
 	if nbio.acquire_thread_event_loop() != nil { return }
 	defer nbio.release_thread_event_loop()
 	every := env.duration("BOT_LLAMA_PROBE")
 	for !web.is_closing() {
-		probe()
+		if !guard.call(proc(_: rawptr) { probe() }, nil) { update(.Offline, 0, "") }
 		free_all(context.temp_allocator)
 		for waited := time.Duration(0); waited < every && !web.is_closing(); waited += 50 * time.Millisecond {
 			time.sleep(50 * time.Millisecond)
@@ -136,6 +136,7 @@ probe :: proc() {
 
 // `/props`, for what it says of the slots and the model. A build without a field leaves it zero.
 read_props :: proc(text: string) -> (slots: int, sleeping: bool, model: string) {
+	if !shallow(text) { return }
 	parsed, err := json.parse_string(text, .JSON, true, context.temp_allocator)
 	if err != nil { return }
 	root, ok := parsed.(json.Object)

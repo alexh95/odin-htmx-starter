@@ -45,6 +45,8 @@ parse_head :: proc(text: string) -> (h: Head, ok: bool) {
 		case strings.equal_fold(name, "transfer-encoding"):
 			h.chunked = strings.contains(strings.to_lower(value, context.temp_allocator), "chunked")
 		case strings.equal_fold(name, "content-length"):
+			if len(value) == 0 || len(value) > 18 { return }
+			for ch in value { if ch < '0' || ch > '9' { return } }
 			h.length = strconv.parse_int(value, 10) or_return
 		case strings.equal_fold(name, "sec-websocket-accept"):
 			h.accept = value
