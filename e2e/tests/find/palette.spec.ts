@@ -65,8 +65,8 @@ test.describe('the palette and the history cache', { tag: ['@find', '@find-hyper
     await ann.page.locator('#room-kind').selectOption('private');
     await ann.page.getByRole('button', { name: 'Create' }).click();
     await ann.page.waitForURL(/\/chat\/r\//);
-    await ann.page.locator('textarea[name="body"]').first().fill(`secret ${word}`);
-    await ann.page.getByRole('button', { name: 'Send' }).click();
+    await ann.page.locator('.chat-composer textarea').fill(`secret ${word}`);
+    await ann.page.locator('.chat-composer textarea').press('Enter');
     await expect(ann.page.locator('.chat-msg .chat-body', { hasText: word }).first()).toBeVisible();
 
     await ann.page.goto('/wiki/philosophy');

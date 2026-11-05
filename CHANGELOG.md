@@ -16,6 +16,10 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 - Chat's FTS index has `prefix = '2 3'` (`0010_fts_prefix.sql`): a search's last word is a prefix, from two bytes, and that was 33 ms at 100k messages.
 - `Find_Source` leaves `platform/store` for find's models, and `Search_Hit` loses `source` and `at` (PLAN §6).
 
+### Fixed
+
+- `platform/fuzz` reads its variables once, before the tests: one test's `set_env` beside another's `getenv` segfaulted the fakellama suite one run in six on Linux.
+
 ### Added
 
 - `wiki`: `/wiki` on the `lab` profile, its memory store `source_files` holding the starter's docs as a read-only Manual, an explicit list

@@ -43,6 +43,11 @@ copy-and-start ergonomics and good defaults matter more than feature depth.
 - [ ] **The client's WebSocket side has no frame cap** (M7-10): `c.frag`, before M11 puts a server path on it.
 - [ ] **An upstream report**: `core:encoding/json` could take a `max_depth` (M7-01). Alex's go.
 
+## Found in M8, not fixed
+
+- [ ] **Chat's Send button can't be clicked at Playwright's WebKit size**: the attach label's file input lies over it (`.chat-attach`). Enter sends, which
+      is what the specs press; a tap on a narrow Safari is the case to check. Seen on M8's WebKit run, 2026-11-05.
+
 ## Known flakes (seen once, passed on a rerun: not fixed)
 
 - **WebKit's `page.goto: WebKit encountered an internal error`**, on CI's Linux WebKit jobs in most runs since at least 2026-11-01,
@@ -120,7 +125,7 @@ Alex's answer on what an anonymous poll stores.
 - [x] **7. The palette** (§6, D22): the `Palette` behaviour opening the Ctrl-K `<dialog>`, results and the pages the viewer may open. The
       behaviour is a name in `behave.odin` with no definition yet. *Check:* keyboard only on three browsers, the vanilla client's plain link
       to `/find`, focus back where it was, no stream of its own.
-      Done (2026-11-05): Chromium here, Firefox and WebKit at the exit's run. What it found is cleared before a snapshot is taken: the body holds
+      Done (2026-11-05), on all three browsers. What it found is cleared before a snapshot is taken: the body holds
       the palette, and a public page may be kept. Typing a nav item's name goes there; pages come from the nav and the viewer's perms.
 - [x] **8. Lists, the checklist** (§6): `lists` on SQLite: lists, columns from the template (To do / Doing / Done by default, no editor),
       items (≤ 200 runes, a column, an assignee → `notify_web.send`, position with gaps of 1024, renumbered by the server); one column closes
@@ -132,7 +137,7 @@ Alex's answer on what an anonymous poll stores.
       the buttons on the vanilla client, a move racing another member's, both suites.
       Done (2026-11-05, 8 and 9): one markup for both views. `lists.list` is `.Latest` per column and only says one changed: a whole column can pass
       the hub's 64 KiB, so each page fetches it (PLAN amended, planning told). An item goes to someone who's worked on the list, since nothing names
-      members to a feature. Firefox and WebKit at the exit's run.
+      members to a feature. Find, lists and the wiki pass on Firefox and WebKit (2026-11-05).
 - [ ] **10. Polls** (cut-list item 9; holds on Alex's answer): `polls` on SQLite: a question with options or the Go/No-go preset, single or multiple choice,
       anonymous, a closing time on a job; votes 10 per minute, hx-pending; CSS bars by `style="--p:NN%"`; `polls.poll:<id>` `.Latest`; closing
       notifies the voters. *Check:* storetest, live results to a second member, a double vote refused, an anonymous poll's storage, `rbac.spec`,

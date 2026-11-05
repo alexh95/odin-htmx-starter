@@ -8,10 +8,11 @@ const T = { tag: ['@find', '@chat', '@wiki'] };
 
 async function say(page: Page, slug: string, text: string) {
   await page.goto(`/chat/r/${slug}?transport=sse`);
-  const box = page.locator('.chat-compose textarea, form[hx-post] textarea[name="body"], input[name="body"]').first();
+  const box = page.locator('.chat-composer textarea');
   await box.fill(text);
-  await page.getByRole('button', { name: 'Send' }).click();
-  await expect(page.locator('.chat-msg .chat-body', { hasText: text }).first()).toBeVisible();
+  await box.press('Enter');
+  await expect(box).toHaveValue('');
+  await expect(page.locator('.chat-log > article.chat-msg').filter({ hasText: text.slice(-12) }).first()).toBeVisible();
 }
 
 async function newRoom(page: Page, kind: 'public' | 'private'): Promise<string> {

@@ -155,6 +155,8 @@ test.describe('the board', { tag: ['@lists', '@lists-hyperscript', '@accounts-ac
     await ann.page.mouse.down();
     await ann.page.mouse.move(card!.x + 40, card!.y + 20, { steps: 4 });
     await ann.page.mouse.move(into!.x + into!.width / 2, into!.y + into!.height / 2, { steps: 8 });
+    await ann.page.mouse.move(into!.x + into!.width / 2 + 2, into!.y + into!.height / 2 + 2, { steps: 2 });
+    await ann.page.waitForTimeout(100);
     await ann.page.mouse.up();
     await expect(column(ann.page, 'Doing').locator('.list-item', { hasText: 'two' })).toBeVisible();
     await expect(column(bob.page, 'Doing').locator('.list-item', { hasText: 'two' })).toBeVisible();
@@ -175,8 +177,10 @@ test.describe('the board', { tag: ['@lists', '@lists-hyperscript', '@accounts-ac
     const to = await item(ann, 'one').boundingBox();
     await ann.page.mouse.move(from!.x + 12, from!.y + 12);
     await ann.page.mouse.down();
-    await ann.page.mouse.move(from!.x + 30, from!.y + 2, { steps: 4 });
+    await ann.page.mouse.move(from!.x + 40, from!.y + 20, { steps: 4 });
     await ann.page.mouse.move(to!.x + 12, to!.y + 6, { steps: 8 });
+    await ann.page.mouse.move(to!.x + 14, to!.y + 8, { steps: 2 }); // WebKit takes a drop only over its latest dragover
+    await ann.page.waitForTimeout(100);
     await ann.page.mouse.up();
     await expect(column(ann.page, 'To do').locator('.list-text')).toHaveText(['three', 'one', 'two']);
     await leave(ann);
