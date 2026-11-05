@@ -65,6 +65,8 @@ test.describe('polls', T, () => {
     await expect(ann.page.locator('.poll-note')).toContainText("aren't stored with names");
     await expect(ann.page.locator('.poll-note')).toContainText("can't be changed");
     await expect(ann.page.locator('.poll-note')).toContainText('Whoever changes this server');
+    await expect(ann.page.locator('.poll-note')).toContainText("compares the server's backups");
+    await expect(ann.page.locator('.poll-note')).toContainText('an admin can see that');
     await live(bob, href);
     await ann.page.locator('.poll-vote').getByLabel('Pizza', { exact: true }).check();
     await ann.page.locator('.poll-vote').getByLabel('Salad', { exact: true }).check();
@@ -162,7 +164,6 @@ test.describe('what an anonymous vote leaves', { tag: ['@polls', '@dbview', '@au
   test('the database, the audit log and the server log hold no link', async ({ browser, baseURL, server }) => {
     const ann = await member(browser, baseURL!);
     const { href } = await ask(ann.page, { anonymous: true, options: ['Marker one', 'Marker two'] });
-    const option = await ann.page.locator('.poll-row').nth(1).getAttribute('data-option');
     await choose(ann.page, 'Marker two');
     await expect(ann.page.locator('.poll-act')).toContainText('You voted.');
     const id = href.split('/').pop();
@@ -180,10 +181,15 @@ test.describe('what an anonymous vote leaves', { tag: ['@polls', '@dbview', '@au
       const heads = (r: ReturnType<Page['locator']>) => r.locator('.dbview-table th');
       await expect(heads(await run(`SELECT * FROM poll_voters WHERE poll = ${id}`))).toHaveText(['poll', 'who']);
       await expect(heads(await run(`SELECT * FROM poll_tally WHERE poll = ${id}`))).toHaveText(['poll', 'option', 'n']);
-      await expect((await run(`SELECT count(*) FROM poll_votes WHERE poll = ${id}`)).locator('.dbview-table td')).toHaveText('0');
+      const counted = async (sql: string) => {
+        const cells = (await run(sql)).locator('.dbview-table td');
+        await expect(cells).toHaveCount(1); // the answer has landed, not the query before's
+        await expect(cells).toHaveText('0');
+      };
+      await counted(`SELECT count(*) FROM poll_votes WHERE poll = ${id}`);
       await expect((await run('SELECT rowid FROM poll_voters')).locator('.dbview-problem')).toContainText('rowid');
       await expect((await run('SELECT rowid FROM poll_tally')).locator('.dbview-problem')).toContainText('rowid');
-      await expect((await run("SELECT count(*) FROM audit_log WHERE action LIKE 'poll%'")).locator('.dbview-table td')).toHaveText('0');
+      await counted("SELECT count(*) FROM audit_log WHERE action LIKE 'poll%'");
     } finally {
       await admin.context.close();
     }
@@ -194,7 +200,9 @@ test.describe('what an anonymous vote leaves', { tag: ['@polls', '@dbview', '@au
     for (const l of lines) {
       expect(l).not.toContain('option');
       expect(l).not.toContain('Marker');
-      expect(l).not.toMatch(new RegExp(`\\b${option}\\b`));
+      // By field, since a request id or a duration can hold the option's digits by chance.
+      const fields = [...l.matchAll(/(?:^| )(\w+)=/g)].map((m) => m[1]);
+      expect(fields.filter((f) => !['ts', 'lvl', 'mod', 'ev', 'id', 'm', 'route', 'st', 'us', 'loop', 'cid'].includes(f))).toEqual([]);
     }
     await leave(ann);
   });

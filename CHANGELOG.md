@@ -19,6 +19,9 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 
 ### Fixed
 
+- An anonymous poll says what its promise covers: one copy of the file can't pair a voter with an option, a series of backups can, the site keeps
+  who has voted, and an admin can see that (M8-01, M8-04, Q36).
+- The top bar keeps the theme picker on screen when the nav outgrows it, and what the keyboard or a fragment reaches isn't left under the bar.
 - `platform/fuzz` reads its variables once, before the tests: one test's `set_env` beside another's `getenv` segfaulted the fakellama suite one run in six on Linux.
 
 ### Added

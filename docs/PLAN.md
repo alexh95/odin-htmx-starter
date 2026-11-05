@@ -2736,7 +2736,7 @@ wiki_pages(id, slug UNIQUE, title, visibility, md, html, rev, author_name, updat
 lists, list_columns(id, list, name, pos, closes), list_items(id, list, col, body, assignee, pos), list_people(who PK, name); lists_fts
 polls(id, question, multiple, anonymous, closes_at, closed_at, by_id, by_name, at), poll_options(id, poll, label, pos),
 poll_tally(poll, option, n) WITHOUT ROWID, poll_voters(poll, who) WITHOUT ROWID, poll_votes(poll, who, option, name) WITHOUT ROWID
-  -- an anonymous poll writes only the tally and the voters: nothing joins them (Q36)
+  -- an anonymous poll writes only the tally and the voters: in one copy of the file nothing joins them (Q36, M8-01)
 calendar_events(…) INDEX(starts_at); calendar_rsvps(event_id, user_id, answer, …); calendar_feeds(user_id, token_hash)
 guestbook_notes(id, name, body, at, status, client_id, reviewed_by, reason)  INDEX(status, id)
 jobs_runs(id, kind, state, lease_until, progress, log, created_at, started_at, finished_at)  INDEX(state, id)
@@ -3647,9 +3647,15 @@ Each feature's README carries the full spec under D4's fixed headings. Accounts 
   never listed, only how many: a list beside live bars would pair names with votes.
 - The chosen option never reaches anything that records a person. It stays in the form body, never the path or query, and
   it goes in no access log, audit entry or obs line, and not in `poll_voters`.
-- The poll discloses this as `/bot` does: votes aren't stored with names and can't be changed; with one voter, or where
-  everyone agrees, the bars show how people voted anyway; whoever changes the server's code could log votes from then on.
-  It claims no more. The WAL's short window is a known limit, in `docs/audit/M8.md`.
+- The poll discloses this as `/bot` does: votes aren't stored with names and can't be changed; the site does keep who has
+  voted, and an admin can see that; how someone voted can still show, with one voter, where everyone agrees, to someone
+  watching the bars as they vote, or to anyone who compares the server's backups from before and after; whoever changes
+  the server's code could log votes from then on. It claims no more.
+- **The promise is about one copy of the file.** One copy can't pair a voter with an option. A series of copies can, and so
+  can anyone holding the data volume (M8-01: `BACKUP_KEEP` keeps seven nightly copies, and promote's `pre-<tag>.db` are
+  the same kind). Planning decided on the words rather than on emptying open polls from backups, and Alex was told: a
+  restore would lose counts while `poll_voters` still refused a re-vote, and it wouldn't stop anyone copying the live
+  file. The WAL is a known limit too, in `docs/audit/M8.md`.
 - Perms `Polls_Create`, `Polls_Vote`; votes 10 per minute per user. The maker can close a poll early. SQLite only. Polls are cut-list item 9.
 
 **`calendar`** (Calendar, `/calendar`; M10; D36):
@@ -5623,7 +5629,7 @@ default the plan follows.
 | Q6 | If S0.4 finds no `:memory:` mode passing every cell, what does the gate do? | gate the failing `:memory:` cells against HEAD 709bc94 (v1.2.0) with a documented exception / gate the file DB only and report `:memory:` / block M1 until a mode passes | **Gate the failing `:memory:` cells against HEAD**, file-DB cells never waived; asked with S0.4's numbers before M1 | M1 (only if S0.4 needs it) | **Answered 2026-10-26** (round 5): the default; S0.4's candidate C, its failing `:memory:` cells gated against HEAD with documented exceptions |
 | Q34 | The login-storm budget, after S0.5 failed its +10 % (§17.1, §18.4) | restate it in absolute terms (other routes' p99 ≤ base + 0.5 ms under `cpus: 2.0`, the cgroup never throttled) and size the argon pool by CPU (1 thread with ≤ 2 CPUs, else 2) / keep +10 % and cap logins lower (fewer than 50/s) / keep +10 % and give the argon pool CPUs of its own (a container of its own) | **Restate it, and 1 thread on ≤ 2 CPUs**: hashing costs a core whatever the design, and +10 % of a sub-millisecond p99 is less than one busy neighbour core costs; the per-client login limits (§17.5) stay in front, so 50/s can only come from many clients | M4 (`accounts`; the plan follows the default meanwhile) | **Answered 2026-10-26** (round 5): the default, the absolute budget and 1 argon thread on ≤ 2 CPUs |
 | Q35 | The parity gate's reference on the light routes (§18.2; S0.1) | HEAD alone on `static` and `seo`, max(HEAD, v1.1.1) on the store routes / max(HEAD, v1.1.1) everywhere / a documented exception per light cell | **HEAD alone on the light routes** | M1 exit | **Answered 2026-10-26** (round 5): "light routes (static, seo) gate against HEAD 709bc94 only, store routes against max(HEAD, v1.1.1)" |
-| Q36 | What an anonymous poll stores (M8) | unlinked counters and voters, votes final / one table and a disclosure, as `/bot` | **Unlinked, votes final** | **Answered 2026-11-05: unlinked, votes final** (§15.1) |
+| Q36 | What an anonymous poll stores (M8) | unlinked counters and voters, votes final / one table and a disclosure, as `/bot` | **Unlinked, votes final** | **Answered 2026-11-05: unlinked, votes final**; the promise holds for one copy of the file, not a series (M8-01, §15.1) |
 | Q7 | _hyperscript pin | 0.9.94 (S15) / 0.9.93 until 0.9.94 has aged | **0.9.94**, SHA-pinned, bumped only through the behaviour suite | M1 (`pins`) | default (not yet raised) |
 | Q15 | Keep the Fly witness at odin-htmx.alexh95.com (please check the legacy allowance)? | keep (shared-cpu-1x 256 MB, about $2–3/month) / retire with a 301 / move it to apollo | **Keep** | M1 exit | **Answered 2026-10-25: keep**, with no allowance check; Alex is warned if it costs more than $10/month, checked at M0, at the M3 exit and every exit after it, and on any machine-size change (ANSWERS Q15; §20.6) |
 | Q17 | License the spark modules the starter adopts under zlib (and add a LICENSE to spark)? | yes, after scrubbing LAN and host details / no | **Yes** | M1 (first spark code, e.g. `limits.odin`) | **Answered 2026-10-25: yes**, zlib, and spark gets a LICENSE; the scrub of LAN and host details still applies (ANSWERS round 1; §21.6) |

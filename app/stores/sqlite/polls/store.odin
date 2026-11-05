@@ -3,8 +3,8 @@ package polls_store_sqlite
 // ---- polls in SQLite -------------------------------------------------------------------------------
 //
 // Every poll's bars read `poll_tally`. An anonymous vote bumps its counters and adds a row to `poll_voters`, and
-// that's all that's kept, so nothing here can answer what someone chose: the migration says why the two can't
-// be lined up. A named vote also keeps a row per choice in `poll_votes`, which is what lets it change. All of a
+// that's all that's kept, so nothing in one copy of the file can answer what someone chose: the migration says why
+// the two can't be lined up there, and what two copies show. A named vote also keeps a row per choice in `poll_votes`, which is what lets it change. All of a
 // vote is one transaction, on the query pool under the writer's lock.
 
 import "../../../platform/store"

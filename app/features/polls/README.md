@@ -12,8 +12,12 @@ someone chose, that person included: after voting the page says "You voted". Who
 stays in the form body and goes no further than the counters: no access log, audit entry, obs line or notice has it. `anonymous` is set at
 creation and a trigger holds it there.
 
-What this doesn't promise. The poll says the first two. With one voter, or where everyone agrees, the bars show how people voted.
-Whoever changes the server's code could log votes from then on. The rest, which `docs/audit/M8.md` sets out: someone watching the bars
-while one person votes can guess theirs; the site keeps who has voted, and an admin's dbview can read that; and whoever can read the
-server's disk can compare two moments. SQLite's WAL holds a vote's two pages side by side until later writes overwrite them, which can be
-days on a quiet house, and a checkpoint doesn't erase them.
+**The promise is about one copy of the file.** One copy can't pair a voter with an option. A series of copies can: two backups with one new
+voter between them show that voter's choice in the difference of `poll_voters` and `poll_tally`, and so can anyone holding the data volume
+(M8-01, Q36). `BACKUP_KEEP` keeps seven nightly copies by default, and `promote.ps1`'s `pre-<tag>.db` snapshots are the same kind of copy.
+
+What this doesn't promise. The poll says all of this but the WAL. The site keeps who has voted, and an admin's dbview can read that. With
+one voter, or where everyone agrees, the bars show how people voted; someone watching the bars while one person votes can guess theirs;
+anyone who compares backups from before and after can tell. Whoever changes the server's code could log votes from then on. SQLite's WAL
+holds a vote's two pages side by side until later writes overwrite them, which can be days on a quiet house, and a checkpoint doesn't
+erase them.

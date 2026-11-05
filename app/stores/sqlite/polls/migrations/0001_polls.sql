@@ -1,7 +1,8 @@
 -- Go/No-go (M8, §15.1, D36, Q36). `poll_tally` is what every poll's bars read, and `poll_voters` who has voted.
--- An anonymous poll stores nothing else about a vote, and neither table can line up with the other: the tally
--- holds counters, no rows per vote; the voters have no rowid and no time, so no query gets an order but their ids'. A vote
--- leaves the option in `poll_votes` only on a named poll. Never edit it once a database has applied it.
+-- An anonymous poll stores nothing else about a vote, and within one copy of the file neither table can line up with the
+-- other: the tally holds counters, no rows per vote; the voters have no rowid and no time, so no query gets an order but
+-- their ids'. Two copies can: what changed between them is a voter and a counter (M8-01). A vote leaves the option in
+-- `poll_votes` only on a named poll. Never edit it once a database has applied it.
 CREATE TABLE polls (
   id        INTEGER PRIMARY KEY,
   question  TEXT NOT NULL,

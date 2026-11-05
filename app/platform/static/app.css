@@ -220,6 +220,7 @@ a { color: inherit; text-decoration: none; }
 
 /* ---- topbar ----------------------------------------------------------- */
 
+html { scroll-padding-top: 72px; } /* what the keyboard or a fragment reaches isn't left under the sticky bar */
 .topbar {
   position: sticky; top: 0; z-index: 50;
   display: flex; align-items: center; gap: 18px;
@@ -238,7 +239,8 @@ a { color: inherit; text-decoration: none; }
 .brand-mark .icon { width: 19px; height: 19px; }
 .brand-name b { color: var(--violet); }
 
-.nav { display: flex; gap: 4px; margin-left: 8px; }
+/* Past what the bar can hold the links scroll, and the theme picker stays on screen. */
+.nav { display: flex; gap: 4px; margin-left: 8px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .nav-link {
   display: flex; align-items: center; gap: 8px;
   padding: 8px 13px; border-radius: 10px; color: var(--muted);

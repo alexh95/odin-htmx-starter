@@ -17,7 +17,7 @@ w :: html.w
 esc :: html.esc
 
 // Alex's terms (Q36), and what a reader can check for themself: no more than the store does.
-ANONYMOUS_NOTE :: "Votes on this poll aren't stored with names, and a vote can't be changed. With one voter, or where everyone agrees, the bars show how people voted anyway. Whoever changes this server's code could log votes from then on."
+ANONYMOUS_NOTE :: "Votes on this poll aren't stored with names, and a vote can't be changed. The site does keep who has voted, and an admin can see that. How you voted can still show: with one voter, where everyone agrees, to someone watching the bars as you vote, or to anyone who compares the server's backups from before and after. Whoever changes this server's code could log votes from then on."
 NAMED_NOTE :: "Everyone can see who chose what, and you can change your vote until the poll closes."
 
 index :: proc(all: []m.Summary) -> string {
