@@ -45,3 +45,17 @@ site_path_stays_on_this_site :: proc(t: ^testing.T) {
 url_encode_escapes_the_query_specials :: proc(t: ^testing.T) {
 	testing.expect_value(t, url_encode("a b&c=d/é"), "a%20b%26c%3Dd%2F%C3%A9")
 }
+
+@(test)
+write_marked_can_never_leave_markup_open :: proc(t: ^testing.T) {
+	check :: proc(t: ^testing.T, text, want: string) {
+		b := strings.builder_make(context.temp_allocator)
+		write_marked(&b, text)
+		testing.expect_value(t, strings.to_string(b), want)
+	}
+	check(t, "a \uE000b\uE001 <c>", "a <mark>b</mark> &lt;c&gt;")
+	check(t, "\uE000a", "<mark>a</mark>")
+	check(t, "a\uE001b", "ab")
+	check(t, "\uE000a\uE000b\uE001c\uE001", "<mark>ab</mark>c")
+	check(t, "\uE002 ok \xEE\x80", "\uE002 ok \xEE\x80")
+}

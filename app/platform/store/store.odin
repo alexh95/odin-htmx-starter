@@ -9,9 +9,12 @@ package store
 
 import "base:intrinsics"
 import "core:mem"
+import "core:strings"
 import "core:sync"
 import "core:unicode"
 import "core:unicode/utf8"
+
+import "../escape"
 
 // What a store call fails with, a value the layers above branch on. The
 // store's own message goes to the log, never to the client.
@@ -71,20 +74,12 @@ enum_from_int :: proc($E: typeid, v: int) -> (e: E, ok: bool) where intrinsics.t
 	return {}, false
 }
 
-// One hit of a global search (the find feature at M8): each source domain fills
-// these, and one list never mixes FTS5 and contains_ci hits (PLAN §11.8).
+// One hit of a global search (find): each source's domain fills these. A list of them comes from one
+// engine (PLAN §11.8).
 Search_Hit :: struct {
-	source:  string, // "chat", "wiki" …: the Find_Source's name
 	title:   string,
-	snippet: string, // escaped, with <mark> around the hits
+	snippet: string, // text, its hits between escape.MARK_ON and MARK_OFF: html.write_marked writes it
 	href:    string,
-	at:      i64,    // unix seconds, for the order across sources
-}
-
-// A domain's search, mounted in the profile's FIND_SOURCES table.
-Find_Source :: struct {
-	name:   string,
-	search: proc(q: string, limit: int, out: ^[dynamic]Search_Hit) -> Error,
 }
 
 // ---- writes: an op and its continuation ------------------------------------
@@ -167,33 +162,80 @@ free_op :: proc(op: ^Op) {
 contains_ci :: proc(haystack, needle: string) -> bool {
 	if needle == "" { return true }
 	for i := 0; i < len(haystack); {
-		if prefix_ci(haystack[i:], needle) { return true }
+		if _, ok := prefix_ci(haystack[i:], needle); ok { return true }
 		_, w := utf8.decode_rune_in_string(haystack[i:])
 		i += w
 	}
 	return false
 }
 
+// How much of `s`, in bytes, equals `prefix` ignoring case.
 @(private = "file")
-prefix_ci :: proc(s, prefix: string) -> bool {
+prefix_ci :: proc(s, prefix: string) -> (n: int, ok: bool) {
 	i, j := 0, 0
 	for j < len(prefix) {
-		if i >= len(s) { return false }
+		if i >= len(s) { return 0, false }
 		// ASCII on both sides (most text, and every e-mail) without the rune decode
 		// and the table lookups: SQLite runs this for every row a search examines.
 		if x, y := s[i], prefix[j]; x < utf8.RUNE_SELF && y < utf8.RUNE_SELF {
-			if x != y && ascii_lower(x) != ascii_lower(y) { return false }
+			if x != y && ascii_lower(x) != ascii_lower(y) { return 0, false }
 			i += 1
 			j += 1
 			continue
 		}
 		a, aw := utf8.decode_rune_in_string(s[i:])
 		b, bw := utf8.decode_rune_in_string(prefix[j:])
-		if unicode.to_lower(a) != unicode.to_lower(b) { return false }
+		if unicode.to_lower(a) != unicode.to_lower(b) { return 0, false }
 		i += aw
 		j += bw
 	}
-	return true
+	return i, true
+}
+
+SNIPPET_BEFORE :: 40 // runes kept before the first hit
+SNIPPET_RUNES :: 160
+
+// A contains_ci scan's snippet: as FTS5's snippet() gives a SQLite family's, a window of `text` round
+// the first hit, every word marked.
+snippet :: proc(text: string, words: []string, allocator := context.temp_allocator) -> string {
+	hit_at :: proc(s: string, words: []string) -> int {
+		for word in words {
+			if word == "" { continue }
+			if n, ok := prefix_ci(s, word); ok { return n }
+		}
+		return 0
+	}
+	first := 0
+	for i := 0; i < len(text); {
+		if hit_at(text[i:], words) > 0 {
+			first = i
+			break
+		}
+		_, width := utf8.decode_rune_in_string(text[i:])
+		i += width
+	}
+	start := first
+	for k := 0; k < SNIPPET_BEFORE && start > 0; k += 1 {
+		_, width := utf8.decode_last_rune_in_string(text[:start])
+		start -= width
+	}
+	b := strings.builder_make(allocator)
+	if start > 0 { strings.write_string(&b, "…") }
+	i := start
+	for runes := 0; i < len(text) && runes < SNIPPET_RUNES; runes += 1 {
+		if n := hit_at(text[i:], words); n > 0 {
+			strings.write_string(&b, escape.MARK_ON)
+			strings.write_string(&b, text[i:i + n])
+			strings.write_string(&b, escape.MARK_OFF)
+			i += n
+			continue
+		}
+		_, width := utf8.decode_rune_in_string(text[i:])
+		strings.write_string(&b, text[i:i + width])
+		i += width
+	}
+	if i < len(text) { strings.write_string(&b, "…") }
+	return strings.to_string(b)
 }
 
 @(private = "file")

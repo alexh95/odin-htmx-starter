@@ -144,7 +144,7 @@ search_page :: proc(q: string, hits: []m.Hit) -> string {
 		w(&b, `</a> <b class="chat-name">`)
 		esc(&b, hit.msg.name)
 		w(&b, `</b><div class="chat-body" hx-ignore data-disable-scripting>`)
-		esc(&b, hit.msg.body)
+		html.write_marked(&b, hit.snippet)
 		w(&b, `</div></li>`)
 	}
 	w(&b, `</ul></section>`)

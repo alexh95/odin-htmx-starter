@@ -10,6 +10,7 @@
 .chat-new label, .chat-conn label { flex-basis: 100%; color: var(--muted); font-size: .85rem; }
 .chat-search { display: flex; gap: 10px; margin-bottom: 14px; }
 .chat-search input { flex: 1; min-width: 0; }
+.chat-hits mark { background: color-mix(in oklab, var(--cyan) 35%, transparent); color: inherit; border-radius: 3px; padding: 0 1px; }
 .chat-hits { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
 .chat-new-row { display: flex; gap: 10px; flex: 1; min-width: 0; }
 .chat-new input, .chat-conn select, .chat-composer textarea, .chat-edit textarea {

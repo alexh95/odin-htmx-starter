@@ -105,6 +105,19 @@ test.describe('what members write stays text', T, () => {
     await leave(ann);
   });
 
+  test("a mark a member types is only a stray highlight", async ({ browser, baseURL }) => {
+    const ann = await member(browser, baseURL!);
+    await room(ann.page, uid('r'));
+    const word = uid('marked');
+    await say(ann.page, `<img src=x data-xss> ${word}  <b>tail`);
+    await ann.page.goto(`/chat/search?q=${word}`);
+    await expect(ann.page.locator('.chat-hit .chat-body')).toContainText('<img');
+    await expect(ann.page.locator('.chat-hit .chat-body')).toContainText('<b>tail');
+    await expect(ann.page.locator('.chat-hit .chat-body').locator('b, img')).toHaveCount(0);
+    await clean(ann.page, 'a forged mark');
+    await leave(ann);
+  });
+
   test("a room's name, wherever it shows", async ({ browser, baseURL }) => {
     const ann = await member(browser, baseURL!);
     const name = `${uid('r')} <img src=x data-xss onerror=window.__xss=1>`; // the id first: a slug is cut short

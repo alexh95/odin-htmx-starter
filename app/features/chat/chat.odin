@@ -484,7 +484,8 @@ room_by_id :: proc(id: i64) -> (m.Room, m.Error) { return chat_store.room_of(id)
 SEARCH_HITS :: 50
 MAX_SEARCH_WORDS :: 8
 
-// What `q` finds in the rooms `v` may read, newest first. Global search is `find`'s (M8).
+// What `q` finds in the rooms `v` may read, newest first; its strings in the temp allocator, and it may
+// run off the loop. Global search is `find`'s.
 search :: proc(v: authz.Viewer, q: string, out: ^[dynamic]m.Hit) -> m.Error {
 	words := make([dynamic]string, 0, MAX_SEARCH_WORDS, context.temp_allocator)
 	rest, _ := strings.remove_all(q, "\x00", context.temp_allocator) // FTS5 reads its query as a C string
@@ -494,6 +495,8 @@ search :: proc(v: authz.Viewer, q: string, out: ^[dynamic]m.Hit) -> m.Error {
 	}
 	return chat_store.search(v.id, words[:], now(), SEARCH_HITS, out)
 }
+
+optimize :: proc() -> m.Error { return chat_store.optimize() }
 
 // ---- messages ----------------------------------------------------------------------------
 

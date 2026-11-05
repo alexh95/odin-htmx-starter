@@ -24,9 +24,11 @@ query :: proc(t: ^workers.Task) -> bool {
 @(private)
 pool_start :: proc() {
 	workers.start(&query_pool, "query", QUERY_THREADS, QUERY_QUEUE)
+	workers.query_pool = &query_pool
 }
 
 @(private)
 pool_stop :: proc() {
+	workers.query_pool = nil
 	if query_pool.threads != nil { workers.stop(&query_pool) }
 }

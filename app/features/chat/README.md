@@ -70,7 +70,7 @@ asks again, as the room is now. Who stops reading a room (a kick, a leave) loses
 **Search** (M6 slice 6, §11.8): `/chat/search?q=` finds messages holding every word (the last also as a prefix) in the
 rooms the member may read, moderators included in that rule: FTS5 over bodies on SQLite (external content, triggers),
 a `contains_ci` scan of the rings in memory. What is typed is quoted, so it is never FTS syntax; hits are escaped
-as any body. Global search is `find`'s (M8).
+as any body. It runs on the query pool, in the index's order, and shows a marked snippet. Global search is `find`'s.
 
 **Moderation** (§14.1, planning 2026-11-01). In a public room or announcements a moderator (`Chat_Moderate`) removes a
 message to a tombstone (`POST /chat/m/<id>/remove`), mutes or kicks its author for a while (`/chat/r/<slug>/mute/<id>`,

@@ -367,7 +367,7 @@ Below L4, platform imports a feature only through a family collection: `platform
 | `platform/signed` | 1 | `<body>.<MAC>` text the server hands out and reads back (a pending sign-in, envadmin's cookie): `sign` and `open`, the one parser of it, fuzzed (M5, M4-13, **NEW**) |
 | `platform/fuzz` | 1 | the parsers' tests' seeded random input, `FUZZ_SCALE`/`FUZZ_SEED` for the nightly; only tests import it (M5, M4-13, **NEW**) |
 | `platform/ext` | 1 | the closed `Ext` enum of htmx extensions with its registration-name and file tables; imports nothing; re-exported as `web.Ext` (RESOLUTIONS X33) |
-| `platform/store` | 2 | what every store shares: `Migration`, `Error`, `enum_from_int`, `Search_Hit` (domains return it) and `Find_Source` (a row of `main`'s `FIND_SOURCES`) |
+| `platform/store` | 2 | what every store shares: `Migration`, `Error`, `enum_from_int`, `Search_Hit` (domains return it; `Find_Source`, a row of `main`'s `FIND_SOURCES`, is find's models', M8) |
 | `platform/store/sqlite` | 2 | store v3: the writer connection, per-loop readers, the writer task, the query pool (D16); `open` and `migrate`, which answer `--backup` and `--adopt-profile`; the pure-trap reader reset, pulled from guard's recovery count before each reader use and on a per-loop 1 s timer (S0.6); `sqlite3_db_status` numbers pushed to obs (LC §5) |
 | `platform/store/memory` | 2 | rings and maps behind guarded locks, ids `<epoch>-<seq>` |
 | `platform/env` | 2 | the typed env table (D10): the platform's rows and each feature's, recorded by its `init`; features read their rows here, never through `platform/app` (LC §5) |
@@ -922,7 +922,7 @@ by convention, not packages; its SQLite migrations sit in its SQLite store, `app
 | `platform/env` | L2 | the typed env table (D10): rows `{name, type, default, secret, doc}`, the platform's recorded by `app.boot` and each feature's by its `init`, which then reads its own (§8.5) | 09 §4.5; D10; LC §5 |
 | `platform/workers` | L2 | the `argon`, `query` and `jobs` pools; the scheduler over the mounted `JOBS` rows (`run_now(id)`, `cancel(run)`, each run's state kept as data); replies by `next_tick` with a connection generation check; a full queue answers 503 | S11; 12 §4; D16; LC §9 |
 | `platform/markdown` | L2 | spark's safe-subset renderer: nesting depth cap 32, input cap 64 KiB, rendered at write time, pure zone; relative doc links and images resolve against two prefixes the caller passes (`/wiki/`, a media folder) instead of spark's game paths | S6; 06 §3.2; D15 |
-| `platform/store` | L2 | what every store shares: `Migration`, `Error`, `enum_from_int` (validated enum reads, fixes 02 F3), `Search_Hit` and `Find_Source`; each feature's store contract lives in its `models` package (§6.4) | S8, S9; D4, D16; LC §5 |
+| `platform/store` | L2 | what every store shares: `Migration`, `Error`, `enum_from_int` (validated enum reads, fixes 02 F3), `Search_Hit`; each feature's store contract lives in its `models` package (§6.4) | S8, S9; D4, D16; LC §5 |
 | `platform/store/sqlite` | L2 | store v3: one writer, per-loop readers, the writer task, the query pool, `open` (`--backup`, `--adopt-profile`) and the per-feature `migrate` (§11); it pulls the pure-trap reader reset from guard's recovery count and pushes its `sqlite3_db_status` numbers to obs (§10) | 12 §9; D16; LC §5 |
 | `platform/store/memory` | L2 | rings and maps behind guarded locks, ids `<epoch>-<seq>` | D16 |
 | `platform/web` | L3 | the prefix router, one map per host (§8), CSP route flags (D20), `Req_Ctx`, `respond_*`, `web.Request` and `web.Response` (odin-http's types, re-exported so no feature imports odin-http), per-route body caps, the trusted-proxy client address, the limiter, assets (fingerprints, br/gz/identity), robots/sitemap/Bing/IndexNow, `/licenses`; `web.Route`, `web.ROUTES` (a site's main host: the `/metrics /livez /readyz /healthz` routes over obs's data, the sitemap, the ownership proofs) and `web.PUBLIC_ROUTES` (every host); the `web.Ext`, `web.Route_Flag` and `web.Bundle` enums | `SK/app/src/controllers/middleware.odin:38-87,182-306`; 06 §3.1; 11 §6, §8; LC §7 |
@@ -1286,7 +1286,7 @@ The axes, from D8 with RESOLUTIONS X9 and X13 applied, chosen by LC §3–§4's 
 
 | Axis | Implementations | Chosen | How |
 |---|---|---|---|
-| Store per feature (notes, chat, notify, polls, lists, calendar, guestbook, jobs, audit, bot conversations; uploads' session rows, RESOLUTIONS X13) | the SQLite and memory families, `app/stores/{sqlite,memory}/<f>/` | build: one family per build | `-collection:store=…` on the build line; the domain imports `store:<f>` |
+| Store per feature (notes, chat, notify, calendar, guestbook, jobs, audit, bot conversations; polls and lists are SQLite only, M8; uploads' session rows, RESOLUTIONS X13) | the SQLite and memory families, `app/stores/{sqlite,memory}/<f>/` | build: one family per build | `-collection:store=…` on the build line; the domain imports `store:<f>` |
 | Identity | `accounts` (SQLite), `envadmin` (one env-provisioned admin, signed cookie), `nick` (signed nickname cookie, role User), `anonymous` (the default) | build | `-collection:identity=…`; `front` calls `identity.load_viewer` (contract `authz.Load_Viewer`) |
 | Client behaviours | `client/hyperscript`, `client/vanilla` | build, one per profile | `-collection:client=…`, read by `platform/html` |
 | Theme | `theme/full` (6 styles × 24 schemes), `theme/lite` (one style, two schemes) | build | `-collection:theme=…`, read by `platform/html` |
@@ -1607,7 +1607,7 @@ import chat_web "../../features/chat/web"
 
 // The Today page's cards in order, and find's sources: dispatch tables, the same kind as ROUTES.
 HOME_CARDS := [?]html.Home_Card{chat_web.home_card, bot_web.home_card, video_web.home_card, lists_web.home_card, status_web.home_card}
-FIND_SOURCES := [?]store.Find_Source{{"chat", chat.search}, {"wiki", wiki.search}, {"lists", lists.search}, {"calendar", calendar.search}}
+FIND_SOURCES := [?]find_m.Source{{"chat", .Chat_Read, chat.find}, {"wiki", .Wiki_Read, wiki.find}, {"lists", .Lists_Edit, lists.find}, {"calendar", calendar.search}}
 
 // Every extension the main bundle needs (D19). Boot refuses a bundle whose /* exts: */ header differs.
 BUNDLE_EXTS :: chat_web.EXTS + notify_web.EXTS + bot_web.EXTS + ops_web.EXTS + lists_web.EXTS + video_web.EXTS // + …
@@ -2690,7 +2690,7 @@ first, with advice (§7.4). Adapted from RF §7.3:
 
 | Feature | Memory behaviour | SQLite behaviour |
 |---|---|---|
-| notes, notify, polls, lists, calendar, guestbook, jobs | maps and rings behind guarded locks, ids `<epoch>-<seq>`, lost on restart | tables, rowids |
+| notes, notify, calendar, guestbook, jobs | maps and rings behind guarded locks, ids `<epoch>-<seq>`, lost on restart | tables, rowids |
 | chat | seed rooms, DMs on demand; the ring is the history; `contains_ci` search; the UI says "ephemeral mode" | retention per room kind, FTS, resume across restarts by rowid |
 | bot conversations | a per-session ring of the last K turns (12 §6; K = 8 in RF §7.3) | stored for their owner only (Q20) |
 | identity | `envadmin` (one admin, signed cookie), `nick`, `anonymous` | `accounts`: users, sessions, invites, TOTP, `accounts_prefs` |
@@ -2699,7 +2699,7 @@ first, with advice (§7.4). Adapted from RF §7.3:
 | video | the memory store, `catalog_file`: a read-only manifest scan | library, visibility, watch progress (video metadata only; upload rows belong to `uploads`, X13) |
 | wiki | the memory store, `source_files`: read-only embedded docs | editable pages, revisions, FTS |
 | find | `contains_ci` over the memory sources | FTS5 per feature, bm25 on the pool |
-| contacts, dashboard, gallery, dbview, term | not offered | full |
+| contacts, dashboard, gallery, dbview, term, polls, lists | not offered | full |
 
 ### 11.5 Schema sketch
 
@@ -2934,7 +2934,7 @@ Chromium 153 and WebKit 26.6 (11 §3), where a fixed `wss://host` would break th
 
 | Flag | Adds | Example routes |
 |---|---|---|
-| `.Private` | `Cache-Control: no-store`, `X-Robots-Tag: noindex, nofollow`, `hx-history="false"` on `<body>` | `/admin/*`, `/account`, `/login`, chat room pages (one row serves rooms and DMs, §6.1), `/term`, `/bot` |
+| `.Private` | `Cache-Control: no-store`, `X-Robots-Tag: noindex, nofollow`; also settable per response (`web.set_private`, M8), for a row that serves public and members' pages alike | `/admin/*`, `/account`, `/login`, chat room pages (one row serves rooms and DMs, §6.1), `/term`, `/bot`, `/find`; a members' wiki page by response |
 | `.Frame_Games` | `frame-src <GAMES_URL>` | the games player page (§15) |
 | `.Media` | CORP `same-origin`, immutable caching, `Accept-Ranges` | `/media/*` |
 | `.Nonce_Csp` | `script-src 'nonce-<16 B>' 'sha256-<prepaint>'` per response, `no-store`, `hx-nonce` stamping | `/scripting/*` only, on the session-free origins: `lab`'s, and `full`'s lab host (ANSWERS F2) |
@@ -2986,9 +2986,9 @@ on its behaviour (no API lists registered extensions, 11 §8.2); `bundle-race.sp
 | hx-pending | chat optimistic bubble (B, C); lists add item; poll vote; bot question echo; guestbook submit | — |
 | hx-browser-indicator | boosted navigation (`boostBrowserIndicator`); bot generation; exports. Chromium only, a no-op elsewhere (04 §5.6) | — |
 | hx-prompt | every moderator and admin reason → `HX-Prompt` → the audit log | — |
-| hx-preload | boosted navigation; video cards on mouseover; wiki links; game tiles; find results. It sends no `HX-Preloaded` header (04 §4.5), so every GET stays side-effect free | — |
+| hx-preload | boosted navigation; video cards on mouseover; wiki links; game tiles; find's wiki results (a chat room's GET counts as a member seen, so its hits don't). It sends no `HX-Preloaded` header (04 §4.5), so every GET stays side-effect free | — |
 | hx-ptag | chat transport C (the ptag is the cursor; 304 when nothing is new); ops and status poll variants; leaderboards | — |
-| hx-history-cache | wiki, video library, `/find`, games catalog; `.Private` routes set `hx-history="false"` because it snapshots page HTML into sessionStorage (04 §5.10) | — |
+| hx-history-cache | opt-in per page: public wiki pages at M8, and later the video library and games catalog. It snapshots page HTML into sessionStorage (04 §5.10), and it checks for `hx-history="false"` across the document when it saves, while a boost replaces only the body's children. So the layout writes that attribute inside the swapped content on every page by default and leaves it off only for a page that opts in; a new page can't slip through. A public page's snapshot still holds a member's header, so sign-out clears `htmx-history-*` | — |
 | hx-head | boosted-navigation head merge (title, description, canonical, og; `og:video`) | — |
 | hx-upsert | chat (replay, edits, tombstones), presence, notifications, jobs, lists, c4 cells, leaderboards; keys are zero-padded strings because upsert sorts with `localeCompare` (07 §6.2) | — |
 | hx-targets | unread badges `.unread-<room>`, `.notify-count`, user chips after a role or avatar change, RSVP counts `.rsvp-<id>` | — |
@@ -3580,6 +3580,10 @@ Each feature's README carries the full spec under D4's fixed headings. Accounts 
 - Implementations follow the store family (LC §3): the SQLite store is editable (Houston seeds the starter's docs as
   read-only Manual pages), and the memory store is `source_files`, the read-only embedded docs (the lab's wiki from
   M8, and the lean default).
+- The embedded docs are an explicit list, never a directory walk, so `docs/private` can't reach a build; each fits the
+  renderer's 64 KiB, and the list is small enough for `full`'s budget. PLAN and DECISIONS are too large on both counts:
+  the wiki links to them on GitHub. DEVICES-SUMMARY and ANSWERS aren't manuals and stay out.
+- A public page opts in to the history cache (§12). A members' page is private by response: `no-store`, noindex, no snapshot.
 - Perms `Wiki_Read`, `Wiki_Edit`. M8 adds a markdown fuzz (depth cap, 0 crashes) and a back/forward spec with zero
   server hits.
 
@@ -3588,18 +3592,28 @@ Each feature's README carries the full spec under D4's fixed headings. Accounts 
   fills `store.Search_Hit` rows; `find_web` calls each row and imports no other feature (D6; §6.2, §7.2). The results
   are filtered by the viewer: chat searches only rooms the viewer belongs to, and DMs only their own; the wiki by
   visibility.
-- SQLite implementations use FTS5 and memory implementations a `contains_ci` scan; one result list never mixes the
-  two engines, and bm25 ranking runs on the query pool (D16). §11.8 has the tokenizer, the folding rule and the
-  costs at 100k messages (12 §7).
-- The search box uses `hx-sync="this:replace"`; results preload; `/find` is history-cached. The `Palette` behaviour
-  opens the Ctrl-K `<dialog>`; without it, `/find` is a plain GET form. Limit: 10 per second per user.
+- A row of `FIND_SOURCES` (`find_m.Source`, in find's models) has a perm, checked before its `search` runs, and the
+  search gets the viewer and runs off the loop: a guest gets no chat hits. A member's `/bot` conversations are no source:
+  they are their owner's alone (Q20).
+- SQLite implementations use FTS5 and memory implementations a `contains_ci` scan; each row names its engine and boot
+  refuses a mix (§11.8). Hits are grouped by source with no merged order, since bm25 doesn't compare across tables: chat
+  newest first, which sorts nothing, the wiki by bm25 on the query pool (D16). §11.8 has the tokenizer, the folding rule
+  and the costs at 100k messages (12 §7).
+- A snippet comes from FTS5's `snippet()` with private-use marks, or `store.snippet` on a scan; `write_marked` escapes it
+  and treats the marks as a toggle, because stored text can hold them.
+- The search box uses `hx-sync="this:replace"`; wiki results preload; `/find` is `.Private`, so it's never history-cached:
+  it holds private-room and DM text. The `Palette` behaviour opens the Ctrl-K `<dialog>`; without it, `/find` is a plain
+  GET form. Limit: 10 per second per user.
 - It lives at `/find` because the skeleton's `/search` is the contacts fragment (D9, §6). M8 asserts FTS MATCH
   ≤ 3 ms at 100k messages and that results respect membership.
 
 **`lists`** (Checklists, `/lists`; M8; D36):
-- A list holds items: text ≤ 200 runes, done, an assignee (→ `notify_web.send`), and an integer position. Positions
-  keep gaps of 1024 and the server renumbers them.
-- The checklist view adds items with hx-pending. The board view has columns; `Draggable` and `DropZone` send
+- A list holds items: text ≤ 200 runes, a column, an assignee (→ `notify_web.send`), and an integer position. Positions
+  keep gaps of 1024 and the server renumbers them. Lists are shared by every member; `lists.find` searches item text with
+  FTS, on `Lists_Edit`.
+- Columns come from the template at creation (To do / Doing / Done by default), with no column editor. One column per
+  list closes, and done means being in it: ticking moves an item to the closing column, unticking to the first.
+- The checklist view adds items with hx-pending. The board view shows the columns; `Draggable` and `DropZone` send
   `POST /lists/<id>/items/<iid>/move`, and move buttons are the no-JS path.
 - Changes ride `lists.list:<id>` (persisted) as upserts keyed `data-pos`. Templates: groceries, packing.
 - Perm `Lists_Edit`. M8 runs drag and drop with trusted mouse input and the button fallback; the board view is

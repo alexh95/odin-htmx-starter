@@ -132,10 +132,11 @@ Invite :: struct {
 	revoked:  i64, // when; 0: not revoked
 }
 
-// A search's match: the message, and its room's for the link.
+// A search's match: the message, its room's for the link, and the part of it to show.
 Hit :: struct {
-	msg:  Message,
-	room: Room,
+	msg:     Message,
+	room:    Room,
+	snippet: string, // text, its hits between escape.MARK_ON and MARK_OFF
 }
 
 Error :: store.Error
@@ -209,9 +210,12 @@ Store_Count_After :: proc(room: i64, after: i64) -> int // how many kept message
 Store_Changed :: proc(room: i64, since: i64, out: ^[dynamic]Message) -> (ver: i64, reached: bool, err: Error) // ver > since; the room's version; false: something changed after `since` has left the room
 Store_Message :: proc(id: i64) -> (Message, Error)
 // The newest `limit` live messages holding `words` (each, whole; the last also as a prefix), in the
-// rooms `who` may read at `now`: public rooms and announcements they aren't kicked from, and the
-// private rooms and DMs they are in.
+// rooms `who` may read at `now`, as chat.reads says: public rooms and announcements they aren't kicked
+// from, and the private rooms and DMs they are in. A kick exists only in the first two: a private room
+// and a DM have no moderators. Strings go in the temp allocator: it may run off the loop.
 Store_Search :: proc(who: u64, words: []string, now: i64, limit: int, out: ^[dynamic]Hit) -> Error
+// A week's merging in the index, in one go through the writer (§11.8).
+Store_Optimize :: proc() -> Error
 Store_Post :: proc(op: ^Post) -> bool // false: the store is busy; `done` won't run
 Store_Change :: proc(op: ^Change) -> bool
 Store_Seed :: proc()

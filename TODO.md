@@ -32,7 +32,6 @@ copy-and-start ergonomics and good defaults matter more than feature depth.
       oldest-browser device with no client behaviours; htmx 4 there is still UNVERIFIED.
 - [ ] **A limited revoke wipes a once-shown invite link** (M6-S4).
 - [ ] **One member can hold the blob budget** (M6-R8), the 64 MiB of answers in flight, for as long as their sockets stall.
-- [ ] **Search on the query pool** (M6-13), when `find` comes (M8).
 - [ ] **Small things** (M6-16): a private room's slug can be probed by name, a moderator can mute an admin, a renamed
       member's socket keeps the old name.
 
@@ -71,16 +70,18 @@ copy-and-start ergonomics and good defaults matter more than feature depth.
 The starter's eighth milestone ([`docs/PLAN.md`](docs/PLAN.md) §22.3, M8's row; §6 the four features; §11.8 FTS; D16, D20, D36). Its exit
 gate: the slice gate; FTS MATCH ≤ 3 ms at 100k messages; find respects membership; a wiki markdown fuzz (depth cap) with 0 crashes; board
 drag and drop (trusted mouse input) and the button fallback both pass; history-cache back/forward with zero server hits on the wiki.
-Pushes are on the standing go. The plan was checked against the code on 2026-11-05: points **P1–P10** in the notes folder's
-`m8-plan-points.md`, with planning. Slices that lean on an open point say so, and nothing is built on one until it's answered.
+Pushes are on the standing go. Planning answered the plan points on 2026-11-05 and PLAN carries them. Only polls wait: slice 10 holds on
+Alex's answer on what an anonymous poll stores.
 
-- [ ] **1. Chat's search made ready for find** (M6-13, D16): `SQL_SEARCH` sorts every match in a temp b-tree (`EXPLAIN QUERY PLAN`
+- [x] **1. Chat's search made ready for find** (M6-13, D16): `SQL_SEARCH` sorts every match in a temp b-tree (`EXPLAIN QUERY PLAN`
       settles M6-13's guess); `ORDER BY f.rowid DESC` doesn't. Search moves to the query pool, its strings in the task's arena. One
-      read rule for the room page, SQLite's search and memory's (P1). The memory store scans with `store.contains_ci`, which its comment
+      rule: a kick exists only in public and announce rooms, so `SQL_SEARCH`'s check is scoped to them, as `chat.reads` is. The memory store scans with `store.contains_ci`, which its comment
       claims and its code doesn't. A snippet with marks: FTS5's `snippet()` around private-use sentinels, then escaped, so the marks match
       what FTS folded (`cafe` marks `café`), and `write_highlighted` over all the words on memory. The weekly `optimize` job (§11.8),
       which was never built. *Check:* the membership cases below on `/chat/search` and both families' storetest, `cafe` on each family, a
       plan-shape test holding the query to no temp b-tree.
+      Done (2026-11-05): `web.Scan` is the off-the-loop read, and `workers.query` runs it at once where the store is memory. The optimize
+      job wakes hourly and runs Sunday at 03:00 UTC, so a restart can't keep putting it off. Found by the check: a forged mark needs a toggle.
 - [ ] **2. Wiki, read-only** (§6, §7): `wiki` with the memory store `source_files` on `lab`. The embedded docs are an explicit list, never a
       directory walk, and `docs/private` can't reach it (P3). Each input fits the renderer's 64 KiB; `.dockerignore` names each one; links
       between them become `/wiki/<slug>`, the rest the repo's URL. `hx-ignore` + `data-disable-scripting` round a body; each page's head
@@ -91,34 +92,38 @@ Pushes are on the standing go. The plan was checked against the code on 2026-11-
       the query pool; the server-rendered preview; `.md` through hx-download; Houston's Manual pages seeded read-only at boot from slice 2's
       list and replaced when the binary's differ. *Check:* storetest, a restart, a guest refused a members' page and its `.md`, a Manual
       page refusing an edit, the 409 spec, the XSS suite over a page and a title, `rbac.spec`'s rows, both suites on `full`.
-- [ ] **4. History cache, preload, head** (§12, 04 §5.10; P2): the extensions enter Main, and so reach every page of a build. A list of
-      every non-`.Private` page in `full` and what a snapshot of it would keep; a per-response way to make a members' wiki page private on a
-      row that also serves public ones. *Check:* the gate's back/forward spec with zero server hits on a public page, a members' page and
-      `/find` leaving nothing in sessionStorage, sign-out with no snapshot left behind.
+- [ ] **4. History cache, preload, head** (§12, 04 §5.10): the extensions enter Main, and so reach every page of a build. The cache is
+      opt-in: the layout writes `hx-history="false"` inside the swapped content on every page, and only a public wiki page leaves it off (the
+      attribute on `<body>` can't work: a boost drops it, and a hard load leaves it for the tab's life). A per-response private switch for a
+      members' page. *Check, spec first:* boost public to `.Private` and away, no `htmx-history-*` key; `.Private` to public and back, zero
+      hits; a guest's back/forward with zero server hits; a members' page and `/find` leaving nothing; sign-out clearing `htmx-history-*`.
 - [ ] **5. The markdown campaign** (§19.1.3, D44): `platform/fuzz` over `render` at a campaign's scale under ASan on Linux, and in the
       nightly; depth cap, input cap and the output's invariants (no raw tag, no unsafe href). *Check:* 0 crashes, the rounds and seed recorded.
-- [ ] **6. Find** (§6, D6, D16; P4–P6): `/find`, `FIND_SOURCES`, each source's own perm before its `search`; on the query pool; 10 per second
+- [ ] **6. Find** (§6, D6, D16): `/find`, `FIND_SOURCES`, each source's own perm before its `search`; on the query pool; 10 per second
       per user; a list that never mixes engines, held at boot; `hx-sync="this:replace"`; a plain GET form with no client. Mounted on `full`
       (FTS) and `streams` (memory). *Check:* the membership suite below, `cafe` on each family, the limit, `rbac.spec`, the XSS suite over
       snippets, both suites. **Membership suite**, on both families: a guest sees no chat at all; a non-member finds nothing of a private
       room or another's DM; a member who left, a removed member and a kicked one find nothing; a bot's answer in a private room is found by
       its members and nobody else; a failed ask left nothing; an edited, removed or aged-out message is gone from the index; a member's
-      `/bot` conversation is found by nobody, its owner included (P5).
+      `/bot` conversation is found by nobody, its owner included. The wiki: a guest finds no members' page, its title and snippet included,
+      and a page moved to members leaves guests' hits at once. Lists: a guest finds none.
 - [ ] **7. The palette** (§6, D22): the `Palette` behaviour opening the Ctrl-K `<dialog>`, results and the pages the viewer may open. The
       behaviour is a name in `behave.odin` with no definition yet. *Check:* keyboard only on three browsers, the vanilla client's plain link
       to `/find`, focus back where it was, no stream of its own.
-- [ ] **8. Lists, the checklist** (§6; P7, P8): `lists` on SQLite: lists, items (≤ 200 runes, done, an assignee → `notify_web.send`, position
-      with gaps of 1024, renumbered by the server), templates; hx-pending; `lists.list:<id>` persisted, upserts keyed `data-pos`. *Check:*
-      storetest, two members live on every transport the topic has, the renumbering at the gap's end, the assignee's notice, both suites.
-- [ ] **9. Lists, the board** (cut-list item 8; P8): columns; `Draggable` and `DropZone`, which have no definition yet; `POST
+- [ ] **8. Lists, the checklist** (§6): `lists` on SQLite: lists, columns from the template (To do / Doing / Done by default, no editor),
+      items (≤ 200 runes, a column, an assignee → `notify_web.send`, position with gaps of 1024, renumbered by the server); one column closes
+      and done means being in it: ticking moves to it, unticking to the first; hx-pending; `lists.list:<id>` persisted, upserts keyed `data-pos`;
+      `lists.find`, FTS over item text on `Lists_Edit`. *Check:* storetest, two members live, the renumbering at the gap's end, the assignee's
+      notice, a removed item gone from the index, both suites.
+- [ ] **9. Lists, the board** (cut-list item 8): the columns shown; `Draggable` and `DropZone`, which have no definition yet; `POST
       /lists/<id>/items/<iid>/move`; move buttons as the no-JS path. *Check:* drag and drop with trusted mouse input on three browsers,
       the buttons on the vanilla client, a move racing another member's, both suites.
-- [ ] **10. Polls** (cut-list item 9; P7, P9): `polls` on SQLite: a question with options or the Go/No-go preset, single or multiple choice,
+- [ ] **10. Polls** (cut-list item 9; holds on Alex's answer): `polls` on SQLite: a question with options or the Go/No-go preset, single or multiple choice,
       anonymous, a closing time on a job; votes 10 per minute, hx-pending; CSS bars by `style="--p:NN%"`; `polls.poll:<id>` `.Latest`; closing
       notifies the voters. *Check:* storetest, live results to a second member, a double vote refused, an anonymous poll's storage, `rbac.spec`,
       both suites.
 - [ ] **11. Budgets** (§18): MATCH ≤ 3 ms at 100k messages through the real query with its membership rows, a common word for a member of
-      few rooms included, and bm25's cost beside it. *Check:* `docs/perf/FIND-BUDGETS.md`, k6 scenarios for each new route, `tools/check parity`.
+      few rooms included, and bm25's cost beside it. `snippet()`'s cost beside it. *Check:* `docs/perf/FIND-BUDGETS.md`, k6 scenarios for each new route, `tools/check parity`.
 - [ ] **12. Exit**: the slice gate for every new feature; the parity gate on both legs; `docs/audit/M8.md`, a security audit of find's
       membership, the wiki's rendering and visibility, lists and polls, by an agent that didn't write the code, 0 open CRITICAL/HIGH, and a
       re-read of its fixes; `Audited:` stamps; CHANGELOG's 2.7.0 lead; the generator and the catalog know the four features. Then the tag

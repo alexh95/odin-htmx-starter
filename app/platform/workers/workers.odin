@@ -104,6 +104,19 @@ submit :: proc(p: ^Pool, t: ^Task) -> bool {
 	return true
 }
 
+// Set by the family that has a query pool (store/sqlite, at boot). A memory build has none.
+query_pool: ^Pool
+
+// What scans or ranks: on the query pool, or at once on this loop where the store is memory, whose
+// scans are of rings a few thousand long. false: the pool is full or draining.
+query :: proc(t: ^Task) -> bool {
+	if query_pool != nil { return submit(query_pool, t) }
+	t.run(t)
+	t.ran = true
+	t.done(t)
+	return true
+}
+
 // The caller gave up: a task that hasn't started skips `run`; `done` still runs.
 cancel :: proc(t: ^Task) {
 	sync.atomic_store(&t.cancelled, true)

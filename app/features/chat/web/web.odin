@@ -92,6 +92,7 @@ TOPICS := [?]hub.Topic {
 JOBS := [?]workers.Job {
 	{"chat.presence", 5 * time.Second, sweep_presence, nil},
 	{"chat.retention", time.Minute, sweep_old, nil},
+	{"chat.optimize", time.Hour, optimize_index, sunday_night},
 }
 
 // §17.5: posts 5 per 10 s per member (a fixed window: up to 10 across a boundary),
@@ -174,12 +175,42 @@ search_page :: proc(req: ^web.Request, res: ^web.Response) {
 		web.respond_limited(res, retry, "Too many searches: wait a moment.")
 		return
 	}
-	hits := make([dynamic]m.Hit, context.temp_allocator)
-	if err := chat.search(web.viewer(req), q, &hits); err != .None {
-		web.respond_store_error(req, res, err)
-		return
-	}
-	web.render_page(req, res, "Search", "/chat", "Search the rooms you can read.", chat_views.search_page(q, hits[:]))
+	s := web.new_scan(Searching, req, res, proc(scan: ^web.Scan) {
+		s := (^Searching)(scan)
+		s.hits = make([dynamic]m.Hit, context.temp_allocator)
+		s.err = chat.search(s.viewer, s.q, &s.hits)
+	}, proc(scan: ^web.Scan, req: ^web.Request, res: ^web.Response) {
+		s := (^Searching)(scan)
+		if s.err != .None {
+			web.respond_store_error(req, res, s.err)
+			return
+		}
+		web.render_page(req, res, "Search", "/chat", "Search the rooms you can read.", chat_views.search_page(s.q, s.hits[:]))
+	})
+	if s == nil { return }
+	s.viewer, s.q = web.viewer(req), q
+	web.start_scan(req, res, s)
+}
+
+@(private)
+Searching :: struct {
+	using scan: web.Scan,
+	viewer:     authz.Viewer,
+	q:          string, // the request's: it lives until the answer
+	hits:       [dynamic]m.Hit,
+	err:        m.Error,
+}
+
+@(private)
+sunday_night :: proc() -> bool {
+	t := time.now()
+	hour, _, _ := time.clock_from_time(t)
+	return time.weekday(t) == .Sunday && hour == 3
+}
+
+@(private)
+optimize_index :: proc() {
+	if err := chat.optimize(); err != .None { workers.fail("the index: %v", err) }
 }
 
 @(private)

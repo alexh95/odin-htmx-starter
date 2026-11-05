@@ -77,12 +77,15 @@ MIGRATIONS := [?]store.Migration {
 @(private) PAST_AGE :: "SELECT m.room AS room, m.id AS id, m.ver AS ver FROM chat_messages m JOIN chat_rooms r ON r.id = m.room WHERE r.kind = ? AND m.pinned = 0 AND m.at < ? ORDER BY m.id LIMIT 1000"
 @(private) SQL_PAST_AGE :: "SELECT room, max(id), max(ver), count(*) FROM (" + PAST_AGE + ") GROUP BY room"
 @(private) SQL_AGE_OUT :: "DELETE FROM chat_messages WHERE id IN (SELECT id FROM (" + PAST_AGE + "))"
-@(private) SQL_SEARCH :: "SELECT m.id, m.room, m.author, m.name, m.body, m.at, m.edited, m.gone, m.ver, m.blob, r.id, r.slug, r.name, r.at, r.kind, r.owner, r.dropped, r.locked, r.slow " +
+// By the index's own order: `m.id` here sorted every match before the LIMIT (M6-13), and the storetest
+// holds the plan to no temp b-tree. 57344 and 57345 are escape.MARK_ON and MARK_OFF.
+SQL_SEARCH :: "SELECT m.id, m.room, m.author, m.name, m.body, m.at, m.edited, m.gone, m.ver, m.blob, r.id, r.slug, r.name, r.at, r.kind, r.owner, r.dropped, r.locked, r.slow, " +
+	"snippet(chat_fts, 0, char(57344), char(57345), '…', 32) " +
 	"FROM chat_fts f JOIN chat_messages m ON m.id = f.rowid JOIN chat_rooms r ON r.id = m.room " +
-	"WHERE chat_fts MATCH ? AND m.gone = 0 " +
-	"AND (r.kind IN (0, 2) OR EXISTS (SELECT 1 FROM chat_members c WHERE c.room = r.id AND c.who = ?)) " +
-	"AND NOT EXISTS (SELECT 1 FROM chat_bans b WHERE b.room = r.id AND b.who = ? AND b.kind = 1 AND b.until > ?) " +
-	"ORDER BY m.id DESC LIMIT ?"
+	"WHERE chat_fts MATCH ?1 AND m.gone = 0 AND CASE WHEN r.kind IN (0, 2) " +
+	"THEN NOT EXISTS (SELECT 1 FROM chat_bans b WHERE b.room = r.id AND b.who = ?2 AND b.kind = 1 AND b.until > ?3) " +
+	"ELSE EXISTS (SELECT 1 FROM chat_members c WHERE c.room = r.id AND c.who = ?2) END " +
+	"ORDER BY f.rowid DESC LIMIT ?4"
 @(private) SQL_SAVE :: "SAVEPOINT op"
 @(private) SQL_UNDO :: "ROLLBACK TO op"
 @(private) SQL_RELEASE :: "RELEASE op"
@@ -537,9 +540,8 @@ search :: proc(who: u64, words: []string, at: i64, limit: int, out: ^[dynamic]m.
 	defer db.reset(q)
 	db.bind_text(q, 1, fts_query(words))
 	db.bind_id(q, 2, i64(who))
-	db.bind_id(q, 3, i64(who))
-	db.bind_id(q, 4, at)
-	db.bind_int(q, 5, limit)
+	db.bind_id(q, 3, at)
+	db.bind_int(q, 4, limit)
 	for db.next_row(q, &err) {
 		kind, _ := store.enum_from_int(m.Room_Kind, db.column_int(q, 14))
 		append(out, m.Hit{
@@ -548,9 +550,18 @@ search :: proc(who: u64, words: []string, at: i64, limit: int, out: ^[dynamic]m.
 				id = db.column_id(q, 10), slug = db.clone_col(q, 11), name = db.clone_col(q, 12), at = db.column_id(q, 13), kind = kind,
 				owner = u64(db.column_id(q, 15)), dropped = db.column_id(q, 16), locked = db.column_int(q, 17) != 0, slow = db.column_int(q, 18),
 			},
+			snippet = db.clone_col(q, 19),
 		})
 	}
 	return
+}
+
+optimize :: proc() -> m.Error {
+	ok := db.write_now(proc() -> bool {
+		st := db.writer_stmt("INSERT INTO chat_fts(chat_fts) VALUES('optimize')")
+		return db.step_done(st) == .None
+	})
+	return .None if ok else .Failed
 }
 
 // ---- moderation ----------------------------------------------------------------------------

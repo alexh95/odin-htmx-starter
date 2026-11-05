@@ -8,6 +8,17 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 
 ## [Unreleased]
 
+### Changed
+
+- Chat's search runs on the query pool (M6-13) through `web.Scan`, in the index's own order rather than sorting every match, and shows a
+  snippet with its hits marked: FTS5's `snippet()` on SQLite, `store.snippet` on memory, whose scan now is `store.contains_ci`.
+  `escape.write_marked` treats the marks as a toggle, since a member can type them. `Store_Search` states the one kick rule.
+- `Find_Source` leaves `platform/store` for find's models, and `Search_Hit` loses `source` and `at` (PLAN §6).
+
+### Added
+
+- The weekly `chat.optimize` job on chat's FTS index (§11.8), which was planned and never built.
+
 ## [2.6.0] - 2026-11-05
 
 The starter's seventh milestone, M7: Ask. Houston gets its bot: `/bot` with conversations kept in SQLite, a binding to a llama.cpp

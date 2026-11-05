@@ -33,6 +33,7 @@ esc :: escape.esc
 url_encode :: escape.url_encode
 site_path :: escape.site_path
 json_esc :: escape.json_esc
+write_marked :: escape.write_marked
 
 // What a profile's brand.odin declares: its names, its origin, and the parts of
 // the shell it uses. Read-only after boot.

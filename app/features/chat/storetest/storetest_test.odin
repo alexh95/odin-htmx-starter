@@ -48,6 +48,7 @@ Family :: struct {
 	leave:       m.Store_Leave,
 	sweep:       m.Store_Sweep,
 	search:      m.Store_Search,
+	optimize:    m.Store_Optimize,
 	set_audit:   m.Store_Set_Audit_Writer,
 	set_room:    m.Store_Set_Room,
 	ban:         m.Store_Ban,
@@ -231,6 +232,34 @@ searching :: proc(t: ^testing.T, f: Family) {
 	testing.expectf(t, len(found(f, 7, "zeb")) == 2, "%s: the last word as a prefix", f.name)
 	testing.expectf(t, len(found(f, 7, `ze"bra OR *`)) == 0, "%s: what is typed is no syntax", f.name)
 	testing.expectf(t, len(found(f, 7)) == 0, "%s: nothing asked, nothing found", f.name)
+
+	// A member who left, and the bot's words, follow the room.
+	left, _ := f.create_room("left", "Left", .Private, 7, "ann")
+	testing.expect_value(t, f.join(left.id, 9, "cid"), m.Error.None)
+	say(t, f, left.id, 0, "the walrus answer")
+	testing.expectf(t, len(found(f, 9, "walrus")) == 1, "%s: a member finds the bot's answer", f.name)
+	testing.expectf(t, len(found(f, 8, "walrus")) == 0, "%s: nobody else does", f.name)
+	testing.expect_value(t, f.leave(left.id, 9), m.Error.None)
+	testing.expectf(t, len(found(f, 9, "walrus")) == 0, "%s: nor once they've left", f.name)
+	testing.expectf(t, len(found(f, 0, "walrus")) == 0, "%s: nor a guest", f.name)
+
+	// The marks round the hit, and a typed mark only a character.
+	marks, _ := f.create_room("marks", "Marks", .Public, 7, "ann")
+	say(t, f, marks.id, 7, "an ibex \uE000 walks")
+	hits = found(f, 7, "ibex")
+	testing.expectf(t, len(hits) == 1 && strings.contains(hits[0].snippet, "\uE000ibex\uE001"), "%s: a hit is marked: %q", f.name, hits[0].snippet if len(hits) > 0 else "")
+	// FTS folds and a scan doesn't (§11.8), and each marks what it found.
+	say(t, f, marks.id, 7, "the café noir")
+	hits = found(f, 7, "cafe")
+	if f.name == "sqlite" {
+		testing.expectf(t, len(hits) == 1 && strings.contains(hits[0].snippet, "café"), "sqlite folds: %v", hits[:])
+	} else {
+		testing.expectf(t, len(hits) == 0, "memory doesn't: %v", hits[:])
+		hits = found(f, 7, "CAFÉ")
+		testing.expectf(t, len(hits) == 1 && strings.contains(hits[0].snippet, "café"), "memory, its case: %v", hits[:])
+	}
+	testing.expect_value(t, f.optimize(), m.Error.None)
+	testing.expectf(t, len(found(f, 7, "ibex")) == 1, "%s: the index survives its optimize", f.name)
 
 	// An edit and a tombstone reach the index.
 	edited, _ := alter(t, f, a.id, 7, "a giraffe now", false)
@@ -540,11 +569,19 @@ both_families :: proc(t: ^testing.T) {
 	testing.expect_value(t, nbio.acquire_thread_event_loop(), nil)
 	defer nbio.release_thread_event_loop()
 
-	conforms(t, {"memory", mem.init, mem.seed, mem.room, mem.rooms_for, mem.create_room, mem.dm, mem.members, mem.is_member, mem.join, mem.leave, mem.sweep, mem.search, mem.set_audit_writer, mem.set_room, mem.ban, mem.banned, mem.report, mem.reports, mem.report_of, mem.resolve, mem.add_invite, mem.invite, mem.invites, mem.revoke_invite, mem.use_invite, mem.recent, mem.after, mem.count_after, mem.changed, mem.message, mem.post, mem.change, mem.open_reports, mem.room_of, mem.rooms_owned, mem.blob_held, mem.purge_blob, mem.block, mem.unblock, mem.blocking, mem.blocks})
+	conforms(t, {"memory", mem.init, mem.seed, mem.room, mem.rooms_for, mem.create_room, mem.dm, mem.members, mem.is_member, mem.join, mem.leave, mem.sweep, mem.search, mem.optimize, mem.set_audit_writer, mem.set_room, mem.ban, mem.banned, mem.report, mem.reports, mem.report_of, mem.resolve, mem.add_invite, mem.invite, mem.invites, mem.revoke_invite, mem.use_invite, mem.recent, mem.after, mem.count_after, mem.changed, mem.message, mem.post, mem.change, mem.open_reports, mem.room_of, mem.rooms_owned, mem.blob_held, mem.purge_blob, mem.block, mem.unblock, mem.blocking, mem.blocks})
 
 	testing.expect_value(t, db.open_db(":memory:", .Ephemeral, "storetest"), "")
 	defer db.close()
 	db.migrate("chat", sql.MIGRATIONS[:])
-	conforms(t, {"sqlite", sql.init, sql.seed, sql.room, sql.rooms_for, sql.create_room, sql.dm, sql.members, sql.is_member, sql.join, sql.leave, sql.sweep, sql.search, sql.set_audit_writer, sql.set_room, sql.ban, sql.banned, sql.report, sql.reports, sql.report_of, sql.resolve, sql.add_invite, sql.invite, sql.invites, sql.revoke_invite, sql.use_invite, sql.recent, sql.after, sql.count_after, sql.changed, sql.message, sql.post, sql.change, sql.open_reports, sql.room_of, sql.rooms_owned, sql.blob_held, sql.purge_blob, sql.block, sql.unblock, sql.blocking, sql.blocks})
+	conforms(t, {"sqlite", sql.init, sql.seed, sql.room, sql.rooms_for, sql.create_room, sql.dm, sql.members, sql.is_member, sql.join, sql.leave, sql.sweep, sql.search, sql.optimize, sql.set_audit_writer, sql.set_room, sql.ban, sql.banned, sql.report, sql.reports, sql.report_of, sql.resolve, sql.add_invite, sql.invite, sql.invites, sql.revoke_invite, sql.use_invite, sql.recent, sql.after, sql.count_after, sql.changed, sql.message, sql.post, sql.change, sql.open_reports, sql.room_of, sql.rooms_owned, sql.blob_held, sql.purge_blob, sql.block, sql.unblock, sql.blocking, sql.blocks})
+
+	// The search takes the index's order, and sorts nothing (M6-13).
+	plan := db.read("EXPLAIN QUERY PLAN " + sql.SQL_SEARCH)
+	defer db.reset(plan)
+	err: store.Error
+	for db.next_row(plan, &err) {
+		testing.expectf(t, !strings.contains(db.clone_col(plan, 3), "TEMP B-TREE"), "a search sorts: %s", db.clone_col(plan, 3))
+	}
 	free_all(context.temp_allocator)
 }

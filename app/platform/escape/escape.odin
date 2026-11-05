@@ -48,6 +48,43 @@ site_path :: proc(s: string) -> bool {
 	return true
 }
 
+// A search's snippet is text with these two private-use characters round each hit: FTS5 can't be
+// asked to escape, and a store writes no markup.
+MARK_ON :: "\uE000"
+MARK_OFF :: "\uE001"
+
+// Escapes a snippet and turns its marks to <mark>. A snippet is stored text, so a member can type the
+// characters themselves: each opens only when shut and closes only when open, and the end closes,
+// so a forged one is at worst a stray highlight, never unbalanced markup.
+write_marked :: proc(b: ^strings.Builder, text: string) {
+	PREFIX :: "\xEE\x80" // both marks' first two bytes
+	open := false
+	rest := text
+	for {
+		i := strings.index(rest, PREFIX)
+		if i < 0 || i + 2 >= len(rest) {
+			esc(b, rest)
+			break
+		}
+		c := rest[i + 2]
+		if c != MARK_ON[2] && c != MARK_OFF[2] {
+			esc(b, rest[:i + 3])
+			rest = rest[i + 3:]
+			continue
+		}
+		esc(b, rest[:i])
+		rest = rest[i + 3:]
+		if c == MARK_ON[2] && !open {
+			w(b, "<mark>")
+			open = true
+		} else if c == MARK_OFF[2] && open {
+			w(b, "</mark>")
+			open = false
+		}
+	}
+	if open { w(b, "</mark>") }
+}
+
 // For the inside of a JSON string in a <script> block (JSON-LD). The HTML escaper
 // is wrong there: entities aren't decoded inside <script>, so they would reach
 // the JSON literally, and it leaves backslashes and control characters alone.
