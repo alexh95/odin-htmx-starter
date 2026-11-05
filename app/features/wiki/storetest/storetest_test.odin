@@ -92,11 +92,11 @@ writing :: proc(t: ^testing.T) {
 	testing.expectf(t, len(revisions) == sql.KEEP_REVISIONS, "a history is capped: %d", len(revisions))
 
 	found := make([dynamic]store.Search_Hit, context.temp_allocator)
-	marked := []string{"more"}
+	marked := []string{"one"}
 	_ = sql.search(marked, false, 5, &found)
 	testing.expectf(t, len(found) == 0, "a guest finds no members' page: %v", found[:])
 	_ = sql.search(marked, true, 5, &found)
-	testing.expectf(t, len(found) == 1 && strings.contains(found[0].snippet, "more"), "a member does, marked: %v", found[:])
+	testing.expectf(t, len(found) == 1 && strings.contains(found[0].snippet, "one"), "a member does, marked: %v", found[:])
 
 	all := make([dynamic]m.Page, context.temp_allocator)
 	_ = sql.list(false, &all)
