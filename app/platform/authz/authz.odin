@@ -147,3 +147,9 @@ cookie :: proc(header, name: string) -> string {
 // `_ : authz.Load_Viewer : load_viewer` in its contract.odin. `set_cookie` is a
 // Set-Cookie value for front to send (a rotated session), or "".
 Load_Viewer :: #type proc(ask: Ask) -> (v: Viewer, set_cookie: string)
+
+// Names a member can't take: the bot's, which its chat messages go under and `@bot` calls. Asked of a
+// new username and a new nickname; an account that already has one keeps working (identity warns at boot).
+reserved_name :: proc(name: string) -> bool {
+	return strings.equal_fold(name, "bot") || strings.equal_fold(name, "capcom")
+}

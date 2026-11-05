@@ -47,6 +47,7 @@ main :: proc() {
 	app.serve(HOSTS[:], JOBS[:], &BRAND, web.Header_Set.Reporting)
 	bot_web.start()
 	app.wait()
+	bot_web.drain()
 	app.shutdown()
 	app.exit()
 }

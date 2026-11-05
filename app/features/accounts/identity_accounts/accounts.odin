@@ -147,6 +147,15 @@ bootstrap :: proc() {
 		os.exit(70)
 	}
 	seal_stored_secrets()
+	// None can be made now; one made before the name was reserved keeps working, and an admin decides.
+	for name in ([]string{"bot", "capcom"}) {
+		if _, err := accounts.user_by_name(name); err == .None {
+			if l, ok := obs.begin(.Warning, "accounts", "reserved_name"); ok {
+				obs.str(&l, "name", name)
+				obs.end(&l)
+			}
+		}
+	}
 	phc := env.str("ACCOUNTS_ADMIN_HASH")
 	if phc == "" {
 		if n, _ := accounts.count_admins(); n == 0 {

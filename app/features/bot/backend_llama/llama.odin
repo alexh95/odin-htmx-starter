@@ -105,6 +105,7 @@ st: struct {
 	auth:        string, // "Authorization: Bearer …\r\n", or ""
 	configured:  bool,
 	resolved:    bool,
+	draining:    bool, // no generation starts, and none waits
 }
 
 // Env rows and the URL. No URL leaves the backend Offline; bot_web refuses that as the default.
@@ -147,7 +148,8 @@ parse_url :: proc(url: string) -> (host: string, port: int, ok: bool) {
 	return rest[:colon], p, true
 }
 
-// A name is looked up here and by the probe, off the loops: a lookup blocks.
+// A name is looked up at boot and by the probe, never on a loop or a request's path: a lookup
+// blocks. A failed one keeps the last address it found.
 @(private)
 resolve :: proc() {
 	ep, found := net.parse_endpoint(st.host)
@@ -255,7 +257,7 @@ start :: proc(req: m.Bot_Request, sink: m.Bot_Sink) -> m.Bot_Gen_Id {
 	id := g.id
 
 	guard.lock(&st.mu)
-	reachable := st.resolved
+	reachable := st.resolved && !st.draining
 	free_slot := st.busy < st.limit
 	full := len(st.queue) >= st.queue_cap
 	position := len(st.queue) + 1
@@ -314,6 +316,19 @@ cancel :: proc(id: m.Bot_Gen_Id) {
 	box := new(m.Bot_Gen_Id, heap())
 	box^ = id
 	if !workers.post(loop, box, on_cancel) { free(box, heap()) }
+}
+
+// `main`'s drain (§8.7 step 3): what is waiting and what is running stops now, each on its own
+// loop, so no upstream socket outlives the stream it fed. A room's answer has no stream to close, and
+// would run on into the shutdown otherwise. A loop already gone takes no post; its sockets go with
+// the process.
+drain :: proc() {
+	guard.lock(&st.mu)
+	st.draining = true
+	ids := make([dynamic]m.Bot_Gen_Id, 0, len(st.gens), context.temp_allocator)
+	for id in st.gens { append(&ids, id) }
+	guard.unlock(&st.mu)
+	for id in ids { cancel(id) }
 }
 
 // ---- on the generation's loop ------------------------------------------------------------------

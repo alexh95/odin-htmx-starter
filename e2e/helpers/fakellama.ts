@@ -11,10 +11,11 @@ const BIN = path.join(REPO, 'app', 'bin', process.platform === 'win32' ? 'fakell
 
 export type Fake = { url: string; port: number; proc: ChildProcess };
 
-export async function startFake(opts: { key?: string; slots?: number; delayMs?: number } = {}): Promise<Fake> {
+export async function startFake(opts: { key?: string; strict?: boolean; slots?: number; delayMs?: number } = {}): Promise<Fake> {
   if (!existsSync(BIN)) throw new Error('fakellama is not built: global-setup builds it for a build with the bot');
   const args = ['--port', '0', '--slots', String(opts.slots ?? 1), '--delay-ms', String(opts.delayMs ?? 5)];
   if (opts.key) args.push('--key', opts.key);
+  if (opts.strict) args.push('--strict', '1');
   const proc = spawn(BIN, args, { stdio: ['ignore', 'pipe', 'inherit'] });
   const port = await new Promise<number>((done, fail) => {
     let out = '';

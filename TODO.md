@@ -96,7 +96,9 @@ steps go through planning once the code can use them. Pushes are on the standing
       transports, a poll reader sees it, a reload keeps it, `full` and `streams` both; a selection with chat and no bot
       drops and counts; a question from a non-member is impossible; the XSS suite over the bot's text.
       Done (2026-11-05): `e2e/tests/bot/room.spec.ts` on `full` and `streams`. The bubble rides `chat.typing`, not `chat.room`: every
-      transport's page reads it, it isn't persisted, and `.Latest` suits a frame that holds the whole text so far.
+      transport's page reads it, it isn't persisted, and `.Latest` suits a frame that holds the whole text so far. Planning's
+      guards: a room's ask is short and stops the model at 2,000 runes, so bubble and message match; the reply skips `announce`;
+      `bot` and `capcom` are reserved; a failed ask stores nothing and tells its asker alone.
 - [x] **8. Budgets** (§18): 1000 concurrent mock generations ≤ 1 core and ≤ +30 MB; Stop ≤ 100 ms on llama against
       fakellama. *Check:* recorded in `docs/perf/`, the k6 scenarios beside them.
       Done (2026-11-05): `docs/perf/BOT-BUDGETS.md`: 511 ms of CPU a second and +11.9 MB at 1000 at once; the `botmock` drill holds it.

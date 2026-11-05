@@ -19,8 +19,9 @@ keeps the menu or the half-typed edit open in it; a saved edit closes its form w
 
 **The bot in a room.** A message with `@bot` as its own word, in any room but a DM, goes to `bot.ask:<room>` by name, with
 the question: without bot nothing mounts that topic, and the publish is dropped and counted. `chat.reply:<room>` is chat's
-own server-side row, which stores what comes back as a message from author 0, "Capcom", cut to 2,000 runes. Such a
-message mentions nobody, asks nothing, and can't be blocked or DMed; it can be reported and removed like any other.
+own server-side row, which stores what comes back as a message from author 0, "Capcom". It reaches the room and its unread
+counts and doesn't go through `announce`, so it mentions nobody and asks nothing. It can't be blocked or DMed; it can be
+reported and removed like any other. `bot` and `capcom` are names no member can take.
 
 **The page's version.** Every fragment also sets `#ver-<room>`, a hidden field holding the newest room version the page
 has seen. A reconnect sends it back (a socket's first frame, from the field's form on hx-ws's `after:connection`; SSE's

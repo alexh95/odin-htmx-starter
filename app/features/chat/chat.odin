@@ -592,7 +592,7 @@ dm_peer :: proc(r: m.Room, me: u64) -> u64 {
 
 // Stores op's message; op.done runs once it is. false: the store is busy.
 post :: proc(op: ^m.Post) -> bool {
-	if op.author != 0 { seen(op.author, op.name) } // the bot isn't anyone to mention
+	if op.author != 0 { seen(op.author, op.name) } // the bot isn't a member to mention
 	return chat_store.post(op)
 }
 

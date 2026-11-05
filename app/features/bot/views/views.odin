@@ -27,7 +27,7 @@ index_page :: proc(convs: []m.Conversation, health: m.Bot_Health) -> string {
 	html.page_head(&b, "Capcom", "Bot", "Ask the house assistant.")
 	w(&b, `<section class="block bot-index"><p>`)
 	health_badge(&b, health)
-	w(&b, `</p><p class="muted">Nobody reads your conversations through this site. Whoever runs the server can read its database, and with a model behind the bot, what you ask goes to that model's machine.</p>`)
+	w(&b, `</p><p class="muted">Moderators and admins can't read your conversations through this site, but whoever runs the server can read its database, and what you ask, here or with @bot in a chat room, goes to the model server this site runs.</p>`)
 	w(&b, `<form class="bot-new" hx-post="/bot/c"><button class="btn btn-primary" type="submit">New conversation</button></form><ul class="bot-convs">`)
 	for c in convs {
 		fmt.sbprintf(&b, `<li><a href="/bot/c/%d">`, c.id)

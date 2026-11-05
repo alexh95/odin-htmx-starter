@@ -31,8 +31,10 @@ and a change publishes the badge on `bot.health` and the status line on `obs`, d
 
 **In a chat room**, `@bot` is the same answer told to the room (`web/room.odin`): chat publishes on `bot.ask:<room>`, whose
 `deliver` row here starts the backend under the asker's limits, a bubble grows on `chat.typing:<room>` for everyone in
-the room, and the finished text goes back on `chat.reply:<room>`, which chat stores. The model is given the question
-alone, so a private room's talk leaves it only when someone asks. Neither feature imports the other.
+the room, and the finished text goes back on `chat.reply:<room>`, which chat stores, the same text as the bubble's last. The
+model is given the question alone, so a private room's talk leaves it only when someone asks, and is asked to be brief, at
+`ROOM_TOKENS`; an answer that still reaches a message's 2,000 runes stops the model there. A failed ask stores nothing and
+tells its asker alone. Neither feature imports the other.
 
 **Who may ask** (Q20, §17.5): members keep their conversations (the newest 50, each with its last 200 turns), ask one
 at a time and `BOT_MEMBER_PER_HOUR` (30) an hour; guests get the mock, `BOT_GUEST_PER_HOUR` (5) an hour per client,

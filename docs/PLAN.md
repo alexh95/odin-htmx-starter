@@ -2196,10 +2196,10 @@ an idle peer that never answers the FIN each held exit for more than 30 s (13 §
 |---|---|---|
 | 1 | Signal: SIGINT or SIGTERM (F-10); a second signal exits now | — |
 | 2 | Unready: `/readyz` → 503 with `x-draining: 1`; the accept op is removed; the worker pools stop intake and cancel their queued jobs (503), and in-flight jobs finish: a reply posted after its loop has left faults inside nbio, so every reply must land within one job (S0.5) | at once |
-| 3 | Streams: `main`'s `drain` calls run in the order written, each closing its own streams: WS close 1012; SSE gets one event carrying `retry:` with per-client jitter (e.g. 500–3000 ms), sent with `data:` because a lone `retry:` is ignored, then the terminal chunk; multipart gets its closing boundary; bot cancels its generations, and term tells its sessions | ≤ 2 s grace |
+| 3 | Streams: `main`'s `drain` calls run in the order written, each closing its own streams (the bot's first: a question waiting for a slot and every open llama socket stop on their own loops, `workers.post` skipping a loop that has left, so a slot freed on one loop never reaches for a gone one): WS close 1012; SSE gets one event carrying `retry:` with per-client jitter (e.g. 500–3000 ms), sent with `data:` because a lone `retry:` is ignored, then the terminal chunk; multipart gets its closing boundary; bot cancels its generations, and term tells its sessions | ≤ 2 s grace |
 | 4 | Idle keep-alive peers, and connections still reading their request line or headers (no handler runs yet; a slowloris looks like this, S0.7): `shutdown(SEND)`, cancel the pending recv, close | ≤ 500 ms |
 | 5 | Active requests: wait, then force-close (503 if nothing was sent); each loop also waits for the pool replies it owes (F-13); past the deadline, connections already closing no longer hold the loop | ≤ `DRAIN_DEADLINE_MS` (5 s) |
-| 6 | Timers and workers: `on_thread_shutdown` cancels the per-loop timers; the pools stop once their replies are in (step 2); llama streams abort; no thread that sleeps between checks (the watchdog) is joined: it is told to stop, and the process doesn't wait for it (S0.7) | — |
+| 6 | Timers and workers: `on_thread_shutdown` cancels the per-loop timers; the pools stop once their replies are in (step 2); no thread that sleeps between checks (the watchdog) is joined: it is told to stop, and the process doesn't wait for it (S0.7) | — |
 | 7 | Flush: per-thread log buffers, a final metrics snapshot line, store close with a WAL checkpoint | — |
 | 8 | Exit 0, or 70 after a dirty crash (§10) | total ≤ 6 s |
 
@@ -3535,8 +3535,10 @@ DMs don't ask it, there is no Stop in a room, and a bot's message mentions nobod
 way, so neither feature imports the other and each works alone; without bot the publish is dropped and counted (§6.2;
 LC §9; RESOLUTIONS X37).
 
-**Policy and privacy** (Q20): conversations are stored for their owner only; admins see counts and timings, and that line
-is the app's, as chat's is (§14.1): whoever runs the server can read the database, dbview included, and `/bot` says so.
+**Policy and privacy** (Q20): conversations are stored for their owner only; admins see counts and timings. That line is
+the app's: moderators and admins can't read conversations through it, but whoever runs the server can read the database,
+dbview included, and `/bot` says so (Alex, 2026-11-05). The same goes for what reaches the model server, a question from a
+private room included, so that server must not log prompts (§20.7).
 Guests
 get mock only, 5 per hour per client id; members get 1 concurrent generation and 30 per hour. No tools and no
 function calling, so a prompt injection has nothing to act on (07 §2.6). M7's checks (Stop ≤ 100 ms, the queue spec
@@ -5611,7 +5613,7 @@ applies from the first spark code the starter adopts: in M1 (the `shared/sqlite`
 | Q25 | Metrics | the in-app dashboard + admin-gated `/metrics`, no Prometheus/Grafana / add Prometheus and Grafana on apollo | **In-app only for now** | M5 | default stands (not overridden) |
 | Q19 | Chat retention defaults | rooms 500 / 7 d, DMs 1000 / 30 d, announcements 100 / 365 d, tombstones / one cap for all / no age cap | **Per room kind as listed**, adjustable up to 5000 / 90 d | M6 | default stands (not overridden) |
 | Q23 | The family beta | at M6 on the LAN after the focused security audit, 2–3 people you pick / wait until public | **At M6** | M6 | default stands (not overridden) |
-| Q20 | Bot conversation privacy | owner-only, admins see counts and timings / admin-visible / not stored | **Owner-only** | M7 | default stands (not overridden) |
+| Q20 | Bot conversation privacy | owner-only, admins see counts and timings / admin-visible / not stored | **Owner-only** | M7 | default stands (not overridden); Alex, 2026-11-05: that line is the app's, dbview stays as it is, and `/bot` discloses it in §14.1's words |
 | Q21 | Video pipeline | offline transcode on the dev PC + import, web-ready uploads in-app / a host ffmpeg bind-mounted for in-app transcode / a local-only transcoder image | **Offline transcode + web-ready uploads** | M9 | default stands (not overridden) |
 | Q8 | Terminal approach | line mode → PTY with the VT in the Pi agent, no xterm.js / server-side VT in a `--worker` subprocess / add an xterm.js lab | **Agent-side VT, no xterm.js**; `--worker vt` as the fallback | M11 | **Answered 2026-10-25: agent-side VT** (ANSWERS #9) |
 | Q9 | The Pi beyond the LAN | LAN-only now, a WireGuard overlay if ever / TLS (OpenSSL) in the agent | **LAN-only**; WireGuard if ever needed, on the spare OpenWrt router or a container on apollo (an idea, §22.3) | M11 | default (not yet raised) |

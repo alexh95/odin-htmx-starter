@@ -36,7 +36,7 @@ nicknames_are_checked :: proc(t: ^testing.T) {
 	name, problem := check("  Ada   Lovelace ")
 	testing.expect_value(t, name, "Ada Lovelace")
 	testing.expect_value(t, problem, "")
-	for bad in ([]string{"", "   ", "<b>", "a\x00b", "a/b", "abcdefghijklmnopqrstuvwxy"}) {
+	for bad in ([]string{"", "   ", "<b>", "a\x00b", "a/b", "abcdefghijklmnopqrstuvwxy", "bot", "CapCom"}) {
 		_, p := check(bad)
 		testing.expectf(t, p != "", "%q passed", bad)
 	}

@@ -454,7 +454,19 @@ store_reply :: proc(topic, text: string, _: i64) {
 	r, err := chat.room_by_id(id)
 	if err != .None { return }
 	op := posting({name = chat.BOT_NAME}, r, chat.cut_body(text), "")
+	op.done = replied
 	if !chat.post(op) { store.free_op(op) }
+}
+
+// Not `announce`: an answer is a model's words, and asking it to says anything. To the room and its
+// unread counts only, so it names nobody into their Inbox and can't ask the bot in turn.
+@(private)
+replied :: proc(o: ^store.Op) {
+	op := (^Posting)(o)
+	defer store.free_op(op)
+	if op.err != .None { return }
+	hub.publish(chat.room_topic(op.result.room), chat_views.one(op.result.room, op.slug, op.result), op.result.id)
+	unread_counts(op.slug, m.Room{id = op.result.room, kind = op.room_kind}, op.result)
 }
 
 // A new message to the room, the Inbox of whoever it mentions, and the unread counts
@@ -463,7 +475,7 @@ store_reply :: proc(topic, text: string, _: i64) {
 @(private)
 announce :: proc(slug, room_name: string, kind: m.Room_Kind, msg: m.Message) {
 	hub.publish(chat.room_topic(msg.room), chat_views.one(msg.room, slug, msg), msg.id)
-	if msg.author != 0 && kind != .Dm {
+	if kind != .Dm {
 		if q, asked := chat.asks_bot(msg.body); asked {
 			// By name: without bot nothing mounts it, and the publish is dropped and counted (X37).
 			hub.publish(fmt.tprintf("bot.ask:%d", msg.room), fmt.tprintf("%d\n%s", msg.author, q), msg.id)
@@ -483,8 +495,7 @@ announce :: proc(slug, room_name: string, kind: m.Room_Kind, msg: m.Message) {
 			if mem.who != msg.author && !chat.blocking(mem.who, msg.author) { notify_web.send(mem.who, "chat.dm", ref, line, scope) }
 		}
 	} else {
-		// A bot's text is a model's: it names nobody into their Inbox.
-		if msg.author != 0 { chat.mentioned(msg.body, msg.author, &who) }
+		chat.mentioned(msg.body, msg.author, &who)
 		if len(who) > 0 {
 			line := chat_views.mention_line(msg.name, room_name, msg.body)
 			for id in who {
@@ -493,7 +504,13 @@ announce :: proc(slug, room_name: string, kind: m.Room_Kind, msg: m.Message) {
 		}
 	}
 
-	clear(&who)
+	unread_counts(slug, r, msg)
+}
+
+// Everyone who has read the room but `msg`'s author: their count, on every page of theirs.
+@(private)
+unread_counts :: proc(slug: string, r: m.Room, msg: m.Message) {
+	who := make([dynamic]u64, 0, 8, context.temp_allocator)
 	chat.readers(msg.room, &who)
 	for id in who {
 		if id == msg.author || !chat.reads(r, id) { continue }

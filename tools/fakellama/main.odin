@@ -2,9 +2,9 @@ package main
 
 // ---- fakellama: a llama.cpp server with no model (PLAN §14.3) ---------------------------------
 //
-//   odin run tools/fakellama -- [--port 9931] [--key K] [--slots 1] [--delay-ms 5]
+//   odin run tools/fakellama -- [--port 9931] [--key K] [--strict 1] [--slots 1] [--delay-ms 5]
 //
-// The routes, the faults and the control endpoints are in fake/fake.odin. It prints its port and
+// --strict wants the key on /health too. The routes, the faults and the control endpoints are in fake/fake.odin. It prints its port and
 // serves until killed.
 
 import "core:fmt"
@@ -24,6 +24,7 @@ main :: proc() {
 		switch args[i] {
 		case "--port":     port, _ = strconv.parse_int(v, 10)
 		case "--key":      opt.key = v
+		case "--strict":   opt.strict = v == "1"
 		case "--slots":    opt.slots, _ = strconv.parse_int(v, 10)
 		case "--delay-ms":
 			ms, _ := strconv.parse_int(v, 10)

@@ -90,6 +90,7 @@ main :: proc() {
 	app.serve(HOSTS[:], JOBS[:], &BRAND, web.Header_Set.Reporting, {&BRAND, &LAB_BRAND})
 	bot_web.start()
 	app.wait()
+	bot_web.drain()
 	app.shutdown()
 	store_sqlite.close() // the writer's last batch, then the checkpoint
 	app.exit()

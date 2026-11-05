@@ -107,6 +107,20 @@ test.describe('the bot on llama', T, () => {
     await leave(ann);
   });
 
+  test('a drain closes what is running, and the server exits in its time', async ({ browser }) => {
+    const ann = await member(browser, mainOrigin(s.port));
+    await expect.poll(async () => (await ann.page.goto('/bot'))!.headers()['x-impl']).toBe('bot.backend=llama');
+    await conversation(ann);
+    await ask(ann.page, 'fake:long story');
+    await expect(answers(ann.page).locator('.bot-stream')).toContainText('word1');
+    const t0 = Date.now();
+    await stopServer(s);
+    expect(Date.now() - t0).toBeLessThan(6000);
+    await expect.poll(async () => (await fakeStats(fake)).closed).toBe(1);
+    s = await startServer(test.info().config, { ...LLAMA, BOT_LLAMA_URL: fake.url }); // for afterEach
+    await ann.context.close();
+  });
+
   test('a closed browser stops the generation', async ({ browser }) => {
     const ann = await member(browser, mainOrigin(s.port));
     await expect.poll(async () => (await ann.page.goto('/bot'))!.headers()['x-impl']).toBe('bot.backend=llama');
@@ -187,14 +201,15 @@ test.describe('the bot on llama', T, () => {
   });
 });
 
-test('a key: sent as a bearer, and one the server refuses is said in words', T, async ({ browser }) => {
+test('a key goes on every probe and every question, and a name resolves', T, async ({ browser }) => {
   const config = test.info().config;
-  const fake = await startFake({ key: 'right' });
-  let s = await startServer(config, { ...LLAMA, BOT_LLAMA_URL: fake.url, BOT_LLAMA_KEY: 'right' });
+  const fake = await startFake({ key: 'right', strict: true });
+  let s = await startServer(config, { ...LLAMA, BOT_LLAMA_URL: fake.url.replace('127.0.0.1', 'localhost'), BOT_LLAMA_KEY: 'right' });
   try {
     const ann = await member(browser, mainOrigin(s.port));
     await expect.poll(async () => (await ann.page.goto('/bot'))!.headers()['x-impl']).toBe('bot.backend=llama');
     await conversation(ann);
+    await expect(ann.page.locator('#bot-health')).toHaveText('Ready');
     await ask(ann.page, 'hello');
     await expect(answers(ann.page).locator('.bot-body')).toContainText('You asked: hello');
     expect((await fakeStats(fake)).refused).toBe(0);

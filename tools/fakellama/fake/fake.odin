@@ -21,7 +21,7 @@ package fakellama
 //   fake:drop        two deltas, then the socket closes, with no [DONE]
 //   fake:error       200, then an OAI error event in the stream
 //   fake:long        200 deltas, slower
-//   fake:wall        500 deltas at once: 5,000 characters
+//   fake:wall        500 deltas: 5,000 characters
 //   fake:length      ends with finish_reason "length"
 //   fake:garbage     a data line that isn't JSON
 
@@ -36,6 +36,7 @@ import "core:time"
 
 Options :: struct {
 	key:      string, // the bearer every route but /health wants; "" = none
+	strict:   bool,   // /health wants it too, as a proxy in front of the server might
 	slots:    int,
 	delay:    time.Duration, // between deltas
 	model:    string,
@@ -173,7 +174,7 @@ read_request :: proc(sock: net.TCP_Socket) -> (req: Request, ok: bool) {
 @(private)
 route :: proc(sock: net.TCP_Socket, r: Request) {
 	switch {
-	case r.method == "GET" && r.path == "/health":
+	case r.method == "GET" && r.path == "/health" && (!s.opt.strict || authorized(r)):
 		sync.atomic_add(&s.stats.probes, 1)
 		if sync.atomic_load(&s.mode) == .Loading { loading(sock) } else { answer(sock, "200 OK", `{"status":"ok"}`) }
 	case !authorized(r):
@@ -400,7 +401,7 @@ complete :: proc(sock: net.TCP_Socket, body: string) {
 			gone()
 			return
 		}
-		if fault != .Wall { pause() }
+		pause()
 		if fault == .Long { pause() }
 	}
 

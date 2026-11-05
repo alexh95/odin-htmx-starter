@@ -18,6 +18,7 @@ import "core:time"
 import "core:unicode"
 import "core:unicode/utf8"
 
+import "../../platform/authz"
 import "../../platform/password"
 import m "models"
 import accounts_store "store:accounts"
@@ -145,6 +146,7 @@ check_username :: proc(raw: string) -> (name, problem: string) {
 		case: return "", "A username is letters, digits, _, - and ."
 		}
 	}
+	if authz.reserved_name(name) { return "", "That name is the bot's." }
 	return name, ""
 }
 

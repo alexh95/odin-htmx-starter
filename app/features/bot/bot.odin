@@ -94,6 +94,17 @@ title_of :: proc(q: string) -> string {
 	return q
 }
 
+// A room's answer: short, since it lands in everyone's log, and with no conversation behind it.
+ROOM_TOKENS :: 600
+ROOM_SYSTEM :: "You are the house assistant, answering in a chat room. Answer in a few sentences."
+
+// The request for a question in a room: the question alone (§14.3).
+room_request :: proc(user: u64, question: string) -> m.Bot_Request {
+	history := make([]m.Bot_Turn, 1, context.temp_allocator)
+	history[0] = {.User, question}
+	return {user_id = user, system = ROOM_SYSTEM, history = history, max_tokens = ROOM_TOKENS, temperature = 0.7}
+}
+
 // The request for a question in a conversation (`turns` oldest first; none for a guest's).
 request :: proc(conv: i64, user: u64, turns: []m.Turn, question: string) -> m.Bot_Request {
 	from := max(0, len(turns) - (HISTORY - 1))

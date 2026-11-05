@@ -24,8 +24,12 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 - **Choosing a backend** (M7): per request among the healthy. Guests get the mock, members the default or, while both can
   answer, what they pick, and a llama that can't answer gives way to the mock.
 - **`@bot` in a chat room** (M7): a bubble grows for everyone in the room on any transport, and the finished answer is a
-  stored message from "Capcom", cut to 2,000 runes. It counts against the asker's limits, the model sees the question and
-  nothing else of the room, a DM doesn't ask it, and with chat and no bot the publish is dropped and counted.
+  stored message from "Capcom", the same text. A room's ask is short, and one that reaches 2,000 runes stops the model there.
+  It counts against the asker's limits, a failed ask stores nothing and tells them alone, the model sees the question and
+  nothing else of the room, a DM doesn't ask it, an answer mentions nobody and asks nothing, and with chat and no bot the
+  publish is dropped and counted.
+- **`bot` and `capcom` are reserved names** (M7): no new account or nickname takes one. An account that already has one keeps
+  working, and boot warns.
 - **`/admin/bot`** (M7): the default, in memory and audited, gone at a restart, with counts and timings of everyone's use and
   no text. `/admin/modules` shows the default and links there.
 

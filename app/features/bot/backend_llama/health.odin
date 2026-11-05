@@ -103,17 +103,14 @@ get :: proc(path: string, r: ^Reply) {
 
 @(private)
 probe :: proc() {
-	guard.lock(&st.mu)
-	known := st.resolved
-	guard.unlock(&st.mu)
-	if !known { resolve() } // a name that didn't resolve at boot may by now
+	resolve() // a name's address may have moved, or not have been there at boot
 
 	state := m.Bot_Health_State.Offline
 	slots := 0
 	model := ""
 	r: Reply
 	guard.lock(&st.mu)
-	known = st.resolved
+	known := st.resolved
 	guard.unlock(&st.mu)
 	if known {
 		get("/health", &r)

@@ -122,6 +122,7 @@ check :: proc(raw: string) -> (name: string, problem: string) {
 	switch n := utf8.rune_count_in_string(name); {
 	case n == 0:        return "", "Pick a nickname first."
 	case n > MAX_NAME:  return "", "A nickname is at most 24 characters."
+	case authz.reserved_name(name): return "", "That name is the bot's."
 	}
 	return name, ""
 }

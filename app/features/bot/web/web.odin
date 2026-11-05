@@ -102,6 +102,9 @@ start :: proc() {
 	})
 }
 
+// `main`'s drain: a generation stops before the loops do (§8.7).
+drain :: proc() { bot_backend_llama.drain() }
+
 // The status page's line: an optional backend is degraded at worst, and never fails readiness
 // (13 §5.3); the mock is always there behind it.
 @(private)

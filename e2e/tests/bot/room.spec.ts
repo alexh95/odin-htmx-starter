@@ -32,6 +32,17 @@ async function say(m: Member, text: string) {
   await expect(box).toHaveValue('');
 }
 
+// What the room's bubble last said, kept by the page past the bubble's own removal.
+async function watchBubble(m: Member) {
+  await m.page.evaluate(() => {
+    new MutationObserver(() => {
+      const b = document.querySelector('.bot-live .chat-body');
+      if (b) (window as any).__bubble = (b as HTMLElement).innerText;
+    }).observe(document.body, { subtree: true, childList: true, characterData: true });
+  });
+}
+const lastBubble = (m: Member) => m.page.evaluate(() => (window as any).__bubble as string);
+
 const fromBot = (m: Member) => m.page.locator('.chat-log > article.chat-msg', { has: m.page.locator('.chat-name', { hasText: 'Capcom' }) });
 
 test.describe('room mode', T, () => {
@@ -148,23 +159,51 @@ test.describe('room mode on llama', T, () => {
     await expect.poll(async () => (await ann.page.goto('/bot'))!.headers()['x-impl']).toBe('bot.backend=llama');
     const slug = await newRoom(ann.page);
     await open(ann, slug, 'sse');
+    await watchBubble(ann);
     await say(ann, '@bot fake:wall');
     await expect(fromBot(ann)).toHaveCount(1);
     const body = await fromBot(ann).locator('.chat-body').innerText();
     expect([...body].length).toBe(2000);
     expect(body.endsWith('…')).toBe(true);
+    expect(await lastBubble(ann)).toBe(body); // it doesn't shrink as it lands
+    await expect.poll(async () => (await fakeStats(fake)).closed).toBe(1); // the model was stopped there
     await leave(ann);
   });
 
-  test('an unreachable model says so in the room', async ({ browser }) => {
+  test('a failed ask stores nothing, and tells its asker alone', async ({ browser }) => {
     const ann = await member(browser, mainOrigin(s.port));
+    const bob = await member(browser, mainOrigin(s.port));
     await expect.poll(async () => (await ann.page.goto('/bot'))!.headers()['x-impl']).toBe('bot.backend=llama');
     const slug = await newRoom(ann.page);
     await open(ann, slug, 'sse');
+    await open(bob, slug, 'sse');
     await say(ann, '@bot fake:stall x');
-    await expect(fromBot(ann)).toHaveCount(1, { timeout: 10000 });
-    await expect(fromBot(ann).locator('.chat-body')).toContainText("didn't start answering");
-    expect((await fakeStats(fake)).closed).toBe(1);
-    await leave(ann);
+    await expect(ann.page.locator('#toasts .toast')).toContainText("didn't start answering");
+    await expect(ann.page.locator('.bot-live')).toHaveCount(0);
+    await expect(bob.page.locator('.bot-live')).toHaveCount(0);
+    await expect(bob.page.locator('#toasts .toast')).toHaveCount(0);
+    await bob.page.reload();
+    await expect(fromBot(bob)).toHaveCount(0);
+    await leave(ann, bob);
+  });
+
+  test("an answer can't ping a member or ask the bot", async ({ browser }) => {
+    const ann = await member(browser, mainOrigin(s.port));
+    const bob = await member(browser, mainOrigin(s.port));
+    await expect.poll(async () => (await ann.page.goto('/bot'))!.headers()['x-impl']).toBe('bot.backend=llama');
+    const slug = await newRoom(ann.page);
+    await open(bob, slug, 'sse'); // chat knows Bob's name
+    await open(ann, slug, 'sse');
+    await say(ann, `@bot @${bob.name} ping @bot again`);
+    await expect(fromBot(ann)).toHaveCount(1);
+    await expect(fromBot(ann).locator('.chat-body')).toContainText(`@${bob.name}`);
+    await expect(fromBot(ann).locator('.chat-body')).toContainText('@bot');
+    await ann.page.waitForTimeout(600);
+    await expect(fromBot(ann)).toHaveCount(1);
+    expect((await fakeStats(fake)).requests).toBe(1);
+    // Ann's own line named Bob, once; the answer named him again, and that adds nothing.
+    await bob.page.goto('/notify');
+    await expect(bob.page.locator('#notify-list > *')).toHaveCount(1);
+    await leave(ann, bob);
   });
 });
