@@ -114,7 +114,7 @@ room_event :: proc(user: rawptr, _: m.Bot_Gen_Id, ev: m.Bot_Event) {
 		tell(a.who.key, e.message)
 		room_done(a, "")
 	case m.Bot_Done:
-		if e.stop == .Length && !a.cut { // the model ran out of tokens: marked, as a cut is
+		if e.stop == .Length && !a.cut && a.runes > 0 { // the model ran out of tokens: marked, as a cut is
 			strings.write_string(&a.answer, "…")
 			a.cut = true
 		}

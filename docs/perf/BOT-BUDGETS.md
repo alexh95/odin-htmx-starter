@@ -23,5 +23,5 @@ per token, and a token's rate is what's held. CPU is the server's own (`cpuMs`),
 
 ## What isn't measured yet
 
-Tokens a second on the real server. §14.3's 40–60 tokens/s is an estimate until `llama-bench` runs on apollo's GPU, which is
+Tokens a second on the real server. §14.3's 40–60 tokens/s is an estimate until the server's own `timings` are read on apollo's GPU, which is
 Alex's step after the promote.

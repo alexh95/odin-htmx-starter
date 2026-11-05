@@ -26,6 +26,8 @@ copy-and-start ergonomics and good defaults matter more than feature depth.
       floor, and a client reaching the app directly can pipeline past the buffer's give-back. It waits because the fix is in
       `scanner_reset`, which every request passes, so it needs a parity rerun. In compose only Caddy publishes a port, so
       nobody on the LAN reaches the app directly; a starter run with no proxy is exposed until then.
+- [ ] **Before stage 2: a member can delete a conversation** (M7-08): PLAN's retention row keeps one "for their owner until
+      deleted", and Q20's disclosure leans on that row; today nothing but a member's newest 50 ages one out.
 - [ ] **Before stage 2: the oldest-browser walk** (M6 slice 11, deferred by Alex 2026-11-04): D22's core flows on the
       oldest-browser device with no client behaviours; htmx 4 there is still UNVERIFIED.
 - [ ] **A limited revoke wipes a once-shown invite link** (M6-S4).
@@ -36,7 +38,6 @@ copy-and-start ergonomics and good defaults matter more than feature depth.
 
 ## M7's audit: what stays open (docs/audit/M7.md)
 
-- [ ] **A conversation can't be deleted** (M7-08): nor does anything age one out, beyond a member's newest 50.
 - [ ] **Room mode skips `Bot_Llama`** (M7-10): chat doesn't hand bot the asker's perms. No role differs today; a fork that splits
       `Chat_Post` from `Bot_Llama` would leak through here.
 - [ ] **`tools/check` has no entry-points check** (M7-04, §19.2.1): nothing holds every raw nbio callback to the guard.
@@ -120,7 +121,7 @@ steps go through planning once the code can use them. Pushes are on the standing
 - [x] **9. Exit** (2026-11-05: parity `docs/perf/PARITY-M7.md`, Windows `write@mem` waiting on Alex; audit `docs/audit/M7.md`; the tag is Alex's): the slice gate for every new feature; the parity gate on both legs; a focused audit of the llama binding,
       `platform/stream/client` (M2's audit debt: a server path uses it now) and room mode, by an agent that didn't write
       the code; `Audited:` stamps; CHANGELOG's 2.6.0 lead. Then, with Alex: the llama.cpp compose project on apollo's GPU,
-      the power-supply check, the v2.6.0 tag and promote, `BOT_LLAMA_URL` set, `llama-bench`'s tokens/s recorded (§14.3's
+      the power-supply check, the v2.6.0 tag and promote, `BOT_LLAMA_URL` set, the tokens/s from the server's `timings` recorded (§14.3's
       40–60 is UNVERIFIED), and a smoke against the real server.
 
 ## M6 — Comms, and the family beta (v2.5.0)
