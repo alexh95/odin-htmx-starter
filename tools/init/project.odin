@@ -68,7 +68,7 @@ new_project :: proc(s: Selection, opt: Options) -> Profile_Text {
 			{"tools/bundle and\n# docs/catalog.json are what the build needs.", "and tools/bundle are what the build needs."},
 		})
 		edit(".dockerignore", {
-			{"THIRD_PARTY_NOTICES and docs/catalog.json (the lab's landing page embeds it): everything", "and THIRD_PARTY_NOTICES: everything"},
+			{"THIRD_PARTY_NOTICES, docs/catalog.json (the lab's landing page embeds it) and the wiki's Manual: everything", "THIRD_PARTY_NOTICES and the wiki's Manual: everything"},
 			{"!docs/catalog.json\n", ""},
 		})
 	}

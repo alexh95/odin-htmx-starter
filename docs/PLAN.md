@@ -2781,6 +2781,8 @@ releases (stop using the column, then drop it). Unit tests run the 6 cases plus 
 with FTS5's own `highlight()`/`snippet()` so the marks match the hits. At 100k messages a MATCH costs 12 µs–2.8 ms
 against 46–272 ms for a `contains_ci` scan, and the index adds 5.7 MB (+32 %). Trigram was rejected: its index is 6×
 larger. bm25 ranking runs on the pool (26 ms over 34k hits); `optimize` runs weekly through the writer task.
+*As built (M8):* each index has `prefix = '2 3'`, because a search's last word is a prefix too: 33 ms down to 0.095 ms for
+a common word, for about 5 MB more at 100k messages. A one-byte last word is matched whole. `docs/perf/FIND-BUDGETS.md`.
 `contains_ci` stays for small tables and memory implementations, and one result list never mixes the two engines:
 FTS folds `café` to `cafe` and `contains_ci` does not (12 §7, §10). M8's exit asserts MATCH ≤ 3 ms at 100k messages.
 

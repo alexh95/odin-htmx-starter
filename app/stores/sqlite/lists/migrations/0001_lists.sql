@@ -33,7 +33,7 @@ CREATE TABLE list_people (
   PRIMARY KEY (list, who)
 ) WITHOUT ROWID;
 CREATE VIRTUAL TABLE lists_fts USING fts5(
-  body, content = 'list_items', content_rowid = 'id', tokenize = 'unicode61 remove_diacritics 2'
+  body, content = 'list_items', content_rowid = 'id', tokenize = 'unicode61 remove_diacritics 2', prefix = '2 3'
 );
 CREATE TRIGGER lists_fts_add AFTER INSERT ON list_items BEGIN
   INSERT INTO lists_fts(rowid, body) VALUES (new.id, new.body);

@@ -137,8 +137,10 @@ Alex's answer on what an anonymous poll stores.
       anonymous, a closing time on a job; votes 10 per minute, hx-pending; CSS bars by `style="--p:NN%"`; `polls.poll:<id>` `.Latest`; closing
       notifies the voters. *Check:* storetest, live results to a second member, a double vote refused, an anonymous poll's storage, `rbac.spec`,
       both suites.
-- [ ] **11. Budgets** (§18): MATCH ≤ 3 ms at 100k messages through the real query with its membership rows, a common word for a member of
+- [x] **11. Budgets** (§18): MATCH ≤ 3 ms at 100k messages through the real query with its membership rows, a common word for a member of
       few rooms included, and bm25's cost beside it. `snippet()`'s cost beside it. *Check:* `docs/perf/FIND-BUDGETS.md`, k6 scenarios for each new route, `tools/check parity`.
+      Done (2026-11-05): every search under 0.5 ms at its worst, `tools/findbench`. The run found the last word's prefix costing 33 ms, and each index
+      got `prefix = '2 3'` (chat's as `0010_fts_prefix.sql`). A one-byte last word is matched whole.
 - [ ] **12. Exit**: the slice gate for every new feature; the parity gate on both legs; `docs/audit/M8.md`, a security audit of find's
       membership, the wiki's rendering and visibility, lists and polls, by an agent that didn't write the code, 0 open CRITICAL/HIGH, and a
       re-read of its fixes; `Audited:` stamps; CHANGELOG's 2.7.0 lead; the generator and the catalog know the four features. Then the tag

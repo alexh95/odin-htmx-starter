@@ -40,6 +40,7 @@ MIGRATIONS := [?]store.Migration {
 	{7, "0007_blocks.sql", #load("migrations/0007_blocks.sql", string)},
 	{8, "0008_reports.sql", #load("migrations/0008_reports.sql", string)},
 	{9, "0009_removed.sql", #load("migrations/0009_removed.sql", string)},
+	{10, "0010_fts_prefix.sql", #load("migrations/0010_fts_prefix.sql", string)},
 }
 
 @(private) ROOM_COLS :: "id, slug, name, at, kind, owner, dropped, locked, slow"

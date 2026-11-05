@@ -25,7 +25,7 @@ CREATE TABLE wiki_revisions (
   PRIMARY KEY (page, rev)
 ) WITHOUT ROWID;
 CREATE VIRTUAL TABLE wiki_fts USING fts5(
-  title, plain, content = 'wiki_pages', content_rowid = 'id', tokenize = 'unicode61 remove_diacritics 2'
+  title, plain, content = 'wiki_pages', content_rowid = 'id', tokenize = 'unicode61 remove_diacritics 2', prefix = '2 3'
 );
 CREATE TRIGGER wiki_fts_add AFTER INSERT ON wiki_pages BEGIN
   INSERT INTO wiki_fts(rowid, title, plain) VALUES (new.id, new.title, new.plain);

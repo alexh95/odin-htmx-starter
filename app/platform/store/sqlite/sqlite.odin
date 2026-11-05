@@ -424,7 +424,7 @@ drill_sqlite :: proc() {
 }
 
 // A MATCH expression: each word quoted, so nothing a member types is FTS5 syntax, and the last also
-// matches as a prefix.
+// matches as a prefix, from two bytes: one is most of the index (the tables' `prefix` holds 2 and 3).
 fts_query :: proc(words: []string) -> string {
 	b := strings.builder_make(context.temp_allocator)
 	for w, i in words {
@@ -435,7 +435,7 @@ fts_query :: proc(words: []string) -> string {
 			strings.write_byte(&b, c)
 		}
 		strings.write_byte(&b, '"')
-		if i == len(words) - 1 { strings.write_byte(&b, '*') }
+		if i == len(words) - 1 && len(w) >= 2 { strings.write_byte(&b, '*') }
 	}
 	return strings.to_string(b)
 }

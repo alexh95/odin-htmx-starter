@@ -13,6 +13,7 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 - Chat's search runs on the query pool (M6-13) through `web.Scan`, in the index's own order rather than sorting every match, and shows a
   snippet with its hits marked: FTS5's `snippet()` on SQLite, `store.snippet` on memory, whose scan now is `store.contains_ci`.
   `escape.write_marked` treats the marks as a toggle, since a member can type them. `Store_Search` states the one kick rule.
+- Chat's FTS index has `prefix = '2 3'` (`0010_fts_prefix.sql`): a search's last word is a prefix, from two bytes, and that was 33 ms at 100k messages.
 - `Find_Source` leaves `platform/store` for find's models, and `Search_Hit` loses `source` and `at` (PLAN §6).
 
 ### Added
@@ -29,6 +30,7 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 - `lists`, on SQLite: shared checklists and a board of the same items, with live columns, drag and drop and buttons for every move, templates, an
   item given to someone who's worked on the list, and search over item text.
 - `markdown.plain`, and a `link` hook on the renderer's options.
+- `tools/findbench`: FTS5 at 100k messages through the real query, `docs/perf/FIND-BUDGETS.md`.
 - The weekly `chat.optimize` job on chat's FTS index (§11.8), which was planned and never built.
 
 ## [2.6.0] - 2026-11-05
