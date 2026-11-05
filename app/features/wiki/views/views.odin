@@ -19,7 +19,9 @@ index :: proc(name: string, pages: []m.Page, may_edit: bool) -> string {
 	if may_edit { w(&b, `<p><a class="btn btn-primary" href="/wiki/new">New page</a></p>`) }
 	w(&b, `<ul class="wiki-pages">`)
 	for p in pages {
-		w(&b, `<li><a href="/wiki/`)
+		w(&b, `<li><a`)
+		w(&b, html.BOOST)
+		w(&b, ` hx-preload="mouseover" href="/wiki/`)
 		esc(&b, p.slug)
 		w(&b, `">`)
 		esc(&b, p.title)

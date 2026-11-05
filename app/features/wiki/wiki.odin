@@ -132,6 +132,21 @@ list :: proc(v: authz.Viewer, out: ^[dynamic]m.Page) -> m.Error {
 	return wiki_store.list(v.id != 0, out)
 }
 
+SUMMARY_RUNES :: 160
+
+// A page's own description: where it starts, past its title.
+summary :: proc(p: m.Page) -> string {
+	text := strings.trim_space(p.plain)
+	if strings.has_prefix(text, p.title) { text = strings.trim_space(text[len(p.title):]) }
+	if i := strings.index_byte(text, 0x0A); i >= 0 { text = text[:i] }
+	runes := 0
+	for _, i in text {
+		if runes == SUMMARY_RUNES { return text[:i] }
+		runes += 1
+	}
+	return text
+}
+
 // Why a page can't be saved as this; "" when it can. `fresh`: a new page, which its title names.
 check :: proc(title, md: string, fresh: bool) -> string {
 	switch {

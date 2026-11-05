@@ -21,6 +21,8 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
   of eleven with their links turned into pages or GitHub URLs (PLAN §6).
 - The wiki on SQLite, Houston's Logbook: pages public or members', revisions, a 409 with the line diff, a server-rendered preview, `.md` export,
   and the Manual brought up to the binary's at each boot. `web.set_private`, `web.respond_attachment`.
+- The history cache, opt-in per page: `hx-history="false"` is on every `<main>` unless a page calls `web.keep_in_history`, and only public wiki
+  pages do. Sign-out and a revoke clear the snapshots. hx-head and preload reach Main on `lab` and `full`, and a wiki page has its own canonical URL.
 - `markdown.plain`, and a `link` hook on the renderer's options.
 - The weekly `chat.optimize` job on chat's FTS index (§11.8), which was planned and never built.
 

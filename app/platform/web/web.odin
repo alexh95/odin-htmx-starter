@@ -32,7 +32,7 @@ Handler :: #type proc(req: ^Request, res: ^Response)
 Route_Flag :: enum u8 {
 	Step_Up,       // a recent password or TOTP check (M4)
 	Lan_Only,      // 404 unless the client is in LAN_CIDRS
-	Private,       // no-store, noindex, hx-history="false"
+	Private,       // no-store, noindex
 	Fragment,      // bare HTML to swap into a page: kept out of robots.txt's crawl
 	Stream,        // SSE, WS, multipart: no buffering by a proxy (M2)
 	Frame_Games,   // frame-src for the games origin (M10)
@@ -107,6 +107,8 @@ Req_Ctx :: struct {
 	parsed: bool,
 	impl:     string, // "chat.transport=sse": sent as x-impl and logged
 	private:  bool,   // set_private: this response is as a .Private row's
+	history_cache: bool, // keep_in_history: this page may be snapshotted
+	canonical: string,   // set_canonical: this page's path, when the nav item it's under isn't it
 	deferred: bool,   // the handler deferred its response: its continuation logs it
 	large:    bool,   // holds a large body's count until it's read
 	allow:    []string, // no route: the methods that would answer (405)
@@ -140,6 +142,17 @@ set_private :: proc(res: ^Response) {
 	http.headers_set_unsafe(&res.headers, "cache-control", "no-store")
 	http.headers_set_unsafe(&res.headers, "x-robots-tag", "noindex, nofollow")
 	if tl_ctx != nil { tl_ctx.private = true }
+}
+
+// A page under a nav item is its own page to a crawler. Before it renders.
+set_canonical :: proc(path: string) {
+	if tl_ctx != nil { tl_ctx.canonical = path }
+}
+
+// This page holds nothing that should outlast the tab's sign-in, so hx-history-cache may snapshot it:
+// its opt-in, since a snapshot is page HTML in sessionStorage (§12). Before it renders.
+keep_in_history :: proc() {
+	if tl_ctx != nil { tl_ctx.history_cache = true }
 }
 
 // The route id a row is counted and logged under.

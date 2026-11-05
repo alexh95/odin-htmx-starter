@@ -68,8 +68,7 @@ Home_Card :: #type proc(b: ^strings.Builder, v: authz.Viewer)
 // the asset hrefs, and the page's own text. A page on a bundle other than Main
 // (the lab's scripting and compat pages) links out with full navigations, since a
 // boosted swap keeps the old document's CSP and scripts (§12.1; boosting into one
-// is web.render_page's to refuse); `nonce` is set on a `.Nonce_Csp` route,
-// `private` on a `.Private` one (§12.2).
+// is web.render_page's to refuse); `nonce` is set on a `.Nonce_Csp` route (§12.2).
 Page :: struct {
 	brand:                      ^Brand,
 	origin:                     string,
@@ -79,7 +78,8 @@ Page :: struct {
 	title, active, description: string,
 	bundle:                     ext.Bundle,
 	nonce:                      string,
-	private:                    bool,
+	history_cache:              bool, // this page may be kept in sessionStorage (§12): its own opt-in
+	canonical:                  string, // a path, when it isn't `active`: a page under a nav item
 	live:                       string, // the page's one SSE stream, #live (§9.1): the hub's markup, or ""
 	kept_style, kept_scheme:    string, // a member's kept theme: rendered, and the pre-paint leaves it alone
 	theme_href:                 string, // where the picker posts a member's choice; "" = localStorage only
@@ -293,6 +293,7 @@ layout :: proc(p: Page, content: string) -> string {
 	w(&b, `">
 <meta property="og:description" content="`)
 	esc(&b, p.description)
+	canonical := p.canonical if p.canonical != "" else p.active
 	// canonical and og:url must be absolute, so they carry the origin. The origin
 	// and `active` are developer constants (brand.odin, SITE_URL and the nav table),
 	// never user input, so they go in raw: url_encode would mangle the scheme.
@@ -302,7 +303,7 @@ layout :: proc(p: Page, content: string) -> string {
 	w(&b, `">
 <meta property="og:url" content="`)
 	w(&b, p.origin)
-	w(&b, p.active)
+	esc(&b, canonical)
 	w(&b, `">
 <meta property="og:image" content="`)
 	w(&b, p.origin)
@@ -311,7 +312,7 @@ layout :: proc(p: Page, content: string) -> string {
 <meta name="twitter:card" content="summary_large_image">
 <link rel="canonical" href="`)
 	w(&b, p.origin)
-	w(&b, p.active)
+	esc(&b, canonical)
 	w(&b, `">
 <link rel="icon" href="/favicon.ico" sizes="32x32">
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
@@ -374,8 +375,6 @@ layout :: proc(p: Page, content: string) -> string {
 </script>
 </head>
 <body`)
-	// .Private: htmx's history snapshot (hx-history-cache) keeps no copy (§12.2).
-	if p.private { w(&b, ` hx-history="false"`) }
 	w(&b, `>
 <header class="topbar">`)
 	// hx-boost turns the brand and nav links into body swaps that push history:
@@ -427,7 +426,12 @@ layout :: proc(p: Page, content: string) -> string {
 	theme_picker(&b)
 	w(&b, `
 </header>
-<main class="container">`)
+<main class="container"`)
+	// htmx's history snapshot writes page HTML to sessionStorage, and asks the document for this mark as
+	// it saves. So it's on every page but one that opts in, and on <main>: a boost replaces the body's
+	// children, and a mark on <body> would stay behind or never arrive (§12).
+	if !p.history_cache { w(&b, ` hx-history="false"`) }
+	w(&b, `>`)
 	w(&b, content)
 	w(&b, `</main>
 `)
@@ -446,7 +450,6 @@ layout :: proc(p: Page, content: string) -> string {
 	return strings.to_string(b)
 }
 
-@(private = "file")
 BOOST :: ` hx-boost="true" hx-swap="innerHTML transition:true"`
 
 // ` nonce="…"` on a script tag of a `.Nonce_Csp` page, whose CSP admits scripts by

@@ -18,11 +18,23 @@
 // a moment, and a page that has started leaving meanwhile goes where it was going.
 // Leaving is a moment, not a state: a beforeunload with no unload after it (an attachment, a
 // page back from the bfcache) mustn't leave the page deaf to a later kick (M5-21).
+// A snapshot of a public page still holds the member's header, so it goes with their session (§12).
+function dropSnapshots() {
+  try {
+    Object.keys(sessionStorage).forEach(function (k) {
+      if (k.indexOf("htmx-history-") === 0) sessionStorage.removeItem(k);
+    });
+  } catch (_) { /* no storage here */ }
+}
+document.addEventListener("submit", function (e) {
+  if (e.target.matches && e.target.matches('[hx-post="/logout"]')) dropSnapshots();
+});
 var leftAt = 0;
 addEventListener("beforeunload", function () { leftAt = Date.now(); });
 addEventListener("pageshow", function () { leftAt = 0; });
 document.addEventListener("kicked", function (e) {
   var live = e.target && e.target.closest ? e.target.closest("[data-revoke]") : null;
+  if (live) dropSnapshots();
   if (live) setTimeout(function () { if (Date.now() - leftAt > 2000) location.assign(live.dataset.revoke); }, 500);
 });
 // `gone`: a member out of one room (a kick, a leave) keeps their session, so the page goes where the

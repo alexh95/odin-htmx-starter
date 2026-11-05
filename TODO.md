@@ -97,11 +97,14 @@ Alex's answer on what an anonymous poll stores.
       page refusing an edit, the 409 spec, the XSS suite over a page and a title, `rbac.spec`'s rows, both suites on `full`.
       Done (2026-11-05): a save runs on the query pool, which renders it, and writes under `write_now`, so a conflict is a plain answer. After a
       409 the form holds the newer revision, so a second Save is deliberate. There's no way to delete a page: PLAN has none.
-- [ ] **4. History cache, preload, head** (§12, 04 §5.10): the extensions enter Main, and so reach every page of a build. The cache is
+- [x] **4. History cache, preload, head** (§12, 04 §5.10): the extensions enter Main, and so reach every page of a build. The cache is
       opt-in: the layout writes `hx-history="false"` inside the swapped content on every page, and only a public wiki page leaves it off (the
       attribute on `<body>` can't work: a boost drops it, and a hard load leaves it for the tab's life). A per-response private switch for a
       members' page. *Check, spec first:* boost public to `.Private` and away, no `htmx-history-*` key; `.Private` to public and back, zero
       hits; a guest's back/forward with zero server hits; a members' page and `/find` leaving nothing; sign-out clearing `htmx-history-*`.
+      Done (2026-11-05): `web.keep_in_history`, `web.set_private`, `web.set_canonical`. The index opts in for a guest only, since a member's lists
+      members' titles. A revoke clears snapshots too. A body's own links are in `hx-ignore`, so they load in full; the gate is over boosted ones.
+      `/find`'s spec is slice 6's.
 - [ ] **5. The markdown campaign** (§19.1.3, D44): `platform/fuzz` over `render` at a campaign's scale under ASan on Linux, and in the
       nightly; depth cap, input cap and the output's invariants (no raw tag, no unsafe href). *Check:* 0 crashes, the rounds and seed recorded.
 - [ ] **6. Find** (§6, D6, D16): `/find`, `FIND_SOURCES`, each source's own perm before its `search`; on the query pool; 10 per second

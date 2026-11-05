@@ -14,7 +14,7 @@ import wiki ".."
 import m "../models"
 import wiki_views "../views"
 
-EXTS :: web.Exts{.Download}
+EXTS :: web.Exts{.Download, .History_Cache, .Head, .Preload}
 
 // Everyone holds Wiki_Read, and a host with no identity serves the Manual, so the read rows are public and
 // a members' page is refused by the domain.
@@ -78,6 +78,7 @@ index :: proc(req: ^web.Request, res: ^web.Response) {
 		return
 	}
 	web.impl(res, "wiki.store", wiki.IMPL)
+	if web.viewer(req).id == 0 { web.keep_in_history() } // a member's lists their pages' titles
 	web.render_page(req, res, copy.name, "/wiki", copy.description, wiki_views.index(copy.name, pages[:], may_edit(req)))
 }
 
@@ -89,8 +90,9 @@ page :: proc(req: ^web.Request, res: ^web.Response) {
 		web.respond_store_error(req, res, err)
 		return
 	}
-	if p.visibility == .Members { web.set_private(res) }
-	web.render_page(req, res, p.title, "/wiki", copy.description, wiki_views.page(copy.name, p, may_edit(req)))
+	if p.visibility == .Members { web.set_private(res) } else { web.keep_in_history() }
+	web.set_canonical(strings.concatenate({"/wiki/", p.slug}, context.temp_allocator))
+	web.render_page(req, res, p.title, "/wiki", wiki.summary(p), wiki_views.page(copy.name, p, may_edit(req)))
 }
 
 @(private)

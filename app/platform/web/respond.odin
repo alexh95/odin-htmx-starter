@@ -133,7 +133,7 @@ page_html :: proc(title, active, description, content: string, bundle := Bundle.
 		css = assets.css_href, htmx = assets.bundle_href[bundle], js = assets.js_href,
 		hs = "" if tt else assets.hs_href, behaviours = "" if tt else assets.behaviours_href,
 		title = title, active = active, description = description,
-		bundle = bundle, nonce = c.nonce, private = c.private || (c.route != nil && .Private in c.route.flags),
+		bundle = bundle, nonce = c.nonce, canonical = c.canonical, history_cache = c.history_cache && !c.private && (c.route == nil || .Private not_in c.route.flags),
 		live = live_proc(live) if live_proc != nil else "",
 		kept_style = c.viewer.style, kept_scheme = c.viewer.scheme,
 		theme_href = authz.theme_href if c.viewer.id != 0 else "",
