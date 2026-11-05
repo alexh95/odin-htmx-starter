@@ -64,7 +64,7 @@ ROUTES := [?]app.Mount {
 
 // Mounted by main with hub.mount("main", ..TOPICS[:]).
 TOPICS := [?][]hub.Topic {
-	lists_web.TOPICS[:], // lists.list: a column changed
+	lists_web.TOPICS[:], // a list: a column changed
 	identity.TOPICS[:], // the identity's member topics: what a revoke ends
 	chat_web.TOPICS[:],   // chat.room, chat.presence, chat.typing
 	notify_web.TOPICS[:], // notify.user
