@@ -154,17 +154,17 @@ save :: proc(req: ^web.Request, res: ^web.Response, slug: string) {
 		web.respond_limited(res, retry, "Too many saves: wait a moment.")
 		return
 	}
-	if slug == "" {
-		if ok, retry := web.limit_hit(&creates, v.id); !ok {
-			web.respond_limited(res, retry, "Too many new pages: try again later.")
-			return
-		}
-	}
 	f := web.form(req)
 	title, md := f["title"], f["md"]
 	if problem := wiki.check(title, md, slug == ""); problem != "" {
 		web.respond_html(res, html.field_msg(false, problem), .Unprocessable_Content)
 		return
+	}
+	if slug == "" {
+		if ok, retry := web.limit_hit(&creates, v.id); !ok {
+			web.respond_limited(res, retry, "Too many new pages: try again later.")
+			return
+		}
 	}
 	base: i64
 	if slug != "" { base, _ = strconv.parse_i64(f["rev"], 10) } // a new page has none, whatever's sent

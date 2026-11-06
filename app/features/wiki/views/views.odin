@@ -74,7 +74,7 @@ editor :: proc(name: string, p: m.Page) -> string {
 		w(&b, `/`)
 		esc(&b, p.slug)
 	}
-	w(&b, `" hx-swap="none" hx-status:409="target:#wiki-conflict swap:innerHTML" hx-status:422="target:#wiki-error swap:innerHTML">`)
+	w(&b, `" hx-swap="none" hx-status:409="target:#wiki-conflict swap:innerHTML" hx-status:422="target:#wiki-error swap:innerHTML" hx-status:429="target:#wiki-error swap:innerHTML">`)
 	rev_input(&b, p.rev, false)
 	fmt.sbprintf(&b, `<label>Title <input id="wiki-title" name="title" required maxlength="%d" value="`, wiki.MAX_TITLE)
 	esc(&b, p.title)
