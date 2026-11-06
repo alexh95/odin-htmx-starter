@@ -119,6 +119,11 @@ test.describe('writing the wiki', T, () => {
     const post = (title: string) => ann.page.request.post('/wiki', { form: { title, md: 'x', visibility: 'members' }, maxRedirects: 0 });
     for (let i = 0; i < 19; i++) expect((await post(uid('Page '))).status()).toBeLessThan(400);
     expect((await post(uid('Page '))).status()).toBe(429);
+    await ann.page.goto('/wiki/new');
+    await ann.page.locator('#wiki-title').fill(uid('Page '));
+    await ann.page.locator('#wiki-md').fill('x');
+    await ann.page.getByRole('button', { name: 'Save' }).click();
+    await expect(ann.page.locator('#wiki-error')).toContainText('Too many new pages');
     await ann.page.goto(`${href}/edit`);
     await ann.page.locator('#wiki-md').fill('two');
     await ann.page.getByRole('button', { name: 'Save' }).click();

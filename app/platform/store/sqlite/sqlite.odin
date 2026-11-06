@@ -291,7 +291,8 @@ pull_reset :: proc(r: ^Conn) {
 // A pool's or a job's thread has no timer, and may sit idle after a crash with a read left open.
 @(private)
 pool_crashed :: proc() {
-	if tl_reader != nil && tl_generation == db.generation { pull_reset(tl_reader) }
+	// A job can trap after the store closed, and its reader went with it.
+	if db.is_open && tl_reader != nil && tl_generation == db.generation { pull_reset(tl_reader) }
 }
 
 // A crash skips handler_ended, so the crashed handler's transaction goes too: left
