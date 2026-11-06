@@ -255,6 +255,8 @@ compose :: proc(s: Selection) -> Profile_Text {
 		if d == nil || ft == nil { continue }
 		for m in d.mounts {
 			if m.key != f || m.root { continue }
+			// The wiki's writing wants someone to write and a store that can (features/wiki/README.md).
+			if strings.contains(m.text, "wiki_web.EDIT_ROUTES") && (s.members[.Identity] == "anonymous" || !sqlite) { continue }
 			append(&mounts, m.text)
 			take_imports(&rimports, d, m.text)
 		}
@@ -511,11 +513,35 @@ platform_import :: proc(name: string) -> string {
 	return ""
 }
 
+// `text` with its comments and its literals' insides out: a comment's `chat.room` isn't a use of chat, and
+// a line or a whole decl can hold a `//` in a URL.
+code_of :: proc(text: string) -> string {
+	b := strings.builder_make(context.temp_allocator)
+	quote: u8
+	for i := 0; i < len(text); i += 1 {
+		c := text[i]
+		switch {
+		case quote == '"' && c == '\\':
+			i += 1
+		case quote != 0:
+			if c == quote { quote = 0 }
+		case c == '"' || c == '`':
+			quote = c
+		case c == '/' && i + 1 < len(text) && text[i + 1] == '/':
+			for i + 1 < len(text) && text[i + 1] != '\n' { i += 1 }
+		case:
+			strings.write_byte(&b, c)
+		}
+	}
+	return strings.to_string(b)
+}
+
 // The donor's import lines for every package alias the text uses (`alias.` as a word).
 take_imports :: proc(into: ^[dynamic]string, d: ^Profile, text: string) {
+	code := code_of(text)
 	for alias, line in d.imports {
-		if platform_import(alias) != "" || !mentions(text, alias) { continue }
-		if !strings.contains(text, strings.concatenate({alias, "."}, context.temp_allocator)) { continue }
+		if platform_import(alias) != "" || !mentions(code, alias) { continue }
+		if !strings.contains(code, strings.concatenate({alias, "."}, context.temp_allocator)) { continue }
 		if !slice.contains(into[:], line) { append(into, line) }
 	}
 }

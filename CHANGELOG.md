@@ -34,6 +34,10 @@ new pages are limited per member until there's a way back. The markdown fuzz ran
 
 ### Fixed
 
+- `robots.txt` no longer hides a page anyone may read: `POST /wiki` wrote `Disallow: /wiki`, over the wiki and everything under it. Houston's
+  had the line too. The spec read only the host on 127.0.0.1, so it now reads both.
+- `init`: a comment or a string naming a package no longer imports it, and the wiki's writing is mounted only where there's an identity and
+  SQLite. A selection with `find`, or the wiki with neither, wouldn't build or boot.
 - New wiki pages are limited to 20 an hour per member, since the 5,000-page cap is shared and no route deletes a page. `/polls` lists open polls first.
   A job that crashes mid-read lets go of it at once, as a pool thread does, and the hook that does it is guarded. The nav's focus outline stays inside the scrolling bar.
 - An anonymous poll says what its promise covers: one copy of the file can't pair a voter with an option, a series of backups can, the site keeps

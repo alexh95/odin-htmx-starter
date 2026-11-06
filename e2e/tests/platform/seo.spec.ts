@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test, expect, has, DASHBOARD } from '../../fixtures';
-import { TWO_HOSTS } from '../../helpers/server';
+import { mainOrigin, TWO_HOSTS } from '../../helpers/server';
 import { appDirFrom, PROFILE } from '../../global-setup';
 
 // The crawler-facing contract. None of this is visible in the UI, so it can rot
@@ -70,13 +70,26 @@ test.describe('SEO contract', { tag: '@platform' }, () => {
 
   // A Disallow is a prefix: a fragment family collapsed to its first segment
   // ("/lab/") would hide the pages beside it ("/lab/streams").
-  test('robots.txt disallows no page the sitemap lists', async ({ request }) => {
-    const robots = await (await request.get('/robots.txt')).text();
-    const disallowed = [...robots.matchAll(/^Disallow: (\S+)$/gm)].map((m) => m[1]);
-    const sitemap = await (await request.get('/sitemap.xml')).text();
-    for (const [, loc] of sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)) {
-      const path = new URL(loc).pathname;
-      for (const d of disallowed) expect(path.startsWith(d), `${path} under Disallow: ${d}`).toBe(false);
+  // Each host has its own, and `request` reaches only the one on 127.0.0.1: full's Houston is the other.
+  const origins = (port: number) => (TWO_HOSTS ? ['', mainOrigin(port)] : ['']);
+  const disallowed = async (request: any, origin: string) =>
+    [...(await (await request.get(`${origin}/robots.txt`)).text()).matchAll(/^Disallow: (\S+)$/gm)].map((m) => m[1]);
+
+  test('robots.txt disallows no page the sitemap lists', async ({ request, server }) => {
+    for (const origin of origins(server.port)) {
+      const lines = await disallowed(request, origin);
+      const sitemap = await (await request.get(`${origin}/sitemap.xml`)).text();
+      for (const [, loc] of sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)) {
+        const path = new URL(loc).pathname;
+        for (const d of lines) expect(path.startsWith(d), `${path} under Disallow: ${d}`).toBe(false);
+      }
+    }
+  });
+
+  // A Disallow hides every path under it, so the wiki's write rows mustn't reach the pages it serves.
+  test('robots.txt leaves the wiki readable', { tag: '@wiki' }, async ({ request, server }) => {
+    for (const origin of origins(server.port)) {
+      for (const d of await disallowed(request, origin)) expect('/wiki/some-page'.startsWith(d), `Disallow: ${d}`).toBe(false);
     }
   });
 

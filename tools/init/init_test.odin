@@ -54,3 +54,19 @@ committed_profiles_compose_again :: proc(t: ^testing.T) {
 	testing.expect(t, len(problems) > 0)
 	clear(&problems)
 }
+
+// A job row's comment named chat's job and pulled in an import nothing used; a copy's URL must not hide what follows it.
+@(test)
+imports_follow_the_code :: proc(t: ^testing.T) {
+	d: Profile
+	d.imports = make(map[string]string, context.temp_allocator)
+	d.imports["chat"] = "import \"../../features/chat\""
+	d.imports["about_web"] = "import about_web \"../../features/about/web\""
+	got := make([dynamic]string, context.temp_allocator)
+	take_imports(&got, &d, "\tchat_web.JOBS[:], // chat.presence: away after the debounce")
+	testing.expect_value(t, len(got), 0)
+	take_imports(&got, &d, "\tchat_web.TOPICS[:], \"chat.room\",")
+	testing.expect_value(t, len(got), 0)
+	take_imports(&got, &d, "X := T{\n\tsite = \"https://example.com\",\n\tname = `a // b`,\n\tabout = about_web.Copy{},\n}")
+	testing.expect_value(t, len(got), 1)
+}

@@ -200,10 +200,13 @@ robots_txt :: proc(req: ^Request, res: ^Response) {
 // dropping one another line already covers ("/contacts/" under "/contacts"), and
 // collapsing a family of rows under one first segment to it ("/ui/modal",
 // "/ui/drawer", … → "/ui/"), unless a page lives under that segment too
-// ("/lab/streams" beside "/lab/feed"). In mount order, each once.
+// ("/lab/streams" beside "/lab/feed"). In mount order, each once. A Disallow is a
+// prefix, so a row over a page anyone may read and index gets no line: POST /wiki
+// mustn't hide GET /wiki, or the pages under it.
 robots_for :: proc(site: ^Site, allocator := context.allocator) -> string {
 	lits := make([dynamic]string, context.temp_allocator)
 	pages := make([dynamic]string, context.temp_allocator)
+	public := make([dynamic]string, context.temp_allocator)
 	for m in site.router.rows {
 		lit := m.pattern
 		if i := strings.index_any(m.pattern, MAGIC); i >= 0 { lit = m.pattern[:i] }
@@ -211,6 +214,15 @@ robots_for :: proc(site: ^Site, allocator := context.allocator) -> string {
 			append(&lits, lit)
 		} else if m.method == .Get {
 			append(&pages, lit)
+			if m.perm == .Public && .Private not_in m.flags { append(&public, lit) }
+		}
+	}
+	#reverse for l, i in lits {
+		for p in public {
+			if strings.has_prefix(p, l) {
+				ordered_remove(&lits, i)
+				break
+			}
 		}
 	}
 	covered :: proc(lits: []string, l: string) -> bool {
