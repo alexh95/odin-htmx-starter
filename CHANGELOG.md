@@ -8,6 +8,21 @@ track [Conventional Commits](https://www.conventionalcommits.org): `feat`→Adde
 
 ## [Unreleased]
 
+## [2.7.0] - 2026-11-06
+
+The starter's eighth milestone, M8: Plan. Houston gets what a house plans with. The wiki at `/wiki`, with the starter's own docs seeded
+read-only, history, and a save that answers with the diff when someone got there first. `/find` and its Ctrl-K palette, which search chat,
+the wiki and lists, each by its own rules. Shared lists with a board, moved by mouse or by buttons. And Go/No-go polls, named or anonymous.
+
+An anonymous poll keeps counters and who has voted, in tables one copy of the file can't pair, and a vote is final. A series of copies can
+pair them, and so can anyone holding the data volume; the poll says so. Search is fast because of how the index is built: `prefix = '2 3'` took a common word from
+33 ms to 0.095 ms at 100k messages, and every search a member can send is under 0.5 ms (`docs/perf/FIND-BUDGETS.md`). The first promote
+runs `0010_fts_prefix.sql`, which rebuilds chat's index once, at 355 ms per 100k messages.
+
+A security audit by an agent that didn't write the code, with a re-read of its fixes, closes with 0 CRITICAL and 0 HIGH (`docs/audit/M8.md`).
+No path was found to a private room, a removed member's rooms, or a members' page. One MEDIUM is open: the wiki's 5,000 pages are shared and no route deletes one, so
+new pages are limited per member until there's a way back. The markdown fuzz ran 10 million rounds under ASan with 0 crashes.
+
 ### Changed
 
 - Chat's search runs on the query pool (M6-13) through `web.Scan`, in the index's own order rather than sorting every match, and shows a

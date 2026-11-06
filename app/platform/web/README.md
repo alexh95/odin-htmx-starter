@@ -27,4 +27,4 @@ The platform's rows, mounted as `"platform"` by every profile (D9, PLAN §6.3):
 | `/licenses` | the notices of what the binary contains |
 | `/__test` | the crash drills and `/__test/shutdown`, in a `-define:TEST_ROUTES=true` build only (PLAN §19.1.10); a release build answers 404 |
 
-Audited: cf7f42b 2026-10-31 docs/audit/M5.md (its M5 diff); d136601 2026-10-30 docs/audit/M4.md (its M4 diff); 5c5ebf2 2026-10-27 docs/audit/M2.md
+Audited: cf7f42b 2026-10-31 docs/audit/M5.md (its M5 diff); d136601 2026-10-30 docs/audit/M4.md (its M4 diff); 5c5ebf2 2026-10-27 docs/audit/M2.md; 4f81819 2026-11-05 docs/audit/M8.md (`scan.odin` and its M8 diff)

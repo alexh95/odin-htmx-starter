@@ -21,3 +21,5 @@ one voter, or where everyone agrees, the bars show how people voted; someone wat
 anyone who compares backups from before and after can tell. Whoever changes the server's code could log votes from then on. SQLite's WAL
 holds a vote's two pages side by side until later writes overwrite them, which can be days on a quiet house, and a checkpoint doesn't
 erase them.
+
+Audited: 4f81819 2026-11-05 docs/audit/M8.md (M8-01 decided by planning, Alex told: the promise covers one copy of the file)

@@ -7,3 +7,5 @@ A save runs on the query pool: it renders there, then writes under `write_now`. 
 
 The Manual is an explicit list in `wiki.odin`: a new doc needs a line there, in `.dockerignore` and in the Dockerfile. Each must fit
 `markdown.MAX_INPUT` (64 KiB) and hold nothing private. PLAN and DECISIONS don't fit, so the docs link to them on GitHub.
+
+Audited: 4f81819 2026-11-05 docs/audit/M8.md

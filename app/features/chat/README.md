@@ -97,4 +97,4 @@ members' names per process, and 256 read cursors a room.
 
 It owns `/chat`, its own prefix.
 
-Audited: c490e2a 2026-10-30 docs/audit/M3.md; 771e5ef 2026-11-04 docs/audit/M6.md; 88f9222 2026-11-05 docs/audit/M7.md
+Audited: c490e2a 2026-10-30 docs/audit/M3.md; 771e5ef 2026-11-04 docs/audit/M6.md; 88f9222 2026-11-05 docs/audit/M7.md; 4f81819 2026-11-05 docs/audit/M8.md (its search paths)

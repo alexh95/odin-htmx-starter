@@ -5,3 +5,5 @@ column closes, and done means being in it. Columns come from the template, with 
 `lists.list:<id>` (`.Latest` per column) which columns changed, and each page fetches them: a whole column can pass the hub's 64 KiB. Moves
 are buttons in forms; dragging posts the same form. Packages: `lists`, `models`, `views`, `web`, `storetest`. SQLite only. It owns `/lists`,
 its own prefix.
+
+Audited: 4f81819 2026-11-05 docs/audit/M8.md

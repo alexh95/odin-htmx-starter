@@ -6,3 +6,5 @@ with a `contains_ci` scan (§11.8). Hits stay grouped by source. `/find` is `.Pr
 history-cached. Packages: `find`, `models`, `views`, `web`. No store. It owns `/find`, its own prefix.
 
 A member's `/bot` conversations are no source: they are their owner's alone (Q20).
+
+Audited: 4f81819 2026-11-05 docs/audit/M8.md
