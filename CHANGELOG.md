@@ -38,6 +38,9 @@ new pages are limited per member until there's a way back. The markdown fuzz ran
   had the line too. The spec read only the host on 127.0.0.1, so it now reads both.
 - The nightly's fuzz job fits its time again: markdown's render fuzz stops at `FUZZ_MINUTES` (25) and logs how many of its
   5,000,000 rounds it ran, and the job has 45 minutes. It had been cancelled at 30 since M8 added it, so it proved nothing.
+- markdown's linear-time test checks how a wall's time grows (64 KiB against 16 KiB) when the clock alone is over its 200 ms: under
+  ASan, beside the fuzz, a slow runner put a linear `<` at 250 ms. Every selection's specs are tagged with each page they walk
+  through, so a random one without `about` no longer runs find's.
 - `init`: a comment or a string naming a package no longer imports it, and the wiki's writing is mounted only where there's an identity and
   SQLite. A selection with `find`, or the wiki with neither, wouldn't build or boot.
 - New wiki pages are limited to 20 an hour per member, since the 5,000-page cap is shared and no route deletes a page. `/polls` lists open polls first.

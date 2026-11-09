@@ -156,16 +156,30 @@ caps_hold :: proc(t: ^testing.T) {
 }
 
 // A model's text can be 64 KiB of anything, rendered on a loop on every page of the conversation
-// (M7-07): no delimiter may cost a scan of the rest at each one.
+// (M7-07): no delimiter may cost a scan of the rest at each one. A wall that isn't quick outright
+// must at least grow as its length: four times the text, four times the time, where a scan at each
+// delimiter would take sixteen. The ratio holds on a slow runner under ASan beside the fuzz, where
+// the clock alone didn't (a4c0b5a's nightly: "<" in 250 ms, and in 22 ms here without ASan).
 @(test)
 a_wall_of_delimiters_stays_linear :: proc(t: ^testing.T) {
 	defer free_all(context.temp_allocator)
 	for d in ([]string{"[", "![", "<", "*", "_", "~", "`", "](", "**", "[a](", "\\", ">"}) {
-		wall := strings.repeat(d, 64 * 1024 / len(d), context.temp_allocator)
+		small, large := wall_time(d, 16 * 1024), wall_time(d, 64 * 1024)
+		ratio := f64(large) / max(f64(small), 1)
+		testing.expectf(t, large < 200 * time.Millisecond || ratio <= 8, "%q took %v, %.1fx its quarter's %v", d, large, ratio, small)
+	}
+}
+
+// The best of three, so a stall elsewhere in the process isn't the wall's.
+@(private = "file")
+wall_time :: proc(d: string, size: int) -> time.Duration {
+	wall := strings.repeat(d, size / len(d), context.temp_allocator)
+	best := max(time.Duration)
+	for _ in 0 ..< 3 {
 		b := strings.builder_make(context.temp_allocator)
 		began := time.tick_now()
 		render(&b, wall)
-		took := time.tick_since(began)
-		testing.expectf(t, took < 200 * time.Millisecond, "%q took %v", d, took)
+		best = min(best, time.tick_since(began))
 	}
+	return best
 }
