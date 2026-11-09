@@ -66,9 +66,12 @@ jobs:
   fuzz:
     name: Parsers on random input (ASan, Linux)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # The rest take about 4 min at fifty times; markdown's render fuzz costs ~1 ms a round under ASan, so its 5M
+    # rounds would take over an hour: it stops at FUZZ_MINUTES and logs how many it ran.
+    timeout-minutes: 45
     env:
       FUZZ_SCALE: '50'
+      FUZZ_MINUTES: '25'
       FUZZ_SEED: ${{ github.run_id }}
       ASAN_OPTIONS: detect_leaks=0:halt_on_error=1:use_sigaltstack=0
     steps:
@@ -80,7 +83,7 @@ jobs:
         run: sudo sysctl -w vm.mmap_rnd_bits=28
       - name: The fuzzed packages
         run: |
-          echo "FUZZ_SEED=$FUZZ_SEED FUZZ_SCALE=$FUZZ_SCALE"
+          echo "FUZZ_SEED=$FUZZ_SEED FUZZ_SCALE=$FUZZ_SCALE FUZZ_MINUTES=$FUZZ_MINUTES"
           mkdir -p app/bin
           for d in tools/fakellama/suite app/platform/signed app/platform/escape app/platform/totp app/platform/password app/platform/stream app/platform/markdown app/features/uploads; do
             echo "== $d"

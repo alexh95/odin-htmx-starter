@@ -36,6 +36,8 @@ new pages are limited per member until there's a way back. The markdown fuzz ran
 
 - `robots.txt` no longer hides a page anyone may read: `POST /wiki` wrote `Disallow: /wiki`, over the wiki and everything under it. Houston's
   had the line too. The spec read only the host on 127.0.0.1, so it now reads both.
+- The nightly's fuzz job fits its time again: markdown's render fuzz stops at `FUZZ_MINUTES` (25) and logs how many of its
+  5,000,000 rounds it ran, and the job has 45 minutes. It had been cancelled at 30 since M8 added it, so it proved nothing.
 - `init`: a comment or a string naming a package no longer imports it, and the wiki's writing is mounted only where there's an identity and
   SQLite. A selection with `find`, or the wiki with neither, wouldn't build or boot.
 - New wiki pages are limited to 20 an hour per member, since the 5,000-page cap is shared and no route deletes a page. `/polls` lists open polls first.

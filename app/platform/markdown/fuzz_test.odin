@@ -77,7 +77,14 @@ inspect :: proc(out: string) -> string {
 any_text_renders_to_markup_it_means :: proc(t: ^testing.T) {
 	d := fuzz.seed(0xC0FFEE_0D1E)
 	buf: [2048]byte
-	for i in 0 ..< fuzz.rounds(100_000) {
+	// About a millisecond a round under ASan: the nightly's fifty times over is more than its job, so it's
+	// held to FUZZ_MINUTES.
+	b := fuzz.budget()
+	n := fuzz.rounds(100_000)
+	ran := 0
+	for i in 0 ..< n {
+		if fuzz.spent(b) { break }
+		ran += 1
 		src := string(fuzz.draw(&d, buf[:], ALPHABET))
 		b := strings.builder_make(context.temp_allocator)
 		_, ok := render(&b, src, {doc_prefix = "/wiki/"})
@@ -89,6 +96,7 @@ any_text_renders_to_markup_it_means :: proc(t: ^testing.T) {
 		_ = plain(src)
 		free_all(context.temp_allocator)
 	}
+	fmt.printfln("markdown: %d of %d rounds of the render fuzz", ran, n)
 }
 
 // Past the cap's worth of what a nested or scanning renderer dies of, each from the first byte. A shape is

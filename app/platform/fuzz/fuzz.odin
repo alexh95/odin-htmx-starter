@@ -12,6 +12,7 @@ package fuzz
 import "base:runtime"
 import "core:os"
 import "core:strconv"
+import "core:time"
 
 Draw :: struct {
 	s: u64,
@@ -21,12 +22,14 @@ Draw :: struct {
 // another calls getenv crashes in libc (a segfault in the fakellama suite, one run in six on Linux).
 @(private) env_seed: u64
 @(private) env_scale: int
+@(private) env_minutes: int
 
 @(init, private)
 read_env :: proc "contextless" () {
 	context = runtime.default_context()
 	env_seed, _ = strconv.parse_u64(os.get_env("FUZZ_SEED", context.temp_allocator))
 	env_scale, _ = strconv.parse_int(os.get_env("FUZZ_SCALE", context.temp_allocator))
+	env_minutes, _ = strconv.parse_int(os.get_env("FUZZ_MINUTES", context.temp_allocator))
 	free_all(context.temp_allocator)
 }
 
@@ -39,6 +42,21 @@ seed :: proc(own: u64) -> Draw {
 // The test's own count, FUZZ_SCALE times over in the nightly.
 rounds :: proc(n: int) -> int {
 	return n * env_scale if env_scale > 1 else n
+}
+
+// A test whose rounds cost too much for its scale stops at FUZZ_MINUTES (none set: never), and says how far
+// it got: the rounds it skipped are the draw's last, so the seed still reproduces any it ran.
+Budget :: struct {
+	end: time.Tick,
+}
+
+budget :: proc() -> Budget {
+	if env_minutes <= 0 { return {} }
+	return {time.tick_add(time.tick_now(), time.Duration(env_minutes) * time.Minute)}
+}
+
+spent :: proc(b: Budget) -> bool {
+	return b.end != {} && time.tick_diff(time.tick_now(), b.end) <= 0
 }
 
 next :: proc(d: ^Draw) -> u64 {
