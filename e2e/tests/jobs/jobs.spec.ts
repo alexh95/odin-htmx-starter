@@ -84,7 +84,7 @@ test.describe('jobs', T, () => {
     }
   });
 
-  test('the runs outlive the process', async ({ browser }) => {
+  test('the runs outlive the process', { tag: '@status' }, async ({ browser }) => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jobs-'));
     const env = { DB_PATH: path.join(dir, 'data.db') };
     let s = await startServer(test.info().config, env);

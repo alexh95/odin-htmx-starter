@@ -120,8 +120,8 @@ test.describe('find', T, () => {
     await ann.page.goto(`/find?q=${word}`);
     await expect(ann.page.locator('.find-snippet mark')).toHaveText(word);
     await expect(ann.page.locator('main')).toHaveAttribute('hx-history', 'false');
-    await ann.page.locator('.nav-link[href="/about"]').click();
-    await ann.page.waitForURL('**/about');
+    await ann.page.locator('.nav-link[href="/wiki"]').click();
+    await ann.page.waitForURL('**/wiki');
     const kept = await ann.page.evaluate(() => JSON.stringify(sessionStorage));
     expect(kept).not.toContain(word);
     await leave(ann);

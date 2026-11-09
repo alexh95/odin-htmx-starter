@@ -44,13 +44,13 @@ test.describe('the history cache', { tag: '@wiki' }, () => {
 });
 
 test.describe('nothing private is kept', T, () => {
-  test('a boost into a private page and away leaves no snapshot', async ({ browser, baseURL }) => {
+  test('a boost into a private page and away leaves no snapshot', { tag: ['@chat', '@notify'] }, async ({ browser, baseURL }) => {
     const ann = await member(browser, baseURL!);
-    await ann.page.goto('/about');
+    await ann.page.goto('/wiki/philosophy');
     await ann.page.locator('.nav-link[href="/chat"]').click();
     await ann.page.waitForURL('**/chat');
-    await ann.page.locator('.nav-link[href="/about"]').click();
-    await ann.page.waitForURL('**/about');
+    await ann.page.locator('.nav-link[href="/wiki"]').click();
+    await ann.page.waitForURL('**/wiki');
     await ann.page.locator('.nav-link[href="/notify"]').click();
     await ann.page.waitForURL('**/notify');
     await expect(ann.page.locator('main')).toHaveAttribute('hx-history', 'false');
@@ -58,7 +58,7 @@ test.describe('nothing private is kept', T, () => {
     await leave(ann);
   });
 
-  test("a guest's public page survives a private one between", async ({ page }) => {
+  test("a guest's public page survives a private one between", { tag: '@find' }, async ({ page }) => {
     await page.goto('/find');
     await page.locator('.nav-link[href="/wiki"]').click();
     await page.waitForURL('**/wiki');
@@ -78,8 +78,8 @@ test.describe('nothing private is kept', T, () => {
     const ann = await member(browser, baseURL!);
     await ann.page.goto('/wiki/philosophy');
     await expect(ann.page.locator('main')).toHaveAttribute('hx-history', 'false');
-    await ann.page.locator('.nav-link[href="/about"]').click();
-    await ann.page.waitForURL('**/about');
+    await ann.page.locator('.nav-link[href="/wiki"]').click();
+    await ann.page.waitForURL('**/wiki');
     expect(await snapshots(ann.page)).toEqual([]);
     await leave(ann);
   });
@@ -96,8 +96,8 @@ test.describe('nothing private is kept', T, () => {
     await ann.page.locator('.wiki-pages a', { hasText: title }).click();
     await ann.page.waitForURL((u) => u.pathname.startsWith('/wiki/secret'));
     await expect(ann.page.locator('main')).toHaveAttribute('hx-history', 'false');
-    await ann.page.locator('.nav-link[href="/about"]').click();
-    await ann.page.waitForURL('**/about');
+    await ann.page.locator('.nav-link[href="/wiki"]').click();
+    await ann.page.waitForURL('**/wiki');
     expect(await held(ann.page)).not.toContain(title);
     await leave(ann);
   });
@@ -113,8 +113,8 @@ test.describe('nothing private is kept', T, () => {
     const context = await browser.newContext({ baseURL });
     const page = await context.newPage();
     await page.goto('/wiki/philosophy');
-    await page.locator('.nav-link[href="/about"]').click();
-    await page.waitForURL('**/about');
+    await page.locator('.nav-link[href="/wiki"]').click();
+    await page.waitForURL('**/wiki');
     expect((await snapshots(page)).length).toBeGreaterThan(0);
     await page.goto('/register');
     await page.locator('#username').fill(uid('m'));

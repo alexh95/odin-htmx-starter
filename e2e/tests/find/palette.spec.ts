@@ -12,8 +12,8 @@ async function open(page: Page) {
 
 test.describe('the palette', { tag: ['@find', '@find-hyperscript', '@wiki'] }, () => {
   test('opens on Ctrl-K, searches, goes by keyboard, and gives focus back', async ({ page }) => {
-    await page.goto('/about');
-    await page.locator('.nav-link[href="/about"]').focus();
+    await page.goto('/wiki');
+    await page.locator('.nav-link[href="/wiki"]').focus();
     await page.keyboard.press('Control+k');
     await expect(page.locator('#palette')).toBeVisible();
     await expect(page.locator('#palette-q')).toBeFocused();
@@ -21,7 +21,7 @@ test.describe('the palette', { tag: ['@find', '@find-hyperscript', '@wiki'] }, (
     await expect(page.locator('#palette-results a[href="/wiki/philosophy"]')).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(page.locator('#palette')).toBeHidden();
-    await expect(page.locator('.nav-link[href="/about"]')).toBeFocused();
+    await expect(page.locator('.nav-link[href="/wiki"]')).toBeFocused();
     await expect(page.locator('#palette-results')).toBeEmpty();
     await expect(page.locator('#palette-q')).toHaveValue('');
 
@@ -33,22 +33,22 @@ test.describe('the palette', { tag: ['@find', '@find-hyperscript', '@wiki'] }, (
     await page.waitForURL('**/wiki/philosophy');
   });
 
-  test('goes to a page the viewer can open, by its name', async ({ page }) => {
-    await page.goto('/about');
+  test('goes to a page the viewer can open, by its name', { tag: '@status' }, async ({ page }) => {
+    await page.goto('/wiki');
     await open(page);
     await page.keyboard.type('stat');
     await expect(page.locator('#palette-results a[href="/status"]')).toBeVisible();
   });
 
   test('a click on the backdrop closes it', async ({ page }) => {
-    await page.goto('/about');
+    await page.goto('/wiki');
     await open(page);
     await page.mouse.click(4, 4);
     await expect(page.locator('#palette')).toBeHidden();
   });
 
-  test('survives a boost, and with no script it is a form', async ({ page }) => {
-    await page.goto('/about');
+  test('survives a boost, and with no script it is a form', { tag: '@status' }, async ({ page }) => {
+    await page.goto('/wiki');
     await page.locator('.nav-link[href="/status"]').click();
     await page.waitForURL('**/status');
     await expect(page.locator('.nav-link[aria-current="page"]')).toHaveAttribute('href', '/status'); // the URL leads the swap
@@ -97,8 +97,8 @@ test.describe('the palette, for a member', { tag: ['@find', '@find-hyperscript',
     await open(ann.page);
     await ann.page.keyboard.type(word);
     await expect(ann.page.locator('#palette-results')).toContainText(word);
-    await ann.page.evaluate(() => (document.querySelector('.nav-link[href="/about"]') as HTMLElement).click());
-    await ann.page.waitForURL('**/about');
+    await ann.page.evaluate(() => (document.querySelector('.nav-link[href="/wiki"]') as HTMLElement).click());
+    await ann.page.waitForURL('**/wiki');
     expect(await ann.page.evaluate(() => JSON.stringify(sessionStorage))).not.toContain(word);
     await leave(ann);
   });
@@ -106,7 +106,7 @@ test.describe('the palette, for a member', { tag: ['@find', '@find-hyperscript',
 
 test.describe('find with no behaviours', { tag: ['@find', '@find-vanilla'] }, () => {
   test('Ctrl-K does nothing, and the nav goes to a plain form', async ({ page }) => {
-    await page.goto('/about');
+    await page.goto('/find?q=nothing');
     await page.keyboard.press('Control+k');
     await expect(page.locator('#palette')).toBeHidden();
     await page.locator('.nav-link[href="/find"]').click();
